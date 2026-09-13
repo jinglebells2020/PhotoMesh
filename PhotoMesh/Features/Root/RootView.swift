@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Hosts the camera home screen, the left drawer, and every modal sheet.
 struct RootView: View {
@@ -45,6 +46,7 @@ struct RootView: View {
                     .gesture(menuCloseGesture(menuWidth: menuWidth))
                     .zIndex(3)
             }
+            .environment(\.pmSafeAreaInsets, SafeArea.resolve(from: geo.safeAreaInsets))
         }
         .sheet(item: $router.activeSheet) { route in
             sheetContent(for: route)
@@ -111,4 +113,38 @@ struct RootView: View {
 #Preview {
     RootView()
         .environment(AppRouter())
+}
+
+// MARK: - Safe area plumbing
+
+/// Device safe-area insets measured at the root, so full-bleed screens can still place
+/// controls below the status bar / Dynamic Island and above the home indicator.
+private struct PMSafeAreaInsetsKey: EnvironmentKey {
+    static let defaultValue = EdgeInsets()
+}
+
+extension EnvironmentValues {
+    var pmSafeAreaInsets: EdgeInsets {
+        get { self[PMSafeAreaInsetsKey.self] }
+        set { self[PMSafeAreaInsetsKey.self] = newValue }
+    }
+}
+
+enum SafeArea {
+    /// Uses the GeometryReader's insets, falling back to the key window when they read as zero.
+    static func resolve(from measured: EdgeInsets) -> EdgeInsets {
+        let window = windowInsets()
+        return EdgeInsets(
+            top: max(measured.top, window.top),
+            leading: max(measured.leading, window.left),
+            bottom: max(measured.bottom, window.bottom),
+            trailing: max(measured.trailing, window.right)
+        )
+    }
+
+    static func windowInsets() -> UIEdgeInsets {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let window = scenes.flatMap(\.windows).first { $0.isKeyWindow } ?? scenes.first?.windows.first
+        return window?.safeAreaInsets ?? .zero
+    }
 }

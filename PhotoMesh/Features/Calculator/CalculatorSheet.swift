@@ -50,7 +50,8 @@ struct CalculatorSheet: View {
             }
             .animation(.spring(response: 0.35, dampingFraction: 0.85), value: showsSolutionButton)
 
-            CalculatorKeyboardView(tab: $tab, isAlpha: $isAlpha, onAction: handle)
+            CalculatorKeyboardView(tab: $tab, isAlpha: $isAlpha, bottomInset: SafeArea.windowInsets().bottom, onAction: handle)
+                .ignoresSafeArea(edges: .bottom)
         }
         .background(PMTheme.keyboardBackground.ignoresSafeArea())
         .sheet(item: $solutionRequest) { request in

@@ -2,7 +2,8 @@ import SwiftUI
 
 /// Step-by-step walkthrough revealed one step at a time with "Next Step".
 struct SolvingStepsView: View {
-    let solution: Solution
+    let solution: MethodSolution
+    let question: String
 
     @State private var revealedCount = 1
     @State private var expandedIndex: Int? = 0
@@ -18,9 +19,16 @@ struct SolvingStepsView: View {
             ScrollViewReader { proxy in
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 0) {
+                        Text(solution.method.title)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(PMTheme.secondaryText)
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 8)
+
                         ForEach(Array(solution.steps.enumerated()), id: \.offset) { index, step in
                             if index < revealedCount {
                                 StepRow(
+                                    number: index + 1,
                                     step: step,
                                     isExpanded: expandedIndex == index,
                                     showsWhy: whyIndex == index,
@@ -42,13 +50,14 @@ struct SolvingStepsView: View {
                         }
 
                         if isComplete {
-                            SolutionRow(result: solution.result)
+                            SolutionRow(answers: solution.answers, headline: solution.headline)
                                 .id("solution")
                                 .transition(.move(edge: .bottom).combined(with: .opacity))
                             FeedbackRow(feedback: $feedback)
                                 .padding(.top, 26)
                         }
                     }
+                    .padding(.top, 8)
                     .padding(.bottom, 130)
                 }
                 .onChange(of: revealedCount) { _, count in
@@ -99,7 +108,7 @@ struct SolvingStepsView: View {
                         whyIndex = nil
                     }
                 } label: {
-                    Text("Next Step")
+                    Text(revealedCount == solution.steps.count ? "Show Answer" : "Next Step")
                 }
                 .buttonStyle(PMPrimaryButtonStyle())
                 .transition(.scale.combined(with: .opacity))
@@ -118,8 +127,25 @@ struct SolvingStepsView: View {
 
 // MARK: - Rows
 
+private struct EquationLines: View {
+    let lines: [String]
+    var emphasizeLast = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
+                Text(line)
+                    .font(.system(size: 15, weight: emphasizeLast && index == lines.count - 1 ? .semibold : .regular, design: .rounded))
+                    .foregroundStyle(PMTheme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
 private struct StepRow: View {
-    let step: SolutionStep
+    let number: Int
+    let step: AnalysisStep
     let isExpanded: Bool
     let showsWhy: Bool
     let onToggle: () -> Void
@@ -140,12 +166,13 @@ private struct StepRow: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(step.expression)
+                        Text("\(number). \(step.title)")
                             .font(.system(size: 17, weight: .medium))
                             .foregroundStyle(PMTheme.ink)
-                        Text(step.description)
-                            .font(.system(size: 14))
+                        Text(step.result)
+                            .font(.system(size: 14, design: .rounded))
                             .foregroundStyle(PMTheme.secondaryText)
+                            .lineLimit(2)
                     }
                     Spacer()
                     Image(systemName: "chevron.down")
@@ -165,9 +192,14 @@ private struct StepRow: View {
     private var expanded: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(alignment: .top) {
-                Text(step.expression)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(PMTheme.ink)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(number). \(step.title)")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(PMTheme.ink)
+                    Text(step.summary)
+                        .font(.system(size: 14))
+                        .foregroundStyle(PMTheme.secondaryText)
+                }
                 Spacer()
                 Button(action: onToggle) {
                     Image(systemName: "xmark")
@@ -178,6 +210,12 @@ private struct StepRow: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Collapse step")
+            }
+
+            if !step.equations.isEmpty {
+                EquationLines(lines: step.equations, emphasizeLast: step.equations.count > 1)
+                    .padding(.top, 14)
+                    .padding(.leading, 12)
             }
 
             HStack(alignment: .top, spacing: 12) {
@@ -200,11 +238,11 @@ private struct StepRow: View {
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.top, 8)
+            .padding(.top, 14)
             .padding(.leading, 12)
 
             if showsWhy {
-                Text(step.description)
+                Text(whyText)
                     .font(.system(size: 13))
                     .foregroundStyle(PMTheme.ink)
                     .padding(10)
@@ -216,8 +254,9 @@ private struct StepRow: View {
 
             HStack(alignment: .bottom) {
                 Text(step.result)
-                    .font(.system(size: 17, weight: .medium))
+                    .font(.system(size: 16, weight: .semibold, design: .rounded))
                     .foregroundStyle(PMTheme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer()
                 Image(systemName: "arrow.down")
                     .font(.system(size: 17, weight: .regular))
@@ -230,29 +269,58 @@ private struct StepRow: View {
         .background(Color.white)
         .shadow(color: .black.opacity(0.06), radius: 6, y: 2)
     }
+
+    private var whyText: String {
+        switch step.title {
+        case let t where t.hasPrefix("Apply KCL"):
+            return "Kirchhoff's current law: charge cannot pile up at a node, so the currents flowing out must add up to the currents flowing in."
+        case let t where t.hasPrefix("Apply KVL"):
+            return "Kirchhoff's voltage law: going once around any closed loop brings you back to the same potential, so the voltage rises and drops sum to zero."
+        case let t where t.hasPrefix("Identify the meshes"):
+            return "Each mesh current is an independent unknown; there are exactly (elements − nodes + 1) of them for a connected circuit."
+        case let t where t.hasPrefix("Choose the reference"):
+            return "Only voltage differences matter physically, so one node can be set to 0 V without loss of generality."
+        default:
+            return step.summary
+        }
+    }
 }
 
 private struct SolutionRow: View {
-    let result: String
+    let answers: [Answer]
+    let headline: String
 
     var body: some View {
         HStack(spacing: 0) {
             Rectangle()
                 .fill(PMTheme.accent)
                 .frame(width: 5)
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Text("Solution")
                         .font(.system(size: 17, weight: .semibold))
                         .foregroundStyle(PMTheme.accent)
                     Spacer()
-                    Image(systemName: "xmark")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(PMTheme.ink)
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundStyle(PMTheme.accent)
                 }
-                Text(result)
-                    .font(.system(size: 26, weight: .bold))
-                    .foregroundStyle(PMTheme.ink)
+                if answers.isEmpty {
+                    Text(headline)
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(PMTheme.ink)
+                } else {
+                    ForEach(answers) { answer in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(answer.label)
+                                .font(.system(size: 13))
+                                .foregroundStyle(PMTheme.secondaryText)
+                            Text(answer.value)
+                                .font(.system(size: 22, weight: .bold))
+                                .foregroundStyle(PMTheme.ink)
+                        }
+                    }
+                }
             }
             .padding(.leading, 15)
             .padding(.trailing, 20)
@@ -295,6 +363,8 @@ private struct FeedbackRow: View {
 
 #Preview {
     NavigationStack {
-        SolvingStepsView(solution: MockCircuitSolver.seriesLoop)
+        if let analysis = try? CircuitAnalyzer.analyze(SampleCircuitSolver.sample) {
+            SolvingStepsView(solution: analysis.methods[0], question: analysis.question)
+        }
     }
 }

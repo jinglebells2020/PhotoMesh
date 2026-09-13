@@ -3,10 +3,11 @@
 Photomath, but for circuit analysis. Point the camera at a schematic or a hand‑drawn
 loop and get a step‑by‑step solution.
 
-This is the first milestone: a SwiftUI iOS app whose UI/UX mirrors Photomath one‑to‑one,
-with the red accent swapped for a deep green (`#126B3D`). Recognition and solving are
-stubbed behind a `CircuitSolverService` protocol so a vision‑language‑model API can be
-dropped in next.
+The SwiftUI app mirrors Photomath's UI/UX one‑to‑one (red accent swapped for a deep green,
+`#126B3D`). Behind it sits a real pipeline: the photo goes to a vision‑language model through
+OpenRouter, comes back as a netlist, and a deterministic Swift engine solves it with **both**
+nodal analysis and mesh analysis, producing textbook‑style steps for each. The user picks the
+method to follow.
 
 ## What's built
 
@@ -20,12 +21,48 @@ dropped in next.
 | Settings (circuit settings with pickers) | Done, persisted with `@AppStorage` |
 | Language bottom sheet | Done |
 | About us, PhotoMesh Plus | Done (layout only, no purchases) |
-| Solutions sheet → Solving Steps (Next Step, Why, feedback) → Circuit detail | Done, driven by a mock solver |
-| VLM recognition / real solving | Not started (next phase) |
+| Solutions sheet (one card per method) → Solving Steps (Next Step, Why, feedback) → Circuit detail (netlist, node voltages, element results) | Done |
+| Photo → netlist recognition (OpenRouter, `google/gemini-3.6-flash` by default) | Done, key entered in Settings → Recognition |
+| DC solver: nodal (MNA, supernodes) + mesh (auto loop detection, supermeshes), cross‑checked | Done, unit‑tested |
+| Manual circuit entry, schematic rendering, AC / dependent sources | Next |
 
 The camera runs on device only. In the Simulator the home screen shows a neutral
-backdrop and the shutter still runs the full capture → solutions flow with a placeholder
-image, so every screen can be exercised without hardware.
+backdrop and the shutter still runs the full capture → solutions flow. Without an API key
+(or with *Use sample circuit* switched on in Settings) the flow solves a built‑in two‑loop
+circuit through the real engine, so every screen can be exercised without hardware or credits.
+
+## How a scan is solved
+
+1. **Capture** – the viewfinder crop is down‑scaled to 1280 px and sent as JPEG.
+2. **Read** – `CircuitRecognizer` asks the model (system prompt in `RecognitionPrompt.swift`)
+   for strict JSON: components with node ids, source polarity / current direction, ground node,
+   mesh hints, and what the question asks. `CircuitPayload` decodes it tolerantly and
+   `Circuit.validated()` rejects shorted sources, dangling parts, disconnected graphs and
+   unsupported elements with a readable message.
+3. **Solve** – `CircuitAnalyzer` runs
+   - `NodalAnalysis`: modified nodal analysis internally; the steps show known node voltages,
+     supernodes, one KCL equation per node in fraction form plus collected form, the solved
+     system, element currents, voltages, and the answer;
+   - `MeshAnalysis`: uses the recognizer's mesh hints when they form a valid independent set,
+     otherwise finds a shortest cycle basis itself; current sources become known mesh currents
+     or supermeshes; steps mirror the nodal ones with KVL equations.
+   Both methods are compared element by element; the UI shows whether they agree.
+4. **Present** – one card per method on the Solutions sheet, each opening its own walkthrough.
+
+Values are formatted with engineering prefixes (37.5 mA, 4.7 kΩ) following the settings.
+
+### Recognition setup
+
+Settings → Recognition → *OpenRouter API key*. The key is kept in the device Keychain and only
+sent to `openrouter.ai`. For Xcode runs you can instead set an `OPENROUTER_API_KEY` environment
+variable in the scheme. The model id is editable; any OpenRouter model with image input works.
+
+### Engine tests
+
+The engine is plain Foundation code, so it also builds on Linux. `scratchpad` scripts used
+during development fed synthetic schematics (series loop, loaded divider, two sources,
+current source, supermesh, supernode, Wheatstone bridge) through the recognizer and the
+solver and compared against hand‑computed values; nodal and mesh agree on all of them.
 
 ## Project layout
 
@@ -34,16 +71,27 @@ PhotoMesh.xcodeproj/          Xcode 16 project (file‑system synchronized group
 PhotoMesh/
   App/                        @main entry, AppRouter (sheets + drawer state)
   Theme/PMTheme.swift         colors, button styles, logo mark, wordmark
-  Support/                    AppSettings (keys + option enums), Haptics
+  Support/                    AppSettings (keys + option enums), APIConfiguration (Keychain), Haptics
+  Engine/                     pure-Swift solver
+    CircuitModel.swift        Circuit / Component / validation / graph helpers
+    NodalAnalysis.swift       node-voltage method + steps
+    MeshAnalysis.swift        mesh-current method, loop detection + steps
+    CircuitAnalyzer.swift     runs both methods, cross-checks
+    CircuitPayload.swift      tolerant JSON decoding of the model output
+    Units.swift               engineering-notation formatter / parser
+  Services/
+    OpenRouterClient.swift    chat completions with image input
+    RecognitionPrompt.swift   the system prompt
+    CircuitRecognizer.swift   photo → Circuit
+    CircuitSolverService.swift  VLM solver, offline sample solver, calculator solver
   Features/
-    Root/RootView.swift       drawer container + sheet host
+    Root/RootView.swift       drawer container + sheet host + safe-area plumbing
     Camera/                   CameraController (AVFoundation), preview, viewfinder, home screen
     Menu/SideMenuView.swift
     Calculator/               keyboard model + view, expression evaluator, calculator sheet
     Help/                     How‑to‑use sheet with illustrations
-    Settings/                 Settings, Language, About, Plus
-    Solutions/                Solutions sheet, Solving Steps, Circuit detail + schematic canvas
-  Services/CircuitSolverService.swift   protocol + MockCircuitSolver
+    Settings/                 Settings (incl. Recognition), Language, About, Plus
+    Solutions/                Solutions sheet, Solving Steps, Circuit detail
 .github/workflows/testflight.yml        archive + upload to TestFlight
 ```
 
@@ -93,7 +141,8 @@ post‑action. Xcode Cloud manages signing itself.
 
 ## Next phase
 
-- Replace the math keyboard with circuit‑oriented manual entry (components, values, topology).
-- Implement `CircuitSolverService` against a VLM API: send the cropped viewfinder image,
-  receive a netlist + steps, render them in the existing Solutions / Solving Steps screens.
-- Design the circuit representation (interactive schematic, per‑element values, mesh/nodal views).
+- Design the circuit representation: interactive schematic drawn from the netlist, per‑element
+  values, highlighting the node or mesh each step talks about.
+- Circuit‑oriented manual entry to replace the math keyboard.
+- More methods (series/parallel reduction, superposition, Thévenin) and more elements
+  (dependent sources, AC phasors).

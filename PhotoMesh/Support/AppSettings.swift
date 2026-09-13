@@ -9,6 +9,8 @@ enum SettingsKeys {
     static let currentConvention = "settings.currentConvention"
     static let calculatorHistory = "calculator.history"
     static let hasSeenHelp = "onboarding.hasSeenHelp"
+    static let openRouterModel = "recognition.model"
+    static let useSampleCircuit = "recognition.useSample"
 }
 
 /// Something a settings picker can show: a fixed list of titled cases.

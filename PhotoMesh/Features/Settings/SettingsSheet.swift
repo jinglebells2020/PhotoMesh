@@ -6,6 +6,7 @@ struct SettingsSheet: View {
     @AppStorage(SettingsKeys.decimalSign) private var decimalSign: DecimalSign = .point
     @AppStorage(SettingsKeys.unitNotation) private var unitNotation: UnitNotation = .engineering
     @AppStorage(SettingsKeys.currentConvention) private var currentConvention: CurrentConvention = .conventional
+    @AppStorage(SettingsKeys.useSampleCircuit) private var useSampleCircuit = false
 
     var body: some View {
         NavigationStack {
@@ -27,6 +28,41 @@ struct SettingsSheet: View {
                     Text("CIRCUIT SETTINGS")
                 } footer: {
                     Text("These settings affect how values are displayed and interpreted when scanned from schematics and handwriting.")
+                }
+
+                Section {
+                    NavigationLink {
+                        APIKeyView()
+                    } label: {
+                        HStack {
+                            Text("OpenRouter API key").foregroundStyle(PMTheme.ink)
+                            Spacer()
+                            Text(APIConfiguration.apiKey == nil ? "Not set" : (APIConfiguration.isEnvironmentKey ? "From Xcode" : "Set"))
+                                .font(.system(size: 15))
+                                .foregroundStyle(APIConfiguration.apiKey == nil ? PMTheme.whyOrange : PMTheme.secondaryText)
+                        }
+                    }
+                    NavigationLink {
+                        ModelView()
+                    } label: {
+                        HStack {
+                            Text("Model").foregroundStyle(PMTheme.ink)
+                            Spacer()
+                            Text(APIConfiguration.model)
+                                .font(.system(size: 15))
+                                .foregroundStyle(PMTheme.secondaryText)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.7)
+                        }
+                    }
+                    Toggle(isOn: $useSampleCircuit) {
+                        Text("Use sample circuit").foregroundStyle(PMTheme.ink)
+                    }
+                    .tint(PMTheme.accent)
+                } header: {
+                    Text("RECOGNITION")
+                } footer: {
+                    Text("Photos are sent to the selected model through OpenRouter to read the schematic. The key is stored in this device's Keychain. Sample mode skips the camera reader and solves a built-in circuit.")
                 }
             }
             .listStyle(.insetGrouped)
@@ -105,4 +141,97 @@ struct OptionPickerView<Option: SettingsOption>: View {
 
 #Preview {
     SettingsSheet()
+}
+
+// MARK: - Recognition settings
+
+private struct APIKeyView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var key = APIConfiguration.isEnvironmentKey ? "" : (APIConfiguration.apiKey ?? "")
+    @State private var saved = false
+
+    var body: some View {
+        List {
+            Section {
+                SecureField("sk-or-v1-…", text: $key)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .font(.system(size: 15, design: .monospaced))
+                    .onSubmit(save)
+                if !key.isEmpty {
+                    Button("Remove key", role: .destructive) {
+                        key = ""
+                        save()
+                    }
+                }
+            } header: {
+                Text("OPENROUTER API KEY")
+            } footer: {
+                Text(APIConfiguration.isEnvironmentKey
+                     ? "A key from the OPENROUTER_API_KEY environment variable is currently in use; it overrides anything entered here."
+                     : "Create a key at openrouter.ai → Keys. It is stored in the Keychain and only sent to openrouter.ai.")
+            }
+            Section {
+                Button(saved ? "Saved" : "Save") { save() }
+                    .disabled(saved)
+                    .foregroundStyle(saved ? PMTheme.secondaryText : PMTheme.accent)
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("API key")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func save() {
+        APIConfiguration.saveAPIKey(key)
+        Haptics.notify(.success)
+        withAnimation { saved = true }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1))
+            saved = false
+        }
+    }
+}
+
+private struct ModelView: View {
+    @AppStorage(SettingsKeys.openRouterModel) private var model = ""
+
+    private let suggestions = [
+        "google/gemini-3.6-flash",
+        "google/gemini-3.5-flash-lite",
+        "google/gemini-2.5-flash",
+    ]
+
+    var body: some View {
+        List {
+            Section {
+                TextField(APIConfiguration.defaultModel, text: $model)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .font(.system(size: 15, design: .monospaced))
+            } header: {
+                Text("MODEL ID")
+            } footer: {
+                Text("Any OpenRouter model with image input works. Leave empty for the default.")
+            }
+            Section("SUGGESTIONS") {
+                ForEach(suggestions, id: \.self) { candidate in
+                    Button {
+                        model = candidate == APIConfiguration.defaultModel ? "" : candidate
+                    } label: {
+                        HStack {
+                            Text(candidate).font(.system(size: 15, design: .monospaced)).foregroundStyle(PMTheme.ink)
+                            Spacer()
+                            if APIConfiguration.model == candidate {
+                                Image(systemName: "checkmark").foregroundStyle(PMTheme.accent)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Model")
+        .navigationBarTitleDisplayMode(.inline)
+    }
 }

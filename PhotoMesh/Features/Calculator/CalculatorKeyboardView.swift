@@ -14,6 +14,8 @@ struct CalculatorKeyboardView: View {
     @Binding var tab: CalcTab
     @Binding var isAlpha: Bool
     var isInteractive = true
+    /// Home-indicator height: the last key row grows by this much so the keys reach the screen edge.
+    var bottomInset: CGFloat = 0
     let onAction: (KeyAction) -> Void
 
     @State private var alternatesKey: CalcKey?
@@ -80,10 +82,10 @@ struct CalculatorKeyboardView: View {
     private var keyGrid: some View {
         let rows = isAlpha ? KeyboardLayouts.alpha : KeyboardLayouts.rows(for: tab)
         return VStack(spacing: 0.5) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+            ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
                 HStack(spacing: 0.5) {
                     ForEach(row) { key in
-                        KeyView(key: key, height: keyHeight, isInteractive: isInteractive) {
+                        KeyView(key: key, height: keyHeight, extraBottom: rowIndex == rows.count - 1 ? bottomInset : 0, isInteractive: isInteractive) {
                             onAction(key.action)
                         } onLongPress: {
                             alternatesKey = key
@@ -93,7 +95,6 @@ struct CalculatorKeyboardView: View {
             }
         }
         .background(PMTheme.keySeparator)
-        .padding(.bottom, 4)
     }
 
     // MARK: Alternates
@@ -206,6 +207,7 @@ struct PressReportingButtonStyle: ButtonStyle {
 private struct KeyView: View {
     let key: CalcKey
     let height: CGFloat
+    var extraBottom: CGFloat = 0
     var isInteractive = true
     let onTap: () -> Void
     let onLongPress: () -> Void
@@ -222,7 +224,7 @@ private struct KeyView: View {
         if key.isEmpty {
             Color.white
                 .frame(maxWidth: .infinity)
-                .frame(height: height)
+                .frame(height: height + extraBottom)
         } else {
             Button {
                 if longPressFired { return }
@@ -232,7 +234,6 @@ private struct KeyView: View {
                 KeyLabelView(label: key.label)
                     .frame(maxWidth: .infinity)
                     .frame(height: height)
-                    .background(isPressed ? PMTheme.keyPressed : PMTheme.keyBackground)
                     .overlay(alignment: .bottomTrailing) {
                         if !key.alternates.isEmpty {
                             Circle()
@@ -241,6 +242,8 @@ private struct KeyView: View {
                                 .padding(6)
                         }
                     }
+                    .padding(.bottom, extraBottom)
+                    .background(isPressed ? PMTheme.keyPressed : PMTheme.keyBackground)
                     .contentShape(Rectangle())
             }
             .buttonStyle(PressReportingButtonStyle(isPressed: $isPressed))

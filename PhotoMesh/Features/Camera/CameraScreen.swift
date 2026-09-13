@@ -6,6 +6,7 @@ import PhotosUI
 struct CameraScreen: View {
     @Environment(AppRouter.self) private var router
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.pmSafeAreaInsets) private var safeInsets
 
     @State private var camera = CameraController()
     @State private var region: ScanRegion?
@@ -20,7 +21,7 @@ struct CameraScreen: View {
     var body: some View {
         GeometryReader { geo in
             let size = geo.size
-            let insets = geo.safeAreaInsets
+            let insets = SafeArea.resolve(from: safeInsets)
             let bounds = CGRect(
                 x: 14,
                 y: insets.top + topBarHeight,

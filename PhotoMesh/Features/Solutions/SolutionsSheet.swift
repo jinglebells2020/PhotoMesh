@@ -1,22 +1,24 @@
 import SwiftUI
 
 enum SolutionDestination: Hashable {
-    case steps(Solution)
-    case circuit(Solution)
+    case steps(MethodSolution, question: String)
+    case circuit(CircuitAnalysis)
 }
 
-/// Dark results sheet with white solution cards, like Photomath's "Solutions".
+/// Dark results sheet. One white card per solving method so the user picks which to follow,
+/// plus a card describing what the reader recognized.
 struct SolutionsSheet: View {
     let request: SolutionRequest
     @Environment(\.dismiss) private var dismiss
 
     private enum LoadState {
         case loading
-        case loaded(Solution)
-        case failed
+        case loaded(CircuitAnalysis)
+        case failed(String)
     }
 
     @State private var state: LoadState = .loading
+    @State private var phase = "Reading the circuit…"
 
     var body: some View {
         NavigationStack {
@@ -32,14 +34,16 @@ struct SolutionsSheet: View {
 
                         switch state {
                         case .loading:
-                            LoadingCard()
-                        case .failed:
-                            FailedCard { Task { await load() } }
-                        case .loaded(let solution):
-                            SolutionCard(solution: solution, request: request)
-                                .transition(.move(edge: .bottom).combined(with: .opacity))
-                            if let detail = solution.detail {
-                                CircuitCard(solution: solution, detail: detail)
+                            LoadingCard(phase: phase, image: sourceImage)
+                        case .failed(let message):
+                            FailedCard(message: message) { Task { await load() } }
+                        case .loaded(let analysis):
+                            ForEach(analysis.methods) { method in
+                                MethodCard(method: method, analysis: analysis, request: request)
+                                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                            }
+                            if analysis.circuit != nil {
+                                RecognizedCircuitCard(analysis: analysis, image: sourceImage)
                                     .transition(.move(edge: .bottom).combined(with: .opacity))
                             }
                         }
@@ -56,60 +60,62 @@ struct SolutionsSheet: View {
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: SolutionDestination.self) { destination in
                 switch destination {
-                case .steps(let solution):
-                    SolvingStepsView(solution: solution)
-                case .circuit(let solution):
-                    CircuitDetailView(solution: solution)
+                case .steps(let method, let question):
+                    SolvingStepsView(solution: method, question: question)
+                case .circuit(let analysis):
+                    CircuitDetailView(analysis: analysis)
                 }
             }
         }
         .task { await load() }
     }
 
+    private var sourceImage: UIImage? {
+        if case .image(let image) = request.source { return image }
+        return nil
+    }
+
     private func load() async {
         state = .loading
+        phase = "Reading the circuit…"
+        let solver = SolverProvider.make()
         do {
-            let solution = try await SolverProvider.current.solve(request)
+            let analysis = try await solver.solve(request) { text in
+                Task { @MainActor in phase = text }
+            }
             withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                state = .loaded(solution)
+                state = .loaded(analysis)
             }
             Haptics.notify(.success)
         } catch {
-            state = .failed
+            Haptics.notify(.error)
+            state = .failed(error.localizedDescription)
         }
     }
 }
 
 // MARK: - Cards
 
-private struct SolutionCard: View {
-    let solution: Solution
+private struct MethodCard: View {
+    let method: MethodSolution
+    let analysis: CircuitAnalysis
     let request: SolutionRequest
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(solution.category)
+            Text(method.method.eyebrow)
                 .font(.system(size: 12, weight: .semibold))
                 .kerning(0.6)
                 .foregroundStyle(PMTheme.secondaryText)
-            Text(solution.title)
+            Text(method.method.title)
                 .font(.system(size: 21, weight: .bold))
                 .foregroundStyle(PMTheme.ink)
                 .padding(.top, 4)
 
             HStack(alignment: .top, spacing: 12) {
-                if case .image(let image) = request.source {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxHeight: 130)
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.black.opacity(0.08)))
-                } else {
-                    Text(solution.problem)
-                        .font(.system(size: 18))
-                        .foregroundStyle(PMTheme.ink)
-                }
+                Text(analysis.question)
+                    .font(.system(size: 17))
+                    .foregroundStyle(PMTheme.ink)
                 Spacer(minLength: 0)
                 Image(systemName: "pencil")
                     .font(.system(size: 17))
@@ -122,7 +128,7 @@ private struct SolutionCard: View {
                     .font(.system(size: 15, weight: .light))
                     .foregroundStyle(PMTheme.tertiaryText)
                     .frame(width: 16)
-                Text(solution.approach)
+                Text(method.method.summary)
                     .font(.system(size: 14))
                     .foregroundStyle(PMTheme.secondaryText)
             }
@@ -132,18 +138,34 @@ private struct SolutionCard: View {
                 Rectangle()
                     .fill(PMTheme.accent)
                     .frame(width: 4)
-                Text(solution.result)
-                    .font(.system(size: 26, weight: .bold))
-                    .foregroundStyle(PMTheme.ink)
-                    .padding(.leading, 12)
-                    .padding(.vertical, 12)
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(method.answers.prefix(4)) { answer in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(answer.label)
+                                .font(.system(size: 13))
+                                .foregroundStyle(PMTheme.secondaryText)
+                            Text(answer.value)
+                                .font(.system(size: 24, weight: .bold))
+                                .foregroundStyle(PMTheme.ink)
+                                .minimumScaleFactor(0.7)
+                                .lineLimit(2)
+                        }
+                    }
+                    if method.answers.count > 4 {
+                        Text("+ \(method.answers.count - 4) more in the steps")
+                            .font(.system(size: 13))
+                            .foregroundStyle(PMTheme.secondaryText)
+                    }
+                }
+                .padding(.leading, 12)
+                .padding(.vertical, 12)
             }
             .padding(.leading, -16)
             .padding(.top, 14)
 
             HStack {
                 Spacer()
-                NavigationLink(value: SolutionDestination.steps(solution)) {
+                NavigationLink(value: SolutionDestination.steps(method, question: analysis.question)) {
                     HStack(spacing: 10) {
                         Text("Show Solving Steps")
                         Image(systemName: "arrow.right").font(.system(size: 16, weight: .semibold))
@@ -159,28 +181,71 @@ private struct SolutionCard: View {
     }
 }
 
-private struct CircuitCard: View {
-    let solution: Solution
-    let detail: CircuitDetail
+private struct RecognizedCircuitCard: View {
+    let analysis: CircuitAnalysis
+    let image: UIImage?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("CIRCUIT")
+            Text("RECOGNIZED CIRCUIT")
                 .font(.system(size: 12, weight: .semibold))
                 .kerning(0.6)
                 .foregroundStyle(PMTheme.secondaryText)
-            Text(detail.title)
-                .font(.system(size: 21, weight: .bold))
-                .foregroundStyle(PMTheme.ink)
-                .padding(.top, 4)
+            if let circuit = analysis.circuit {
+                Text(summary(for: circuit))
+                    .font(.system(size: 21, weight: .bold))
+                    .foregroundStyle(PMTheme.ink)
+                    .padding(.top, 4)
 
-            CircuitSketchView(kind: detail.sketch)
-                .frame(height: 190)
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxHeight: 150)
+                        .frame(maxWidth: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.black.opacity(0.08)))
+                        .padding(.top, 14)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(circuit.components) { component in
+                        HStack(spacing: 8) {
+                            Text(component.id)
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .frame(width: 34, alignment: .leading)
+                            Text(valueText(component))
+                                .font(.system(size: 14, design: .rounded))
+                            Spacer(minLength: 0)
+                            Text("\(component.nodeA) → \(component.nodeB)")
+                                .font(.system(size: 13, design: .rounded))
+                                .foregroundStyle(PMTheme.secondaryText)
+                        }
+                    }
+                }
+                .foregroundStyle(PMTheme.ink)
+                .padding(.top, 14)
+
+                HStack(spacing: 6) {
+                    Image(systemName: analysis.methodsAgree ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                        .foregroundStyle(analysis.methodsAgree ? PMTheme.accent : PMTheme.whyOrange)
+                    Text(analysis.methodsAgree ? "Nodal and mesh analysis agree" : "The methods disagree – check the recognized values")
+                        .font(.system(size: 13))
+                        .foregroundStyle(PMTheme.secondaryText)
+                }
                 .padding(.top, 12)
+
+                if let notes = analysis.recognitionNotes, !notes.isEmpty {
+                    Text(notes)
+                        .font(.system(size: 13))
+                        .foregroundStyle(PMTheme.secondaryText)
+                        .padding(.top, 6)
+                }
+            }
 
             HStack {
                 Spacer()
-                NavigationLink(value: SolutionDestination.circuit(solution)) {
+                NavigationLink(value: SolutionDestination.circuit(analysis)) {
                     HStack(spacing: 10) {
                         Text("Explore Circuit")
                         Image(systemName: "arrow.right").font(.system(size: 16, weight: .semibold))
@@ -189,14 +254,27 @@ private struct CircuitCard: View {
                 .buttonStyle(PMPrimaryButtonStyle())
                 Spacer()
             }
-            .padding(.top, 16)
+            .padding(.top, 18)
         }
         .padding(16)
         .background(RoundedRectangle(cornerRadius: PMTheme.cardRadius, style: .continuous).fill(Color.white))
     }
+
+    private func summary(for circuit: Circuit) -> String {
+        let r = circuit.resistors.count
+        let s = circuit.voltageSources.count + circuit.currentSources.count
+        return "\(r) resistor\(r == 1 ? "" : "s"), \(s) source\(s == 1 ? "" : "s"), \(circuit.nodes.count) nodes"
+    }
+
+    private func valueText(_ component: Component) -> String {
+        FormattingPreferences.formatter().format(component.value, component.kind.unitSymbol)
+    }
 }
 
 private struct LoadingCard: View {
+    let phase: String
+    let image: UIImage?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("ANALYZING")
@@ -205,13 +283,23 @@ private struct LoadingCard: View {
                 .foregroundStyle(PMTheme.secondaryText)
             HStack(spacing: 12) {
                 ProgressView().tint(PMTheme.accent)
-                Text("Reading the circuit…")
+                Text(phase)
                     .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(PMTheme.ink)
+                    .contentTransition(.opacity)
+                    .animation(.easeInOut(duration: 0.2), value: phase)
+            }
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxHeight: 150)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .opacity(0.85)
             }
             SkeletonLine(width: 0.9)
             SkeletonLine(width: 0.6)
-            SkeletonLine(width: 0.75)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
@@ -237,16 +325,18 @@ private struct SkeletonLine: View {
 }
 
 private struct FailedCard: View {
+    let message: String
     let retry: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Something went wrong")
+            Text("Couldn't solve this one")
                 .font(.system(size: 20, weight: .bold))
                 .foregroundStyle(PMTheme.ink)
-            Text("We couldn't analyze this picture. Check your connection and try again.")
+            Text(message)
                 .font(.system(size: 15))
                 .foregroundStyle(PMTheme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
             Button("Try again", action: retry)
                 .buttonStyle(PMPrimaryButtonStyle())
                 .padding(.top, 6)

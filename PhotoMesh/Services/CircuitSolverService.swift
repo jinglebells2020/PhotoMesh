@@ -1,146 +1,105 @@
 import UIKit
 
-// MARK: - Models
-
-struct Solution: Identifiable, Hashable {
-    let id = UUID()
-    let category: String
-    let title: String
-    let problem: String
-    let approach: String
-    let result: String
-    let steps: [SolutionStep]
-    let detail: CircuitDetail?
-}
-
-struct SolutionStep: Identifiable, Hashable {
-    let id = UUID()
-    let expression: String
-    let description: String
-    let explanation: String
-    let result: String
-}
-
-struct CircuitDetail: Hashable {
-    let title: String
-    let subtitle: String
-    let properties: [CircuitProperty]
-    let sketch: CircuitSketchKind
-}
-
-struct CircuitProperty: Identifiable, Hashable {
-    let id = UUID()
-    let name: String
-    let value: String
-}
-
-enum CircuitSketchKind: Hashable {
-    case seriesTwoResistors
-    case blank
-}
-
-// MARK: - Service
-
-/// Anything that can turn a capture or a typed problem into a `Solution`.
-/// The VLM-backed implementation will conform to this protocol in the next phase.
+/// Anything that can turn a capture or a typed problem into a `CircuitAnalysis`.
 protocol CircuitSolverService {
-    func solve(_ request: SolutionRequest) async throws -> Solution
+    func solve(_ request: SolutionRequest, progress: @escaping (String) -> Void) async throws -> CircuitAnalysis
 }
 
 enum SolverProvider {
-    /// Swap this for the API-backed solver once it exists.
-    static var current: any CircuitSolverService = MockCircuitSolver()
+    /// Picks the solver for the current settings: sample mode, or the VLM when a key is configured.
+    static func make() -> any CircuitSolverService {
+        if APIConfiguration.useSampleCircuit { return SampleCircuitSolver() }
+        if let key = APIConfiguration.apiKey, !key.isEmpty {
+            return VLMCircuitSolver(configuration: OpenRouterClient.Configuration(apiKey: key, model: APIConfiguration.model))
+        }
+        return SampleCircuitSolver(reason: "No API key is set, so this is the built-in sample circuit. Add your OpenRouter key in Settings → Recognition to analyze your own photos.")
+    }
 }
 
-/// Returns canned content after a short delay so the whole UI flow can be exercised.
-struct MockCircuitSolver: CircuitSolverService {
-    func solve(_ request: SolutionRequest) async throws -> Solution {
-        try await Task.sleep(for: .milliseconds(1100))
+// MARK: - Live solver
+
+struct VLMCircuitSolver: CircuitSolverService {
+    let configuration: OpenRouterClient.Configuration
+
+    func solve(_ request: SolutionRequest, progress: @escaping (String) -> Void) async throws -> CircuitAnalysis {
         switch request.source {
-        case .image:
-            return MockCircuitSolver.seriesLoop
-        case .expression(let expression):
-            return MockCircuitSolver.solution(for: expression)
+        case .image(let image):
+            progress("Reading the circuit…")
+            let recognizer = CircuitRecognizer(client: OpenRouterClient(configuration: configuration))
+            let recognized = try await recognizer.recognize(image)
+            progress("Solving…")
+            var notes = recognized.notes
+            if let confidence = recognized.confidence, confidence < 0.7 {
+                notes = ["The reader was not fully confident (\(Int(confidence * 100))%). Double-check the values below.", notes].compactMap { $0 }.joined(separator: " ")
+            }
+            return try CircuitAnalyzer.analyze(recognized.circuit, formatter: FormattingPreferences.formatter(), recognitionNotes: notes)
+        case .expression(let text):
+            return try ExpressionSolver.solve(text)
         }
     }
+}
 
-    static let seriesLoop = Solution(
-        category: "SOLVING STEPS",
-        title: "Find the loop current",
-        problem: "V = 12 V, R₁ = 100 Ω, R₂ = 220 Ω in series",
-        approach: "Combine the series resistors, then apply Ohm's law",
-        result: "I = 37.5 mA",
-        steps: [
-            SolutionStep(
-                expression: "Rₑq = R₁ + R₂",
-                description: "Combine the series resistors",
-                explanation: "Resistors in series carry the same current, so their resistances simply add up.",
-                result: "Rₑq = 100 Ω + 220 Ω = 320 Ω"
-            ),
-            SolutionStep(
-                expression: "I = V ÷ Rₑq",
-                description: "Apply Ohm's law to the whole loop",
-                explanation: "One source drives one loop, so the loop current is the source voltage divided by the equivalent resistance.",
-                result: "I = 12 V ÷ 320 Ω"
-            ),
-            SolutionStep(
-                expression: "I = 0.0375 A",
-                description: "Simplify",
-                explanation: "Divide, then express the result in a convenient engineering unit.",
-                result: "I = 37.5 mA"
-            ),
+// MARK: - Offline sample
+
+/// Runs the real engine on a built-in circuit so the whole flow works without a key or a camera.
+struct SampleCircuitSolver: CircuitSolverService {
+    var reason: String? = nil
+
+    static let sample = Circuit(
+        components: [
+            Component(id: "V1", kind: .voltageSource, value: 10, nodeA: "n1", nodeB: "0"),
+            Component(id: "R1", kind: .resistor, value: 2, nodeA: "n1", nodeB: "n2"),
+            Component(id: "R2", kind: .resistor, value: 4, nodeA: "n2", nodeB: "0"),
+            Component(id: "R3", kind: .resistor, value: 3, nodeA: "n2", nodeB: "n3"),
+            Component(id: "V2", kind: .voltageSource, value: 5, nodeA: "n3", nodeB: "0"),
         ],
-        detail: CircuitDetail(
-            title: "Series loop",
-            subtitle: "12 V source, R₁ = 100 Ω, R₂ = 220 Ω",
-            properties: [
-                CircuitProperty(name: "Equivalent resistance", value: "320 Ω"),
-                CircuitProperty(name: "Loop current", value: "37.5 mA"),
-                CircuitProperty(name: "Voltage across R₁", value: "3.75 V"),
-                CircuitProperty(name: "Voltage across R₂", value: "8.25 V"),
-                CircuitProperty(name: "Total power", value: "450 mW"),
-            ],
-            sketch: .seriesTwoResistors
-        )
+        groundNode: "0",
+        meshes: [["V1", "R1", "R2"], ["R2", "R3", "V2"]],
+        unknowns: [Unknown(kind: .current, element: "R2")],
+        question: "Find the current through R2."
     )
 
-    static func solution(for expression: String) -> Solution {
-        let decimal = UserDefaults.standard.string(forKey: SettingsKeys.decimalSign) == DecimalSign.comma.rawValue ? Character(",") : Character(".")
-        let evaluator = ExpressionEvaluator(decimalSign: decimal)
-        if let value = try? evaluator.evaluate(expression) {
-            let formatted = ExpressionEvaluator.format(value, decimalSign: decimal)
-            return Solution(
-                category: "SOLVING STEPS",
-                title: "Evaluate the expression",
-                problem: expression,
-                approach: "Evaluate \(expression)",
-                result: "= \(formatted)",
-                steps: [
-                    SolutionStep(
-                        expression: expression,
-                        description: "Apply the order of operations",
-                        explanation: "Work through parentheses first, then powers and roots, then multiplication and division, and finally addition and subtraction.",
-                        result: "= \(formatted)"
-                    ),
-                ],
-                detail: nil
-            )
+    func solve(_ request: SolutionRequest, progress: @escaping (String) -> Void) async throws -> CircuitAnalysis {
+        switch request.source {
+        case .image:
+            progress("Reading the circuit…")
+            try await Task.sleep(for: .milliseconds(900))
+            progress("Solving…")
+            return try CircuitAnalyzer.analyze(Self.sample, formatter: FormattingPreferences.formatter(), recognitionNotes: reason ?? "Sample circuit (offline mode).")
+        case .expression(let text):
+            return try ExpressionSolver.solve(text)
         }
-        return Solution(
-            category: "SOLVING STEPS",
-            title: "Interpret the input",
-            problem: expression,
-            approach: "This input needs the full circuit solver",
-            result: "Coming soon",
-            steps: [
-                SolutionStep(
-                    expression: expression,
-                    description: "Recognized input",
-                    explanation: "Symbolic and circuit problems will be handled by the analysis engine in the next release.",
-                    result: "Coming soon"
-                ),
-            ],
-            detail: nil
+    }
+}
+
+// MARK: - Calculator path
+
+enum ExpressionSolver {
+    enum Failure: LocalizedError {
+        case notEvaluable
+        var errorDescription: String? { "This input can't be evaluated yet. Symbolic and circuit expressions are coming with the manual-entry update." }
+    }
+
+    static func solve(_ text: String) throws -> CircuitAnalysis {
+        let sign = FormattingPreferences.decimalSign
+        let evaluator = ExpressionEvaluator(decimalSign: sign)
+        guard let value = try? evaluator.evaluate(text) else { throw Failure.notEvaluable }
+        let formatted = ExpressionEvaluator.format(value, decimalSign: sign)
+        let step = AnalysisStep(
+            title: "Apply the order of operations",
+            summary: text,
+            equations: ["\(text) = \(formatted)"],
+            explanation: "Parentheses first, then powers and roots, then multiplication and division, and finally addition and subtraction.",
+            result: "= \(formatted)"
         )
+        let method = MethodSolution(
+            method: .arithmetic,
+            headline: "= \(formatted)",
+            steps: [step],
+            nodeVoltages: [:],
+            elements: [],
+            answers: [Answer(label: "Result", value: formatted)]
+        )
+        return CircuitAnalysis(circuit: nil, question: "Evaluate \(text)", methods: [method], methodsAgree: true, recognitionNotes: nil)
     }
 }
