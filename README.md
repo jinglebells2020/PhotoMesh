@@ -72,6 +72,13 @@ everything else, draws current arrows with values, node voltages, and circulatin
 The expand button (or a tap) opens `CircuitExplorerView`: free pinch/pan, double‑tap to fit, tap
 a component or wire to read about it in the floating card at the bottom.
 
+The window is live: drag to pan, pinch to zoom, double‑tap to refit. The next step's focus
+takes the camera back over (a re‑centre chip appears whenever you have moved it). New steps and
+the answer scroll themselves into view, and the down arrow on an open step advances like the
+Next Step button. At the end, a thumbs‑up asks for an App Store rating (at most twice, never
+again once rated); a thumbs‑down opens a short feedback form stored on the device
+(`FeedbackStore`), with an option to send it by email.
+
 ### Drawing a circuit by hand
 
 Calculator → *Draw circuit* opens a dot‑grid canvas that never interrupts you: one finger

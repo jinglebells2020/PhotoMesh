@@ -27,12 +27,20 @@ struct SchematicCamera: Equatable, Animatable {
 
     /// Camera that shows `rect` centred in `size`.
     static func fitting(_ rect: SRect, in size: CGSize, padding: CGFloat = 18) -> SchematicCamera {
-        guard !rect.isEmpty, size.width > 2 * padding, size.height > 2 * padding else { return SchematicCamera() }
+        fitting(rect, in: size, insets: EdgeInsets(top: padding, leading: padding, bottom: padding, trailing: padding))
+    }
+
+    /// Camera that shows `rect` centred in the part of `size` left after `insets` (room for overlay controls).
+    static func fitting(_ rect: SRect, in size: CGSize, insets: EdgeInsets) -> SchematicCamera {
+        let available = CGSize(width: size.width - insets.leading - insets.trailing, height: size.height - insets.top - insets.bottom)
+        guard !rect.isEmpty, available.width > 10, available.height > 10 else { return SchematicCamera() }
         let w = max(rect.width, 1), h = max(rect.height, 1)
-        let scale = min((size.width - 2 * padding) / w, (size.height - 2 * padding) / h)
+        let scale = min(available.width / w, available.height / h)
+        let centerX = insets.leading + available.width / 2
+        let centerY = insets.top + available.height / 2
         return SchematicCamera(
             scale: scale,
-            offset: CGSize(width: size.width / 2 - rect.center.x * scale, height: size.height / 2 - rect.center.y * scale)
+            offset: CGSize(width: centerX - rect.center.x * scale, height: centerY - rect.center.y * scale)
         )
     }
 }

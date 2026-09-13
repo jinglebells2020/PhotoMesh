@@ -1,4 +1,5 @@
 import SwiftUI
+import StoreKit
 
 /// Step-by-step walkthrough revealed one step at a time with "Next Step".
 struct SolvingStepsView: View {
@@ -8,7 +9,6 @@ struct SolvingStepsView: View {
     @State private var revealedCount = 1
     @State private var expandedIndex: Int? = 0
     @State private var whyIndex: Int?
-    @State private var feedback: Bool?
     @State private var showExplorer = false
 
     private var isComplete: Bool { revealedCount > solution.steps.count }
@@ -47,59 +47,95 @@ struct SolvingStepsView: View {
     }
 
     private var stepsList: some View {
-        ZStack(alignment: .bottom) {
-            ScrollViewReader { proxy in
-                ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(solution.method.title)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(PMTheme.secondaryText)
-                            .padding(.horizontal, 20)
-                            .padding(.bottom, 8)
+        ScrollViewReader { proxy in
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(solution.method.title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(PMTheme.secondaryText)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 8)
 
-                        ForEach(Array(solution.steps.enumerated()), id: \.offset) { index, step in
-                            if index < revealedCount {
-                                StepRow(
-                                    number: index + 1,
-                                    step: step,
-                                    isExpanded: expandedIndex == index,
-                                    showsWhy: whyIndex == index,
-                                    onToggle: {
-                                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                                            expandedIndex = (expandedIndex == index) ? nil : index
-                                            whyIndex = nil
-                                        }
-                                    },
-                                    onWhy: {
-                                        withAnimation(.easeOut(duration: 0.2)) {
-                                            whyIndex = (whyIndex == index) ? nil : index
-                                        }
+                    ForEach(Array(solution.steps.enumerated()), id: \.offset) { index, step in
+                        if index < revealedCount {
+                            StepRow(
+                                number: index + 1,
+                                step: step,
+                                isExpanded: expandedIndex == index,
+                                showsWhy: whyIndex == index,
+                                nextTitle: index == solution.steps.count - 1 ? "Show the answer" : "Next step",
+                                onToggle: {
+                                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                        expandedIndex = (expandedIndex == index) ? nil : index
+                                        whyIndex = nil
                                     }
-                                )
-                                .id("step-\(index)")
-                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                                    if expandedIndex == index { scroll(proxy, to: "step-\(index)") }
+                                },
+                                onWhy: {
+                                    withAnimation(.easeOut(duration: 0.2)) {
+                                        whyIndex = (whyIndex == index) ? nil : index
+                                    }
+                                },
+                                onNext: { advance(from: index, proxy: proxy) }
+                            )
+                            .id("step-\(index)")
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                            .onAppear {
+                                // A freshly revealed step scrolls itself into view.
+                                if index == revealedCount - 1, index > 0 { scroll(proxy, to: "step-\(index)") }
                             }
                         }
+                    }
 
-                        if isComplete {
-                            SolutionRow(answers: solution.answers, headline: solution.headline)
-                                .id("solution")
-                                .transition(.move(edge: .bottom).combined(with: .opacity))
-                            FeedbackRow(feedback: $feedback)
-                                .padding(.top, 26)
-                        }
-                    }
-                    .padding(.top, 8)
-                    .padding(.bottom, 130)
-                }
-                .onChange(of: revealedCount) { _, count in
-                    withAnimation {
-                        proxy.scrollTo(isComplete ? "solution" : "step-\(count - 1)", anchor: .bottom)
+                    if isComplete {
+                        SolutionRow(answers: solution.answers, headline: solution.headline)
+                            .id("solution")
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                            .onAppear { scroll(proxy, to: "solution") }
+                        FeedbackFlow(question: analysis.question, method: solution.method.title)
+                            .padding(.top, 26)
+                            .padding(.horizontal, 20)
                     }
                 }
+                .padding(.top, 8)
+                .padding(.bottom, 24)
             }
+            .scrollDismissesKeyboard(.interactively)
+            .safeAreaInset(edge: .bottom) {
+                bottomBar
+            }
+        }
+    }
 
-            bottomBar
+    /// Reveals the next step (or the answer) when called from the latest step; otherwise opens the following one.
+    private func advance(from index: Int, proxy: ScrollViewProxy) {
+        Haptics.impact(.light)
+        if index == revealedCount - 1 {
+            revealNext()
+        } else {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                expandedIndex = index + 1
+                whyIndex = nil
+            }
+            scroll(proxy, to: "step-\(index + 1)")
+        }
+    }
+
+    private func revealNext() {
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+            revealedCount += 1
+            expandedIndex = isComplete ? nil : revealedCount - 1
+            whyIndex = nil
+        }
+    }
+
+    /// Scrolls after the layout has settled so the target exists; top-aligned so the whole card is readable.
+    private func scroll(_ proxy: ScrollViewProxy, to id: String) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(80))
+            withAnimation(.easeInOut(duration: 0.35)) {
+                proxy.scrollTo(id, anchor: UnitPoint(x: 0, y: 0.04))
+            }
         }
     }
 
@@ -112,7 +148,6 @@ struct SolvingStepsView: View {
                         revealedCount = 1
                         expandedIndex = 0
                         whyIndex = nil
-                        feedback = nil
                     }
                 } label: {
                     Image(systemName: "arrow.uturn.backward")
@@ -130,11 +165,7 @@ struct SolvingStepsView: View {
             if !isComplete {
                 Button {
                     Haptics.impact(.light)
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                        revealedCount += 1
-                        expandedIndex = isComplete ? nil : revealedCount - 1
-                        whyIndex = nil
-                    }
+                    revealNext()
                 } label: {
                     Text(revealedCount == solution.steps.count ? "Show Answer" : "Next Step")
                 }
@@ -142,12 +173,11 @@ struct SolvingStepsView: View {
                 .transition(.scale.combined(with: .opacity))
             }
         }
-        .padding(.bottom, 16)
+        .padding(.bottom, 8)
         .padding(.top, 10)
-        .background(alignment: .top) {
+        .background {
             LinearGradient(colors: [PMTheme.groupedBackground.opacity(0), PMTheme.groupedBackground], startPoint: .top, endPoint: .bottom)
-                .frame(height: 110)
-                .offset(y: -20)
+                .padding(.top, -30)
                 .allowsHitTesting(false)
         }
     }
@@ -176,8 +206,10 @@ private struct StepRow: View {
     let step: AnalysisStep
     let isExpanded: Bool
     let showsWhy: Bool
+    let nextTitle: String
     let onToggle: () -> Void
     let onWhy: () -> Void
+    let onNext: () -> Void
 
     var body: some View {
         Group {
@@ -286,9 +318,16 @@ private struct StepRow: View {
                     .foregroundStyle(PMTheme.ink)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer()
-                Image(systemName: "arrow.down")
-                    .font(.system(size: 17, weight: .regular))
-                    .foregroundStyle(PMTheme.ink)
+                Button(action: onNext) {
+                    Image(systemName: "arrow.down")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(PMTheme.accent)
+                        .frame(width: 40, height: 40)
+                        .background(Circle().fill(PMTheme.accentSoft))
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(nextTitle)
             }
             .padding(.top, 14)
         }
@@ -358,34 +397,166 @@ private struct SolutionRow: View {
     }
 }
 
-private struct FeedbackRow: View {
-    @Binding var feedback: Bool?
+/// "Did this explanation help you?" → rating request, or a short feedback form.
+private struct FeedbackFlow: View {
+    let question: String
+    let method: String
+
+    private enum Stage: Equatable { case ask, thanksPositive, rate, form, thanksNegative }
+
+    @Environment(\.requestReview) private var requestReview
+    @Environment(\.openURL) private var openURL
+    @State private var stage: Stage = .ask
+    @State private var reasons: Set<String> = []
+    @State private var comment = ""
+    @State private var lastEntry: FeedbackEntry?
+    @FocusState private var commentFocused: Bool
 
     var body: some View {
         VStack(spacing: 14) {
-            Text("Did this explanation help you?")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(PMTheme.ink)
-            HStack(spacing: 44) {
-                feedbackButton(isPositive: true)
-                feedbackButton(isPositive: false)
+            switch stage {
+            case .ask:
+                Text("Did this explanation help you?")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(PMTheme.ink)
+                HStack(spacing: 44) {
+                    thumb(up: true)
+                    thumb(up: false)
+                }
+            case .thanksPositive:
+                Text("Glad it helped!")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(PMTheme.ink)
+            case .rate:
+                card {
+                    Text("Glad it helped!")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(PMTheme.ink)
+                    Text("A quick rating on the App Store helps other students find PhotoMesh.")
+                        .font(.system(size: 14))
+                        .foregroundStyle(PMTheme.secondaryText)
+                        .multilineTextAlignment(.center)
+                    HStack(spacing: 6) {
+                        ForEach(0..<5, id: \.self) { _ in
+                            Image(systemName: "star.fill").foregroundStyle(Color(red: 1.0, green: 0.72, blue: 0.0))
+                        }
+                    }
+                    .font(.system(size: 20))
+                    Button("Rate PhotoMesh") {
+                        FeedbackStore.markRated()
+                        if let url = FeedbackStore.writeReviewURL {
+                            openURL(url)
+                        } else {
+                            requestReview()
+                        }
+                        withAnimation { stage = .thanksPositive }
+                    }
+                    .buttonStyle(PMPrimaryButtonStyle())
+                    Button("Not now") {
+                        FeedbackStore.markDeclined()
+                        withAnimation { stage = .thanksPositive }
+                    }
+                    .font(.system(size: 13))
+                    .foregroundStyle(PMTheme.secondaryText)
+                }
+            case .form:
+                card {
+                    Text("Sorry about that. What went wrong?")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(PMTheme.ink)
+                    FlowChips(options: FeedbackStore.reasons, selected: $reasons)
+                    TextField("Anything else? (optional)", text: $comment, axis: .vertical)
+                        .lineLimit(2...4)
+                        .font(.system(size: 14))
+                        .focused($commentFocused)
+                        .padding(10)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(PMTheme.groupedBackground))
+                    Button("Send feedback") { submitNegative() }
+                        .buttonStyle(PMPrimaryButtonStyle())
+                        .disabled(reasons.isEmpty && comment.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .opacity(reasons.isEmpty && comment.trimmingCharacters(in: .whitespaces).isEmpty ? 0.5 : 1)
+                }
+            case .thanksNegative:
+                card {
+                    Text("Thank you. We'll look into it.")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(PMTheme.ink)
+                    if let entry = lastEntry, let url = FeedbackStore.mailURL(for: entry) {
+                        Button("Also send it by email") { openURL(url) }
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(PMTheme.accent)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: stage)
     }
 
-    private func feedbackButton(isPositive: Bool) -> some View {
+    private func thumb(up: Bool) -> some View {
         Button {
             Haptics.impact(.light)
-            feedback = isPositive
+            if up {
+                FeedbackStore.save(FeedbackEntry(id: UUID(), date: Date(), helpful: true, reasons: [], comment: "", question: question, method: method))
+                withAnimation { stage = FeedbackStore.shouldAskForRating ? .rate : .thanksPositive }
+            } else {
+                withAnimation { stage = .form }
+            }
         } label: {
-            Image(systemName: isPositive ? "hand.thumbsup" : "hand.thumbsdown")
-                .symbolVariant(feedback == isPositive ? .fill : .none)
+            Image(systemName: up ? "hand.thumbsup" : "hand.thumbsdown")
                 .font(.system(size: 22))
-                .foregroundStyle(feedback == isPositive ? PMTheme.accent : PMTheme.ink)
+                .foregroundStyle(PMTheme.ink)
                 .frame(width: 44, height: 44)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(up ? "Yes, it helped" : "No, it did not help")
+    }
+
+    private func submitNegative() {
+        let entry = FeedbackEntry(id: UUID(), date: Date(), helpful: false, reasons: Array(reasons), comment: comment.trimmingCharacters(in: .whitespacesAndNewlines), question: question, method: method)
+        FeedbackStore.save(entry)
+        lastEntry = entry
+        commentFocused = false
+        Haptics.notify(.success)
+        withAnimation { stage = .thanksNegative }
+    }
+
+    private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        VStack(spacing: 12) { content() }
+            .frame(maxWidth: .infinity)
+            .padding(16)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white))
+    }
+}
+
+/// Wrapping row of toggle chips.
+private struct FlowChips: View {
+    let options: [String]
+    @Binding var selected: Set<String>
+
+    var body: some View {
+        let rows = stride(from: 0, to: options.count, by: 2).map { Array(options[$0..<min($0 + 2, options.count)]) }
+        VStack(spacing: 8) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(spacing: 8) {
+                    ForEach(row, id: \.self) { option in
+                        let isOn = selected.contains(option)
+                        Button {
+                            if isOn { selected.remove(option) } else { selected.insert(option) }
+                        } label: {
+                            Text(option)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(isOn ? .white : PMTheme.ink)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .frame(maxWidth: .infinity)
+                                .background(Capsule().fill(isOn ? PMTheme.accent : PMTheme.groupedBackground))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
     }
 }
 

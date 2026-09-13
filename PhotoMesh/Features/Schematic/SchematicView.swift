@@ -59,47 +59,86 @@ struct DotGrid: View {
     }
 }
 
-/// Fixed schematic panel above the steps: follows the open step, zooms onto what it talks about.
+/// Fixed schematic panel above the steps: follows the open step and zooms onto what it talks about.
+/// Drag to pan and pinch to zoom in place; the next step's focus takes the camera back over.
 struct SchematicWindow: View {
     let layout: SchematicLayout
     let loops: [LoopPath]
     let focus: StepFocus
     let onExpand: () -> Void
 
-    @State private var camera = SchematicCamera()
+    private struct PinchState {
+        var magnification: CGFloat
+        var anchor: CGPoint
+    }
+
+    @State private var committed = SchematicCamera()
+    @GestureState private var dragTranslation: CGSize = .zero
+    @GestureState private var pinch: PinchState? = nil
     @State private var size: CGSize = .zero
+    @State private var userMoved = false
+
+    /// Space kept free at the top-right for the expand button when fitting.
+    private let controlInsets = EdgeInsets(top: 34, leading: 14, bottom: 14, trailing: 14)
 
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .topTrailing) {
                 Color.white
                 DotGrid()
-                SchematicView(layout: layout, style: SchematicStyle(focus: focus, loops: loops, formatter: FormattingPreferences.formatter()), camera: camera)
+                SchematicView(layout: layout, style: SchematicStyle(focus: focus, loops: loops, formatter: FormattingPreferences.formatter()), camera: liveCamera)
                     .contentShape(Rectangle())
-                    .onTapGesture { onExpand() }
+                    .gesture(SimultaneousGesture(dragGesture, magnifyGesture))
+                    .onTapGesture(count: 2) {
+                        userMoved = false
+                        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                            committed = target(for: focus, in: size)
+                        }
+                    }
 
-                Button(action: onExpand) {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(PMTheme.ink)
-                        .frame(width: 32, height: 32)
-                        .background(Circle().fill(Color.white).shadow(color: .black.opacity(0.15), radius: 6, y: 2))
+                HStack(spacing: 6) {
+                    if userMoved {
+                        Button {
+                            userMoved = false
+                            withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                                committed = target(for: focus, in: size)
+                            }
+                        } label: {
+                            Image(systemName: "scope")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(PMTheme.ink)
+                                .frame(width: 28, height: 28)
+                                .background(Circle().fill(Color.white.opacity(0.9)).shadow(color: .black.opacity(0.12), radius: 4, y: 1))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Re-centre on this step")
+                        .transition(.scale.combined(with: .opacity))
+                    }
+                    Button(action: onExpand) {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(PMTheme.ink)
+                            .frame(width: 28, height: 28)
+                            .background(Circle().fill(Color.white.opacity(0.9)).shadow(color: .black.opacity(0.12), radius: 4, y: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Open circuit full screen")
                 }
-                .buttonStyle(.plain)
-                .padding(10)
-                .accessibilityLabel("Open circuit full screen")
+                .padding(6)
+                .animation(.easeOut(duration: 0.2), value: userMoved)
             }
             .onAppear {
                 size = geo.size
-                camera = target(for: focus, in: geo.size)
+                committed = target(for: focus, in: geo.size)
             }
             .onChange(of: geo.size) { _, newSize in
                 size = newSize
-                camera = target(for: focus, in: newSize)
+                if !userMoved { committed = target(for: focus, in: newSize) }
             }
             .onChange(of: focus) { _, newFocus in
+                userMoved = false
                 withAnimation(.spring(response: 0.7, dampingFraction: 0.86)) {
-                    camera = target(for: newFocus, in: size)
+                    committed = target(for: newFocus, in: size)
                 }
             }
         }
@@ -107,11 +146,56 @@ struct SchematicWindow: View {
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.black.opacity(0.08)))
     }
 
+    // MARK: Camera
+
+    private var liveCamera: SchematicCamera {
+        var camera = committed
+        if let pinch {
+            let newScale = min(max(camera.scale * pinch.magnification, 0.05), 8)
+            let ratio = newScale / camera.scale
+            camera.offset = CGSize(
+                width: pinch.anchor.x - (pinch.anchor.x - camera.offset.width) * ratio,
+                height: pinch.anchor.y - (pinch.anchor.y - camera.offset.height) * ratio
+            )
+            camera.scale = newScale
+        }
+        camera.offset.width += dragTranslation.width
+        camera.offset.height += dragTranslation.height
+        return camera
+    }
+
+    private var dragGesture: some Gesture {
+        DragGesture(minimumDistance: 3)
+            .updating($dragTranslation) { value, state, _ in state = value.translation }
+            .onEnded { value in
+                committed.offset.width += value.translation.width
+                committed.offset.height += value.translation.height
+                userMoved = true
+            }
+    }
+
+    private var magnifyGesture: some Gesture {
+        MagnifyGesture()
+            .updating($pinch) { value, state, _ in
+                state = PinchState(magnification: value.magnification, anchor: value.startLocation)
+            }
+            .onEnded { value in
+                let newScale = min(max(committed.scale * value.magnification, 0.05), 8)
+                let ratio = newScale / committed.scale
+                committed.offset = CGSize(
+                    width: value.startLocation.x - (value.startLocation.x - committed.offset.width) * ratio,
+                    height: value.startLocation.y - (value.startLocation.y - committed.offset.height) * ratio
+                )
+                committed.scale = newScale
+                userMoved = true
+            }
+    }
+
     private func target(for focus: StepFocus, in size: CGSize) -> SchematicCamera {
         let full = layout.bounds
-        guard focus.zoom else { return .fitting(full, in: size) }
+        guard focus.zoom else { return .fitting(full, in: size, insets: controlInsets) }
         var region = SchematicRenderer.focusBounds(focus, loops: loops, layout: layout)
-        guard !region.isEmpty else { return .fitting(full, in: size) }
+        guard !region.isEmpty else { return .fitting(full, in: size, insets: controlInsets) }
         region = region.insetBy(60)
         // Keep at least ~45% of the circuit in view so the part stays in context.
         let minWidth = full.width * 0.45, minHeight = full.height * 0.45
@@ -128,6 +212,6 @@ struct SchematicWindow: View {
         if region.maxX > full.maxX { let d = region.maxX - full.maxX; region.minX -= d; region.maxX -= d }
         if region.minY < full.minY { let d = full.minY - region.minY; region.minY += d; region.maxY += d }
         if region.maxY > full.maxY { let d = region.maxY - full.maxY; region.minY -= d; region.maxY -= d }
-        return .fitting(region, in: size, padding: 14)
+        return .fitting(region, in: size, insets: controlInsets)
     }
 }
