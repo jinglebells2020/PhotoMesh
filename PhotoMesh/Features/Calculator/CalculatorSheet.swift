@@ -65,6 +65,8 @@ struct CalculatorSheet: View {
             }
         }
         .background((mode == .draw ? Color.white : PMTheme.keyboardBackground).ignoresSafeArea())
+        // Drawing strokes must never turn into a swipe-to-dismiss; Close still works.
+        .interactiveDismissDisabled(mode == .draw)
         .sheet(item: $solutionRequest) { request in
             SolutionsSheet(request: request)
                 .presentationBackground(PMTheme.darkSheet)

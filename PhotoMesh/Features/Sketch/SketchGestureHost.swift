@@ -88,8 +88,23 @@ struct SketchGestureHost: UIViewRepresentable {
             parent.onDoubleTap(recognizer.location(in: recognizer.view))
         }
 
+        /// Our own recognizers cooperate (draw cancels itself when a second finger lands; pan and
+        /// pinch run together). Anything attached elsewhere, above all the sheet's swipe-to-dismiss
+        /// pan, must not run alongside a drawing stroke.
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-            true
+            otherGestureRecognizer.view === gestureRecognizer.view
+        }
+
+        /// Outside pans (the sheet dismissal, ancestor scroll views) wait until our drawing, panning
+        /// or pinching has failed. Drawing begins after 4 pt of movement, so the sheet never moves
+        /// while a stroke is in progress.
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldBeRequiredToFailBy otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            guard otherGestureRecognizer.view !== gestureRecognizer.view else { return false }
+            return otherGestureRecognizer is UIPanGestureRecognizer || otherGestureRecognizer is UIScreenEdgePanGestureRecognizer
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRequireFailureOf otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            false
         }
     }
 }
