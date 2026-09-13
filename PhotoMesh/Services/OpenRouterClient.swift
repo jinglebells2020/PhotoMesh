@@ -15,8 +15,9 @@ struct OpenRouterClient {
     enum ClientError: LocalizedError {
         case missingAPIKey
         case badStatus(Int, String)
-        case emptyResponse
+        case emptyResponse(String)
         case network(Error)
+        case cancelled
 
         var errorDescription: String? {
             switch self {
@@ -29,16 +30,33 @@ struct OpenRouterClient {
                 case 429: return "OpenRouter is rate limiting this key. Wait a moment and try again."
                 default: return "OpenRouter returned an error (\(code)). \(message)"
                 }
-            case .emptyResponse:
-                return "The model returned an empty answer. Try taking the picture again."
+            case .emptyResponse(let detail):
+                return "The model's answer could not be read. \(detail)"
             case .network(let error):
-                return "Network problem: \(error.localizedDescription)"
+                let urlError = error as? URLError
+                let code = urlError.map { " (code \($0.errorCode))" } ?? ""
+                return "The connection to OpenRouter failed\(code): \(error.localizedDescription) Check your signal and try again."
+            case .cancelled:
+                return "The request was cancelled before the answer arrived."
             }
         }
     }
 
     let configuration: Configuration
-    var session: URLSession = .shared
+    var session: URLSession = OpenRouterClient.makeSession()
+
+    /// Generous timeouts and wait-for-connectivity: a recognition round trip is 10–20 s and must
+    /// survive a brief cellular hiccup or the app being backgrounded for a moment.
+    static func makeSession() -> URLSession {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 120
+        config.timeoutIntervalForResource = 240
+        #if canImport(Darwin)
+        config.waitsForConnectivity = true
+        #endif
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: config)
+    }
 
     /// Sends a system prompt, a user text and an optional JPEG; returns the assistant's text.
     func chatJSON(system: String, userText: String, imageJPEG: Data?) async throws -> String {
@@ -68,11 +86,16 @@ struct OpenRouterClient {
         request.setValue("PhotoMesh", forHTTPHeaderField: "X-Title")
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
+        let started = Date()
+        RecognitionLog.shared.record("request → \(configuration.model), \(imageJPEG.map { "\($0.count / 1024) KB image" } ?? "no image")")
+
         var lastError: Error?
         for attempt in 0..<2 {
             do {
                 let (data, response) = try await session.data(for: request)
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                let elapsed = String(format: "%.1f s", Date().timeIntervalSince(started))
+                RecognitionLog.shared.record("response HTTP \(status) after \(elapsed), \(data.count) bytes")
                 if (500...599).contains(status), attempt == 0 {
                     lastError = ClientError.badStatus(status, Self.errorMessage(in: data))
                     try await Task.sleep(for: .seconds(1.5))
@@ -81,22 +104,40 @@ struct OpenRouterClient {
                 guard (200...299).contains(status) else {
                     throw ClientError.badStatus(status, Self.errorMessage(in: data))
                 }
-                let decoded = try JSONDecoder().decode(ChatResponse.self, from: data)
+                let decoded: ChatResponse
+                do {
+                    decoded = try JSONDecoder().decode(ChatResponse.self, from: data)
+                } catch {
+                    let snippet = String(data: data.prefix(400), encoding: .utf8) ?? ""
+                    RecognitionLog.shared.record("undecodable body: \(snippet)")
+                    throw ClientError.emptyResponse("Unexpected response format.")
+                }
                 if let message = decoded.error?.message { throw ClientError.badStatus(status, message) }
                 guard let content = decoded.choices?.first?.message.text, !content.isEmpty else {
-                    throw ClientError.emptyResponse
+                    let reason = decoded.choices?.first?.finishReason.map { "Finish reason: \($0)." } ?? "No content."
+                    RecognitionLog.shared.record("empty content. \(reason)")
+                    throw ClientError.emptyResponse(reason)
                 }
+                RecognitionLog.shared.record("content \(content.count) chars, finish=\(decoded.choices?.first?.finishReason ?? "?"), tokens=\(decoded.usage?.totalTokens.map(String.init) ?? "?")")
                 return content
             } catch let error as ClientError {
                 throw error
-            } catch is DecodingError {
-                throw ClientError.emptyResponse
+            } catch is CancellationError {
+                RecognitionLog.shared.record("cancelled by the app")
+                throw ClientError.cancelled
             } catch {
+                let urlError = error as? URLError
+                RecognitionLog.shared.record("transport error\(urlError.map { " \($0.errorCode)" } ?? ""): \(error.localizedDescription)")
                 lastError = error
-                if attempt == 0 {
+                if urlError?.code == .cancelled { throw ClientError.cancelled }
+                // Retry only when the request most likely never reached the model; a retry re-sends the image.
+                let retryable: Set<URLError.Code> = [.timedOut, .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed, .networkConnectionLost, .secureConnectionFailed]
+                if attempt == 0, let code = urlError?.code, retryable.contains(code) {
+                    RecognitionLog.shared.record("retrying once")
                     try? await Task.sleep(for: .seconds(1.5))
                     continue
                 }
+                break
             }
         }
         throw ClientError.network(lastError ?? URLError(.unknown))
@@ -118,12 +159,23 @@ struct OpenRouterClient {
                 var text: String? { content?.text }
             }
             let message: Message
+            let finishReason: String?
+
+            enum CodingKeys: String, CodingKey {
+                case message
+                case finishReason = "finish_reason"
+            }
         }
         struct APIError: Decodable {
             let message: String?
         }
+        struct Usage: Decodable {
+            let totalTokens: Int?
+            enum CodingKeys: String, CodingKey { case totalTokens = "total_tokens" }
+        }
         let choices: [Choice]?
         let error: APIError?
+        let usage: Usage?
     }
 
     /// `content` is normally a string, but some providers return an array of parts.
@@ -149,4 +201,35 @@ struct OpenRouterClient {
             }
         }
     }
+}
+
+/// In-memory log of the last recognition round trips, shown under Settings → Recognition → Diagnostics.
+final class RecognitionLog {
+    static let shared = RecognitionLog()
+
+    private let queue = DispatchQueue(label: "app.photomesh.recognition.log")
+    private var entries: [String] = []
+    private let limit = 60
+
+    func record(_ message: String) {
+        let stamp = RecognitionLog.timestamp.string(from: Date())
+        queue.async {
+            self.entries.append("\(stamp)  \(message)")
+            if self.entries.count > self.limit { self.entries.removeFirst(self.entries.count - self.limit) }
+        }
+    }
+
+    var text: String {
+        queue.sync { entries.joined(separator: "\n") }
+    }
+
+    func clear() {
+        queue.async { self.entries.removeAll() }
+    }
+
+    private static let timestamp: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
 }

@@ -24,7 +24,10 @@ method to follow.
 | Solutions sheet (one card per method) → Solving Steps (Next Step, Why, feedback) → Circuit detail (netlist, node voltages, element results) | Done |
 | Photo → netlist recognition (OpenRouter, `google/gemini-3.6-flash` by default) | Done, key entered in Settings → Recognition |
 | DC solver: nodal (MNA, supernodes) + mesh (auto loop detection, supermeshes), cross‑checked | Done, unit‑tested |
-| Manual circuit entry, schematic rendering, AC / dependent sources | Next |
+| Schematic redrawn from the photo, fixed window above the steps that zooms to what each step talks about | Done |
+| Full‑screen circuit explorer (pinch, pan, tap a node or part for details in a floating card) | Done |
+| Hand‑drawn circuit entry on a dot grid (Calculator → Draw circuit) | Done |
+| AC / dependent sources, more methods | Next |
 
 The camera runs on device only. In the Simulator the home screen shows a neutral
 backdrop and the shutter still runs the full capture → solutions flow. Without an API key
@@ -51,6 +54,33 @@ circuit through the real engine, so every screen can be exercised without hardwa
 
 Values are formatted with engineering prefixes (37.5 mA, 4.7 kΩ) following the settings.
 
+### The visual companion
+
+The recognizer also returns where every symbol sits in the picture (a normalized bounding
+box and orientation) plus one point per node. `SchematicLayoutEngine` turns that into a clean
+schematic: terminals are assigned to nodes, nearly‑aligned coordinates are snapped, and each
+node is wired as a rail with perpendicular drops (the rail position comes from the node point,
+so a ground rail below the components comes out where the book drew it). Junction dots and the
+ground symbol are derived, not recognized.
+
+Every solving step carries a `StepFocus`: the nodes, elements or meshes it talks about, whether
+to zoom onto them, and which node voltages / currents / mesh currents are known at that point.
+`SchematicWindow` (top of the Solving Steps screen) animates its camera to that focus, dims
+everything else, draws current arrows with values, node voltages, and circulating mesh arrows.
+The expand button (or a tap) opens `CircuitExplorerView`: free pinch/pan, double‑tap to fit, tap
+a component or wire to read about it in the floating card at the bottom.
+
+### Drawing a circuit by hand
+
+Calculator → *Draw circuit* opens a dot‑grid canvas. Strokes are classified by
+`StrokeClassifier`: a straight stroke becomes an axis‑aligned wire, a zigzag a resistor, a
+closed rectangle a resistor, a circle asks whether it is a voltage source, a current source or
+a resistor, a short mark offers Ground, and anything else offers every option. Parts snap to the
+grid and to nearby wire ends; a value sheet with SI prefixes appears for each new part; tapping a
+part opens edit / flip polarity / "find the current here" / delete. `SketchDocument` derives the
+nodes with union‑find (T‑junctions included), builds the `Circuit` with exact geometry, and the
+same engine and screens take it from there.
+
 ### Recognition setup
 
 Settings → Recognition → *OpenRouter API key*. The key is kept in the device Keychain and only
@@ -74,9 +104,10 @@ PhotoMesh/
   Support/                    AppSettings (keys + option enums), APIConfiguration (Keychain), Haptics
   Engine/                     pure-Swift solver
     CircuitModel.swift        Circuit / Component / validation / graph helpers
-    NodalAnalysis.swift       node-voltage method + steps
+    NodalAnalysis.swift       node-voltage method + steps (with StepFocus)
     MeshAnalysis.swift        mesh-current method, loop detection + steps
-    CircuitAnalyzer.swift     runs both methods, cross-checks
+    CircuitAnalyzer.swift     runs both methods, cross-checks, builds the layout
+    SchematicLayout.swift     geometry → schematic drawing primitives
     CircuitPayload.swift      tolerant JSON decoding of the model output
     Units.swift               engineering-notation formatter / parser
   Services/
@@ -90,8 +121,10 @@ PhotoMesh/
     Menu/SideMenuView.swift
     Calculator/               keyboard model + view, expression evaluator, calculator sheet
     Help/                     How‑to‑use sheet with illustrations
-    Settings/                 Settings (incl. Recognition), Language, About, Plus
+    Settings/                 Settings (incl. Recognition + Diagnostics), Language, About, Plus
     Solutions/                Solutions sheet, Solving Steps, Circuit detail
+    Schematic/                Canvas renderer, animated step window, full-screen explorer
+    Sketch/                   Hand-drawn circuit canvas, stroke classifier, sketch → netlist
 .github/workflows/testflight.yml        archive + upload to TestFlight
 ```
 
@@ -139,10 +172,15 @@ Alternative with zero secrets: connect the repository to **Xcode Cloud** (Xcode 
 Xcode Cloud → Create Workflow) and choose "TestFlight (Internal Testing Only)" as the
 post‑action. Xcode Cloud manages signing itself.
 
+### If a scan fails
+
+Settings → Recognition → *Diagnostics* keeps the last requests: image size, HTTP status, timing,
+token counts and any transport error code. The failure card on the Solutions sheet shows the
+same lines under *Show diagnostics*. Copy and paste them into an issue.
+
 ## Next phase
 
-- Design the circuit representation: interactive schematic drawn from the netlist, per‑element
-  values, highlighting the node or mesh each step talks about.
-- Circuit‑oriented manual entry to replace the math keyboard.
+- Polish the step ↔ schematic choreography (per‑step annotations, KCL current arrows at the node).
 - More methods (series/parallel reduction, superposition, Thévenin) and more elements
   (dependent sources, AC phasors).
+- Pinch‑zoom on the drawing canvas for large circuits.

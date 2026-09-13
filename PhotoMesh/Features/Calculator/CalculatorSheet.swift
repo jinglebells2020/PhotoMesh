@@ -13,6 +13,11 @@ struct CalculatorSheet: View {
     @State private var isAlpha = false
     @State private var showHistory = false
     @State private var solutionRequest: SolutionRequest?
+    @State private var mode: EntryMode = .keyboard
+
+    private enum EntryMode: Hashable {
+        case keyboard, draw
+    }
 
     private enum Evaluation {
         case empty
@@ -24,36 +29,42 @@ struct CalculatorSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            modePicker
 
-            ZStack(alignment: .bottom) {
-                ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        inputField
-                        resultArea
-                    }
+            if mode == .draw {
+                SketchCanvasView { circuit in
+                    solutionRequest = SolutionRequest(source: .circuit(circuit))
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.white)
-
-                if showsSolutionButton {
-                    Button(action: showSolution) {
-                        HStack(spacing: 10) {
-                            Text("Show Solution")
-                            Image(systemName: "arrow.right")
-                                .font(.system(size: 16, weight: .semibold))
+            } else {
+                ZStack(alignment: .bottom) {
+                    ScrollView(showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            inputField
+                            resultArea
                         }
                     }
-                    .buttonStyle(PMPrimaryButtonStyle())
-                    .padding(.bottom, 26)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
-            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: showsSolutionButton)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.white)
 
-            CalculatorKeyboardView(tab: $tab, isAlpha: $isAlpha, bottomInset: SafeArea.windowInsets().bottom, onAction: handle)
-                .ignoresSafeArea(edges: .bottom)
+                    if showsSolutionButton {
+                        Button(action: showSolution) {
+                            HStack(spacing: 10) {
+                                Text("Show Solution")
+                                Image(systemName: "arrow.right")
+                                    .font(.system(size: 16, weight: .semibold))
+                            }
+                        }
+                        .buttonStyle(PMPrimaryButtonStyle())
+                        .padding(.bottom, 26)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+                .animation(.spring(response: 0.35, dampingFraction: 0.85), value: showsSolutionButton)
+
+                CalculatorKeyboardView(tab: $tab, isAlpha: $isAlpha, onAction: handle)
+            }
         }
-        .background(PMTheme.keyboardBackground.ignoresSafeArea())
+        .background((mode == .draw ? Color.white : PMTheme.keyboardBackground).ignoresSafeArea())
         .sheet(item: $solutionRequest) { request in
             SolutionsSheet(request: request)
                 .presentationBackground(PMTheme.darkSheet)
@@ -65,6 +76,17 @@ struct CalculatorSheet: View {
     }
 
     // MARK: Sections
+
+    private var modePicker: some View {
+        Picker("Entry mode", selection: $mode) {
+            Text("Keyboard").tag(EntryMode.keyboard)
+            Text("Draw circuit").tag(EntryMode.draw)
+        }
+        .pickerStyle(.segmented)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
+        .background(Color.white)
+    }
 
     private var header: some View {
         ZStack {

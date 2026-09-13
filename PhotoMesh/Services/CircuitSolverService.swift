@@ -35,6 +35,9 @@ struct VLMCircuitSolver: CircuitSolverService {
             return try CircuitAnalyzer.analyze(recognized.circuit, formatter: FormattingPreferences.formatter(), recognitionNotes: notes)
         case .expression(let text):
             return try ExpressionSolver.solve(text)
+        case .circuit(let circuit):
+            progress("Solving…")
+            return try CircuitAnalyzer.analyze(circuit, formatter: FormattingPreferences.formatter(), recognitionNotes: "Drawn by hand.")
         }
     }
 }
@@ -56,7 +59,18 @@ struct SampleCircuitSolver: CircuitSolverService {
         groundNode: "0",
         meshes: [["V1", "R1", "R2"], ["R2", "R3", "V2"]],
         unknowns: [Unknown(kind: .current, element: "R2")],
-        question: "Find the current through R2."
+        question: "Find the current through R2.",
+        geometry: CircuitGeometry(
+            placements: [
+                "V1": .init(box: SRect(minX: 0.135, minY: 0.43, maxX: 0.20, maxY: 0.535), isHorizontal: false),
+                "R1": .init(box: SRect(minX: 0.26, minY: 0.21, maxX: 0.43, maxY: 0.27), isHorizontal: true),
+                "R2": .init(box: SRect(minX: 0.47, minY: 0.34, maxX: 0.53, maxY: 0.62), isHorizontal: false),
+                "R3": .init(box: SRect(minX: 0.57, minY: 0.21, maxX: 0.74, maxY: 0.27), isHorizontal: true),
+                "V2": .init(box: SRect(minX: 0.80, minY: 0.43, maxX: 0.865, maxY: 0.535), isHorizontal: false),
+            ],
+            nodePoints: ["0": SPoint(x: 0.5, y: 0.725), "n1": SPoint(x: 0.17, y: 0.24), "n2": SPoint(x: 0.5, y: 0.24), "n3": SPoint(x: 0.83, y: 0.24)],
+            aspectRatio: 900.0 / 620.0
+        )
     )
 
     func solve(_ request: SolutionRequest, progress: @escaping (String) -> Void) async throws -> CircuitAnalysis {
@@ -68,6 +82,9 @@ struct SampleCircuitSolver: CircuitSolverService {
             return try CircuitAnalyzer.analyze(Self.sample, formatter: FormattingPreferences.formatter(), recognitionNotes: reason ?? "Sample circuit (offline mode).")
         case .expression(let text):
             return try ExpressionSolver.solve(text)
+        case .circuit(let circuit):
+            progress("Solving…")
+            return try CircuitAnalyzer.analyze(circuit, formatter: FormattingPreferences.formatter(), recognitionNotes: "Drawn by hand.")
         }
     }
 }

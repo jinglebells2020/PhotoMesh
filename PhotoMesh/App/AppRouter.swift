@@ -61,6 +61,7 @@ struct SolutionRequest: Identifiable, Hashable {
     enum Source {
         case image(UIImage)
         case expression(String)
+        case circuit(Circuit)
     }
 
     let id = UUID()

@@ -2,20 +2,52 @@ import SwiftUI
 
 /// Step-by-step walkthrough revealed one step at a time with "Next Step".
 struct SolvingStepsView: View {
+    let analysis: CircuitAnalysis
     let solution: MethodSolution
-    let question: String
 
     @State private var revealedCount = 1
     @State private var expandedIndex: Int? = 0
     @State private var whyIndex: Int?
     @State private var feedback: Bool?
+    @State private var showExplorer = false
 
     private var isComplete: Bool { revealedCount > solution.steps.count }
 
-    var body: some View {
-        ZStack(alignment: .bottom) {
-            PMTheme.groupedBackground.ignoresSafeArea()
+    /// The step the schematic should illustrate: the open one, else the latest revealed.
+    private var currentFocus: StepFocus {
+        guard !solution.steps.isEmpty else { return StepFocus() }
+        if let expandedIndex, expandedIndex < solution.steps.count { return solution.steps[expandedIndex].focus }
+        let index = min(revealedCount, solution.steps.count) - 1
+        return solution.steps[max(index, 0)].focus
+    }
 
+    var body: some View {
+        GeometryReader { geo in
+            VStack(spacing: 0) {
+                if let layout = analysis.layout {
+                    SchematicWindow(layout: layout, loops: solution.loops, focus: currentFocus) {
+                        showExplorer = true
+                    }
+                    .frame(height: max(190, geo.size.height * 0.31))
+                    .padding(.horizontal, 12)
+                    .padding(.top, 6)
+                    .padding(.bottom, 4)
+                }
+                stepsList
+            }
+        }
+        .background(PMTheme.groupedBackground.ignoresSafeArea())
+        .navigationTitle("Solving Steps")
+        .navigationBarTitleDisplayMode(analysis.layout == nil ? .large : .inline)
+        .toolbar(.visible, for: .navigationBar)
+        .toolbarBackground(PMTheme.groupedBackground, for: .navigationBar)
+        .navigationDestination(isPresented: $showExplorer) {
+            CircuitExplorerView(analysis: analysis, initialFocus: currentFocus)
+        }
+    }
+
+    private var stepsList: some View {
+        ZStack(alignment: .bottom) {
             ScrollViewReader { proxy in
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 0) {
@@ -69,10 +101,6 @@ struct SolvingStepsView: View {
 
             bottomBar
         }
-        .navigationTitle("Solving Steps")
-        .navigationBarTitleDisplayMode(.large)
-        .toolbar(.visible, for: .navigationBar)
-        .toolbarBackground(PMTheme.groupedBackground, for: .navigationBar)
     }
 
     private var bottomBar: some View {
@@ -364,7 +392,7 @@ private struct FeedbackRow: View {
 #Preview {
     NavigationStack {
         if let analysis = try? CircuitAnalyzer.analyze(SampleCircuitSolver.sample) {
-            SolvingStepsView(solution: analysis.methods[0], question: analysis.question)
+            SolvingStepsView(analysis: analysis, solution: analysis.methods[0])
         }
     }
 }

@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum SolutionDestination: Hashable {
-    case steps(MethodSolution, question: String)
+    case steps(CircuitAnalysis, methodIndex: Int)
     case circuit(CircuitAnalysis)
 }
 
@@ -38,12 +38,12 @@ struct SolutionsSheet: View {
                         case .failed(let message):
                             FailedCard(message: message) { Task { await load() } }
                         case .loaded(let analysis):
-                            ForEach(analysis.methods) { method in
-                                MethodCard(method: method, analysis: analysis, request: request)
+                            ForEach(Array(analysis.methods.enumerated()), id: \.element.id) { index, method in
+                                MethodCard(method: method, methodIndex: index, analysis: analysis, request: request)
                                     .transition(.move(edge: .bottom).combined(with: .opacity))
                             }
                             if analysis.circuit != nil {
-                                RecognizedCircuitCard(analysis: analysis, image: sourceImage)
+                                RecognizedCircuitCard(analysis: analysis, image: sourceImage, isDrawn: isDrawn)
                                     .transition(.move(edge: .bottom).combined(with: .opacity))
                             }
                         }
@@ -60,10 +60,10 @@ struct SolutionsSheet: View {
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: SolutionDestination.self) { destination in
                 switch destination {
-                case .steps(let method, let question):
-                    SolvingStepsView(solution: method, question: question)
+                case .steps(let analysis, let index):
+                    SolvingStepsView(analysis: analysis, solution: analysis.methods[min(index, analysis.methods.count - 1)])
                 case .circuit(let analysis):
-                    CircuitDetailView(analysis: analysis)
+                    CircuitExplorerView(analysis: analysis)
                 }
             }
         }
@@ -73,6 +73,11 @@ struct SolutionsSheet: View {
     private var sourceImage: UIImage? {
         if case .image(let image) = request.source { return image }
         return nil
+    }
+
+    private var isDrawn: Bool {
+        if case .circuit = request.source { return true }
+        return false
     }
 
     private func load() async {
@@ -98,6 +103,7 @@ struct SolutionsSheet: View {
 
 private struct MethodCard: View {
     let method: MethodSolution
+    let methodIndex: Int
     let analysis: CircuitAnalysis
     let request: SolutionRequest
 
@@ -165,7 +171,7 @@ private struct MethodCard: View {
 
             HStack {
                 Spacer()
-                NavigationLink(value: SolutionDestination.steps(method, question: analysis.question)) {
+                NavigationLink(value: SolutionDestination.steps(analysis, methodIndex: methodIndex)) {
                     HStack(spacing: 10) {
                         Text("Show Solving Steps")
                         Image(systemName: "arrow.right").font(.system(size: 16, weight: .semibold))
@@ -184,10 +190,11 @@ private struct MethodCard: View {
 private struct RecognizedCircuitCard: View {
     let analysis: CircuitAnalysis
     let image: UIImage?
+    var isDrawn = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("RECOGNIZED CIRCUIT")
+            Text(isDrawn ? "YOUR CIRCUIT" : "RECOGNIZED CIRCUIT")
                 .font(.system(size: 12, weight: .semibold))
                 .kerning(0.6)
                 .foregroundStyle(PMTheme.secondaryText)
@@ -197,15 +204,25 @@ private struct RecognizedCircuitCard: View {
                     .foregroundStyle(PMTheme.ink)
                     .padding(.top, 4)
 
-                if let image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxHeight: 150)
-                        .frame(maxWidth: .infinity)
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.black.opacity(0.08)))
+                if let layout = analysis.layout {
+                    StaticSchematic(layout: layout)
+                        .frame(height: 190)
                         .padding(.top, 14)
+                }
+
+                if let image {
+                    HStack(spacing: 10) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(height: 64)
+                            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).stroke(Color.black.opacity(0.08)))
+                        Text("Redrawn from your photo. Compare the two before trusting the numbers.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(PMTheme.secondaryText)
+                    }
+                    .padding(.top, 10)
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
@@ -327,6 +344,7 @@ private struct SkeletonLine: View {
 private struct FailedCard: View {
     let message: String
     let retry: () -> Void
+    @State private var showLog = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -337,6 +355,18 @@ private struct FailedCard: View {
                 .font(.system(size: 15))
                 .foregroundStyle(PMTheme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
+            Button(showLog ? "Hide diagnostics" : "Show diagnostics") { withAnimation { showLog.toggle() } }
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(PMTheme.accent)
+            if showLog {
+                Text(RecognitionLog.shared.text.split(separator: "\n").suffix(10).joined(separator: "\n"))
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(PMTheme.ink)
+                    .textSelection(.enabled)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(PMTheme.groupedBackground))
+            }
             Button("Try again", action: retry)
                 .buttonStyle(PMPrimaryButtonStyle())
                 .padding(.top, 6)
@@ -349,4 +379,22 @@ private struct FailedCard: View {
 
 #Preview {
     SolutionsSheet(request: SolutionRequest(source: .expression("12/320")))
+}
+
+/// Non-interactive schematic that fits its frame; used on cards.
+struct StaticSchematic: View {
+    let layout: SchematicLayout
+    var focus = StepFocus()
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                Color.white
+                DotGrid()
+                SchematicView(layout: layout, style: SchematicStyle(focus: focus, formatter: FormattingPreferences.formatter()), camera: .fitting(layout.bounds, in: geo.size, padding: 12))
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.black.opacity(0.08)))
+    }
 }

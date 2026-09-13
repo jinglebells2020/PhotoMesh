@@ -13,7 +13,15 @@ struct CircuitRecognizer {
     func recognize(_ image: UIImage) async throws -> Result {
         let jpeg = image.pmJPEGData(maxDimension: 1280, quality: 0.82)
         let text = try await client.chatJSON(system: RecognitionPrompt.system, userText: RecognitionPrompt.user, imageJPEG: jpeg)
-        let payload = try CircuitPayload.parse(text)
+        var payload: CircuitPayload
+        do {
+            payload = try CircuitPayload.parse(text)
+        } catch {
+            RecognitionLog.shared.record("unparseable model JSON: \(text.prefix(300))")
+            throw CircuitPayload.PayloadError.unreadable
+        }
+        let size = image.size
+        payload.aspectRatio = size.height > 0 ? Double(size.width / size.height) : 1.4
         let circuit = try payload.toCircuit()
         return Result(circuit: circuit, notes: payload.notes, confidence: payload.confidence)
     }

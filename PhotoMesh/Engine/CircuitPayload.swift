@@ -12,9 +12,11 @@ struct CircuitPayload: Decodable {
         var negativeNode: FlexibleString?
         var fromNode: FlexibleString?
         var toNode: FlexibleString?
+        var box: [FlexibleNumber]?
+        var orientation: String?
 
         enum CodingKeys: String, CodingKey {
-            case id, type, value
+            case id, type, value, box, orientation
             case nodeA = "node_a", nodeB = "node_b"
             case positiveNode = "positive_node", negativeNode = "negative_node"
             case fromNode = "from_node", toNode = "to_node"
@@ -31,28 +33,35 @@ struct CircuitPayload: Decodable {
     var error: String?
     var components: [ComponentPayload]?
     var groundNode: FlexibleString?
-    var meshes: [[String]]?
+    var meshes: [[FlexibleString]]?
     var unknowns: [UnknownPayload]?
     var question: String?
-    var unsupported: [String]?
+    var unsupported: [FlexibleString]?
     var confidence: Double?
     var notes: String?
+    var nodePoints: [String: [FlexibleNumber]]?
 
     enum CodingKeys: String, CodingKey {
         case error, components, meshes, unknowns, question, unsupported, confidence, notes
         case groundNode = "ground_node"
+        case nodePoints = "node_points"
     }
+
+    /// Picture aspect ratio (width / height) to keep the schematic proportions; set by the caller.
+    var aspectRatio: Double = 1.4
 
     enum PayloadError: LocalizedError {
         case noCircuit
         case badComponent(String)
         case missingValue(String)
+        case unreadable
 
         var errorDescription: String? {
             switch self {
             case .noCircuit: return "No circuit was found in the picture. Try to frame the whole diagram inside the white corners."
             case .badComponent(let id): return "The reader could not tell where \(id) is connected."
             case .missingValue(let id): return "The value of \(id) could not be read. Make sure the labels are sharp and inside the frame."
+            case .unreadable: return "The model's answer was not valid JSON. Try again; if it keeps happening, switch the model in Settings → Recognition."
             }
         }
     }
@@ -76,6 +85,7 @@ struct CircuitPayload: Decodable {
 
         var converted: [Component] = []
         var usedIds: Set<String> = []
+        var placements: [String: CircuitGeometry.Placement] = [:]
         for payload in components {
             var id = payload.id.trimmingCharacters(in: .whitespaces)
             if id.isEmpty { id = "X\(converted.count + 1)" }
@@ -106,6 +116,26 @@ struct CircuitPayload: Decodable {
             }
             guard let nodeA = a, let nodeB = b, !nodeA.isEmpty, !nodeB.isEmpty else { throw PayloadError.badComponent(id) }
             converted.append(Component(id: id, kind: kind, value: value, nodeA: nodeA, nodeB: nodeB))
+
+            if let box = payload.box, box.count == 4, let x0 = box[0].value, let y0 = box[1].value, let x1 = box[2].value, let y1 = box[3].value {
+                let rect = SRect(minX: min(x0, x1), minY: min(y0, y1), maxX: max(x0, x1), maxY: max(y0, y1))
+                let horizontal: Bool
+                if let orientation = payload.orientation?.lowercased(), orientation.hasPrefix("h") || orientation.hasPrefix("v") {
+                    horizontal = orientation.hasPrefix("h")
+                } else {
+                    horizontal = rect.width >= rect.height
+                }
+                placements[id] = CircuitGeometry.Placement(box: rect, isHorizontal: horizontal)
+            }
+        }
+
+        var geometry: CircuitGeometry?
+        if placements.count == converted.count, !converted.isEmpty {
+            var points: [String: SPoint] = [:]
+            for (node, pair) in nodePoints ?? [:] where pair.count == 2 {
+                if let x = pair[0].value, let y = pair[1].value { points[node] = SPoint(x: x, y: y) }
+            }
+            geometry = CircuitGeometry(placements: placements, nodePoints: points, aspectRatio: aspectRatio)
         }
 
         let unknowns: [Unknown] = (self.unknowns ?? []).compactMap { payload in
@@ -116,11 +146,12 @@ struct CircuitPayload: Decodable {
         return Circuit(
             components: converted,
             groundNode: groundNode?.value ?? "0",
-            meshes: meshes ?? [],
+            meshes: (meshes ?? []).map { $0.map(\.value) },
             unknowns: unknowns,
             question: question?.isEmpty == false ? question : nil,
             notes: notes,
-            unsupported: unsupported ?? []
+            unsupported: (unsupported ?? []).map(\.value).filter { !$0.isEmpty },
+            geometry: geometry
         )
     }
 }

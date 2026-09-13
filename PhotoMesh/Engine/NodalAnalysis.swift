@@ -79,7 +79,8 @@ enum NodalAnalysis {
             summary: "\(nodes.count) nodes, \(circuit.components.count) elements",
             equations: nodes.map { node in "\(node): " + circuit.components(at: node).map(\.id).joined(separator: ", ") },
             explanation: "A node is any point where two or more elements meet. A wire never creates a new node, so every element connects two of these \(nodes.count) nodes.",
-            result: "Nodes: " + nodes.joined(separator: ", ")
+            result: "Nodes: " + nodes.joined(separator: ", "),
+            focus: StepFocus(nodes: nodes)
         ))
 
         // 2. Reference
@@ -89,7 +90,8 @@ enum NodalAnalysis {
             summary: "Node \(ground) is ground, 0 V",
             equations: ["V(\(ground)) = 0", "Unknowns: " + unknownSymbols.joined(separator: ", ")],
             explanation: "Every node voltage is measured relative to the reference. Picking the node with the most connections (or the marked ground) keeps the equations short.",
-            result: "\(unknownSymbols.count) unknown node voltage\(unknownSymbols.count == 1 ? "" : "s")"
+            result: "\(unknownSymbols.count) unknown node voltage\(unknownSymbols.count == 1 ? "" : "s")",
+            focus: StepFocus(nodes: [ground], zoom: true)
         ))
 
         // 3. Voltages fixed by grounded sources; supernodes for floating sources
@@ -109,12 +111,14 @@ enum NodalAnalysis {
             }
         }
         if !fixedLines.isEmpty {
+            let groundedSources = circuit.voltageSources.filter { $0.nodeA == ground || $0.nodeB == ground }.map(\.id)
             steps.append(AnalysisStep(
                 title: "Read off voltages fixed by sources",
                 summary: "\(fixedLines.count) node voltage\(fixedLines.count == 1 ? " is" : "s are") known immediately",
                 equations: fixedLines,
                 explanation: "A voltage source connected to the reference node pins its other terminal: no equation is needed for that node.",
-                result: fixedLines.first.map { String($0.split(separator: "  ").first ?? "") } ?? ""
+                result: fixedLines.first.map { String($0.split(separator: "  ").first ?? "") } ?? "",
+                focus: StepFocus(nodes: Array(known.keys).sorted(by: Circuit.naturalOrder), elements: groundedSources, nodeVoltages: known)
             ))
         }
 
@@ -142,7 +146,8 @@ enum NodalAnalysis {
                 summary: "Nodes \(group.joined(separator: " and ")) are tied by \(sources.map(\.id).joined(separator: ", "))",
                 equations: constraints,
                 explanation: "The current through an ideal voltage source is unknown, so KCL is written for the two nodes together (a supernode) and the source adds a simple voltage constraint.",
-                result: constraints.first ?? ""
+                result: constraints.first ?? "",
+                focus: StepFocus(nodes: group, elements: sources.map(\.id), zoom: true, nodeVoltages: known)
             ))
         }
 
@@ -202,6 +207,7 @@ enum NodalAnalysis {
             let collected = combined.rendered(with: f)
             systemEquations.append(combined)
             let isSuper = group.count > 1
+            let adjacent = circuit.components.filter { c in c.kind != .voltageSource && group.contains(where: { c.touches($0) }) }.map(\.id)
             steps.append(AnalysisStep(
                 title: isSuper ? "Apply KCL to the supernode \(group.joined(separator: "–"))" : "Apply KCL at node \(node)",
                 summary: "Sum of currents leaving = 0",
@@ -209,7 +215,8 @@ enum NodalAnalysis {
                 explanation: isSuper
                     ? "Add the currents leaving every node of the supernode through resistors and current sources; the current through the internal voltage source cancels out."
                     : "Each resistor term is (this node − other node)/R. A current source contributes its value directly, with a minus sign when it pushes current into the node.",
-                result: collected
+                result: collected,
+                focus: StepFocus(nodes: group, elements: adjacent, zoom: true, nodeVoltages: known)
             ))
         }
 
@@ -230,7 +237,8 @@ enum NodalAnalysis {
                 explanation: solvedSymbols.count == 1
                     ? "Divide the constant by the coefficient of the unknown."
                     : "Solve by substitution or with a matrix; every node voltage comes out at once.",
-                result: solution.joined(separator: ", ")
+                result: solution.joined(separator: ", "),
+                focus: StepFocus(nodes: solvedSymbols, nodeVoltages: voltages)
             ))
         }
 
@@ -257,17 +265,19 @@ enum NodalAnalysis {
                 currentLines.append("KCL at \(e.nodeA): \(expression) = \(numeric)\(context.amps(delivered)) → \(e.id) \(delivered >= 0 ? "delivers" : "absorbs") \(context.amps(abs(delivered)))")
             }
         }
+        let currents = Dictionary(uniqueKeysWithValues: elements.map { ($0.id, $0.current) })
         steps.append(AnalysisStep(
             title: "Find the current through each element",
             summary: "Ohm's law on every resistor",
             equations: currentLines,
             explanation: "With the node voltages known, each resistor current is the voltage difference across it divided by its resistance. The current a voltage source delivers follows from KCL at its terminal.",
-            result: currentLines.count == 1 ? currentLines[0] : "\(currentLines.count) currents found"
+            result: currentLines.count == 1 ? currentLines[0] : "\(currentLines.count) currents found",
+            focus: StepFocus(nodeVoltages: voltages, elementCurrents: currents)
         ))
 
         // 7. Voltages, 8. Answer
-        steps.append(SharedSteps.elementVoltages(context: context, elements: elements))
-        steps.append(SharedSteps.answerStep(context: context, answers: answers, elements: elements))
+        steps.append(SharedSteps.elementVoltages(context: context, elements: elements, voltages: voltages))
+        steps.append(SharedSteps.answerStep(context: context, answers: answers, elements: elements, voltages: voltages))
         return steps
     }
 }

@@ -65,6 +65,8 @@ struct Circuit: Hashable, Codable {
     var question: String?
     var notes: String?
     var unsupported: [String] = []
+    /// Symbol positions from the picture or the sketch canvas; drives the schematic drawing.
+    var geometry: CircuitGeometry? = nil
 
     /// All node ids, ground first, the rest in natural order.
     var nodes: [String] {

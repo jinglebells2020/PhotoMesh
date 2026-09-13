@@ -100,7 +100,10 @@ enum MeshAnalysis {
         }
 
         let answers = Answers.build(context: context, voltages: voltages, elements: elements)
-        let steps = buildSteps(context: context, loops: loops, meshCurrents: meshCurrents, currentSourceIndices: currentSourceIndices, sourceVoltages: sourceVoltages, elements: elements, answers: answers)
+        let steps = buildSteps(context: context, loops: loops, meshCurrents: meshCurrents, currentSourceIndices: currentSourceIndices, sourceVoltages: sourceVoltages, elements: elements, voltages: voltages, answers: answers)
+        let paths = loops.map { loop in
+            LoopPath(elementIds: loop.edges.map { components[$0.index].id }, nodeSequence: loop.nodeSequence)
+        }
 
         return MethodSolution(
             method: .mesh,
@@ -108,7 +111,8 @@ enum MeshAnalysis {
             steps: steps,
             nodeVoltages: voltages,
             elements: elements,
-            answers: answers
+            answers: answers,
+            loops: paths
         )
     }
 
@@ -254,7 +258,7 @@ enum MeshAnalysis {
 
     // MARK: Steps
 
-    private static func buildSteps(context: AnalysisContext, loops: [Loop], meshCurrents: [Double], currentSourceIndices: [Int], sourceVoltages: [Int: Double], elements: [ElementResult], answers: [Answer]) -> [AnalysisStep] {
+    private static func buildSteps(context: AnalysisContext, loops: [Loop], meshCurrents: [Double], currentSourceIndices: [Int], sourceVoltages: [Int: Double], elements: [ElementResult], voltages: [String: Double], answers: [Answer]) -> [AnalysisStep] {
         let circuit = context.circuit
         let components = circuit.components
         let f = context.formatter
@@ -272,7 +276,8 @@ enum MeshAnalysis {
             summary: "\(L) independent loop\(L == 1 ? "" : "s")",
             equations: meshLines,
             explanation: "A mesh is a loop that encloses no other loop. Each one gets its own circulating current in the direction listed; an element shared by two meshes carries the difference of their currents.",
-            result: "Mesh currents: " + (0..<L).map { context.meshCurrentSymbol($0) }.joined(separator: ", ")
+            result: "Mesh currents: " + (0..<L).map { context.meshCurrentSymbol($0) }.joined(separator: ", "),
+            focus: StepFocus(loops: Array(0..<L), showMeshArrows: true)
         ))
 
         // 2. Current sources
@@ -303,12 +308,14 @@ enum MeshAnalysis {
             }
         }
         if !sourceLines.isEmpty {
+            let involvedLoops = loops.indices.filter { k in currentSourceIndices.contains { loops[k].contains($0) } }
             steps.append(AnalysisStep(
                 title: "Account for the current sources",
                 summary: "\(currentSourceIndices.count) current source\(currentSourceIndices.count == 1 ? "" : "s")",
                 equations: sourceLines,
                 explanation: "A current source fixes the current of any mesh it belongs to alone. When it sits between two meshes, their KVL loops are merged into one supermesh and the source gives the relation between the two mesh currents.",
-                result: sourceLines.first ?? ""
+                result: sourceLines.first ?? "",
+                focus: StepFocus(elements: currentSourceIndices.map { components[$0].id }, loops: involvedLoops, zoom: true, meshCurrents: knownMesh, showMeshArrows: true)
             ))
         }
 
@@ -365,12 +372,14 @@ enum MeshAnalysis {
             let written = [termsA.renderedLeftSide(), termsB.renderedLeftSide()].filter { !$0.isEmpty && $0 != "0" }.joined(separator: " + ") + " = 0"
             let collected = combined.rendered(with: f)
             systemLines.append(collected)
+            let supermeshElements = (loops[pair.a].edges + loops[pair.b].edges).map { components[$0.index].id }.filter { $0 != components[pair.source].id }
             steps.append(AnalysisStep(
                 title: "Apply KVL around the supermesh (meshes \(pair.a + 1) and \(pair.b + 1))",
                 summary: "Go around both meshes, skipping \(components[pair.source].id)",
                 equations: [written, "→ " + collected],
                 explanation: "Walking around the outside of the two merged meshes avoids the unknown voltage across the current source. Sum of voltage drops = 0.",
-                result: collected
+                result: collected,
+                focus: StepFocus(elements: supermeshElements, loops: [pair.a, pair.b], zoom: true, meshCurrents: knownMesh, showMeshArrows: true)
             ))
         }
         for k in 0..<L where !handledLoops.contains(k) {
@@ -383,7 +392,8 @@ enum MeshAnalysis {
                 summary: "Sum of voltage drops in the direction of \(context.meshCurrentSymbol(k)) = 0",
                 equations: [written, "→ " + collected],
                 explanation: "Going around the loop, a resistor drops R times the net current through it, a voltage source adds +V when crossed from + to − and −V when crossed from − to +.",
-                result: collected
+                result: collected,
+                focus: StepFocus(elements: loops[k].edges.map { components[$0.index].id }, loops: [k], zoom: true, meshCurrents: knownMesh, showMeshArrows: true)
             ))
         }
 
@@ -410,7 +420,8 @@ enum MeshAnalysis {
                 explanation: unknownMeshes.count == 1
                     ? "Divide the constant by the coefficient of the unknown."
                     : "Solve by substitution or with a matrix; all mesh currents come out together.",
-                result: solution.joined(separator: ", ")
+                result: solution.joined(separator: ", "),
+                focus: StepFocus(loops: Array(0..<L), meshCurrents: Dictionary(uniqueKeysWithValues: (0..<L).map { ($0, meshCurrents[$0]) }), showMeshArrows: true)
             ))
         }
 
@@ -439,17 +450,19 @@ enum MeshAnalysis {
             let suffix = e.kind == .voltageSource ? "  (\(e.id) \(-e.current >= 0 ? "delivers" : "absorbs") \(context.amps(abs(e.current))))" : ""
             currentLines.append("\(context.currentSymbol(e.id)) = \(expression) = \(numeric)\(context.amps(e.current))\(suffix)")
         }
+        let currents = Dictionary(uniqueKeysWithValues: elements.map { ($0.id, $0.current) })
         steps.append(AnalysisStep(
             title: "Find the current through each element",
             summary: "Combine the mesh currents",
             equations: currentLines,
             explanation: "An element in one mesh carries that mesh current; an element shared by two meshes carries their difference. Currents are given from the element's first terminal to its second.",
-            result: currentLines.count == 1 ? currentLines[0] : "\(currentLines.count) currents found"
+            result: currentLines.count == 1 ? currentLines[0] : "\(currentLines.count) currents found",
+            focus: StepFocus(elementCurrents: currents)
         ))
 
         // 6. Voltages, 7. Answer
-        steps.append(SharedSteps.elementVoltages(context: context, elements: elements))
-        steps.append(SharedSteps.answerStep(context: context, answers: answers, elements: elements))
+        steps.append(SharedSteps.elementVoltages(context: context, elements: elements, voltages: voltages))
+        steps.append(SharedSteps.answerStep(context: context, answers: answers, elements: elements, voltages: voltages))
         return steps
     }
 }

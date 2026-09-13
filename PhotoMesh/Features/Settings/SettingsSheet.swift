@@ -59,6 +59,11 @@ struct SettingsSheet: View {
                         Text("Use sample circuit").foregroundStyle(PMTheme.ink)
                     }
                     .tint(PMTheme.accent)
+                    NavigationLink {
+                        DiagnosticsView()
+                    } label: {
+                        Text("Diagnostics").foregroundStyle(PMTheme.ink)
+                    }
                 } header: {
                     Text("RECOGNITION")
                 } footer: {
@@ -233,5 +238,50 @@ private struct ModelView: View {
         .listStyle(.insetGrouped)
         .navigationTitle("Model")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+private struct DiagnosticsView: View {
+    @State private var text = RecognitionLog.shared.text
+    @State private var copied = false
+
+    var body: some View {
+        ScrollView {
+            Text(text.isEmpty ? "No recognition requests yet. Scan a circuit, then come back here to see what happened." : text)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(PMTheme.ink)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+        }
+        .background(PMTheme.groupedBackground.ignoresSafeArea())
+        .navigationTitle("Diagnostics")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                HStack(spacing: 16) {
+                    Button {
+                        UIPasteboard.general.string = text
+                        copied = true
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .seconds(1.2))
+                            copied = false
+                        }
+                    } label: {
+                        Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    }
+                    .disabled(text.isEmpty)
+                    Button {
+                        RecognitionLog.shared.clear()
+                        text = ""
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .disabled(text.isEmpty)
+                }
+                .foregroundStyle(PMTheme.accent)
+            }
+        }
+        .onAppear { text = RecognitionLog.shared.text }
     }
 }

@@ -30,6 +30,28 @@ enum AnalysisMethod: String, Codable, Hashable, CaseIterable {
     }
 }
 
+/// What the schematic should show while a step is open.
+struct StepFocus: Hashable {
+    var nodes: [String] = []
+    var elements: [String] = []
+    /// Indices into `MethodSolution.loops`.
+    var loops: [Int] = []
+    /// Zoom the schematic window onto the focused items (otherwise show the whole circuit).
+    var zoom = false
+    var nodeVoltages: [String: Double] = [:]
+    var elementCurrents: [String: Double] = [:]
+    var meshCurrents: [Int: Double] = [:]
+    var showMeshArrows = false
+
+    var isEmpty: Bool { nodes.isEmpty && elements.isEmpty && loops.isEmpty }
+}
+
+/// A mesh / loop as element ids in traversal order, for drawing circulating arrows.
+struct LoopPath: Hashable {
+    var elementIds: [String]
+    var nodeSequence: [String]
+}
+
 /// One step in a walkthrough. `equations` are rendered as separate lines under the title.
 struct AnalysisStep: Identifiable, Hashable {
     let id = UUID()
@@ -38,6 +60,7 @@ struct AnalysisStep: Identifiable, Hashable {
     var equations: [String] = []
     var explanation: String
     var result: String
+    var focus = StepFocus()
 }
 
 /// Per-element outcome. Current is positive from `nodeA` to `nodeB` through the element;
@@ -68,6 +91,7 @@ struct MethodSolution: Identifiable, Hashable {
     var nodeVoltages: [String: Double]
     var elements: [ElementResult]
     var answers: [Answer]
+    var loops: [LoopPath] = []
 }
 
 /// Everything the UI needs after a solve.
@@ -78,4 +102,6 @@ struct CircuitAnalysis: Hashable {
     /// True when every method agrees on the element currents.
     var methodsAgree: Bool
     var recognitionNotes: String?
+    /// Drawing of the recognized circuit, nil for calculator results.
+    var layout: SchematicLayout? = nil
 }

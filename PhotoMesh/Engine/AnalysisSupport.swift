@@ -209,7 +209,7 @@ enum Answers {
 // MARK: - Shared final steps
 
 enum SharedSteps {
-    static func elementVoltages(context: AnalysisContext, elements: [ElementResult]) -> AnalysisStep {
+    static func elementVoltages(context: AnalysisContext, elements: [ElementResult], voltages: [String: Double]) -> AnalysisStep {
         let f = context.formatter
         var lines: [String] = []
         for e in elements {
@@ -227,22 +227,31 @@ enum SharedSteps {
             summary: "Ohm's law for resistors, node differences for sources",
             equations: lines,
             explanation: "For a resistor the voltage is R·I (positive at the terminal the current enters). Sources keep their given voltage, and a current source takes whatever voltage the rest of the circuit imposes.",
-            result: lines.count == 1 ? lines[0] : "\(lines.count) voltages found"
+            result: lines.count == 1 ? lines[0] : "\(lines.count) voltages found",
+            focus: StepFocus(nodeVoltages: voltages, elementCurrents: Dictionary(uniqueKeysWithValues: elements.map { ($0.id, $0.current) }))
         )
     }
 
-    static func answerStep(context: AnalysisContext, answers: [Answer], elements: [ElementResult]) -> AnalysisStep {
+    static func answerStep(context: AnalysisContext, answers: [Answer], elements: [ElementResult], voltages: [String: Double]) -> AnalysisStep {
         let question = context.circuit.question ?? "What was asked"
         let lines = answers.map { "\($0.label): \($0.value)" }
         let power = elements.map(\.power)
         let delivered = -power.filter { $0 < 0 }.reduce(0, +)
         let absorbed = power.filter { $0 > 0 }.reduce(0, +)
+        var askedElements = context.circuit.unknowns.compactMap(\.element)
+        var askedNodes = context.circuit.unknowns.flatMap { ($0.node.map { [$0] } ?? []) + ($0.between ?? []) }
+        if askedElements.isEmpty, askedNodes.isEmpty {
+            askedElements = elements.filter { $0.kind == .resistor }.map(\.id)
+        }
+        askedNodes = askedNodes.filter { node in context.circuit.nodes.contains(node) }
+        let currents = Dictionary(uniqueKeysWithValues: elements.map { ($0.id, $0.current) })
         return AnalysisStep(
             title: "Answer",
             summary: question,
             equations: lines,
             explanation: "Check: the sources deliver \(context.watts(delivered)) and the circuit absorbs \(context.watts(absorbed)); these match, so the solution is consistent.",
-            result: lines.first ?? "Solved"
+            result: lines.first ?? "Solved",
+            focus: StepFocus(nodes: askedNodes, elements: askedElements, zoom: true, nodeVoltages: voltages, elementCurrents: currents.filter { askedElements.contains($0.key) })
         )
     }
 }

@@ -37,7 +37,8 @@ enum CircuitAnalyzer {
             question: circuit.question ?? defaultQuestion(for: circuit),
             methods: methods,
             methodsAgree: agree(methods),
-            recognitionNotes: recognitionNotes
+            recognitionNotes: recognitionNotes,
+            layout: SchematicLayoutEngine.layout(for: circuit)
         )
     }
 
