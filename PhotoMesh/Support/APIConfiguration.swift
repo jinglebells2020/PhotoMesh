@@ -33,6 +33,11 @@ enum APIConfiguration {
     static var useSampleCircuit: Bool {
         UserDefaults.standard.bool(forKey: SettingsKeys.useSampleCircuit)
     }
+
+    /// Ask the user to check the recognized circuit before solving (default on).
+    static var confirmRecognizedCircuits: Bool {
+        UserDefaults.standard.object(forKey: SettingsKeys.confirmRecognized) as? Bool ?? true
+    }
 }
 
 /// Number formatting preferences shared by the engine and the UI.

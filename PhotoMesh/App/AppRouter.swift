@@ -41,6 +41,7 @@ enum SheetRoute: Identifiable, Hashable {
     case language
     case about
     case plus
+    case history
     case solutions(SolutionRequest)
 
     var id: String {
@@ -51,6 +52,7 @@ enum SheetRoute: Identifiable, Hashable {
         case .language: return "language"
         case .about: return "about"
         case .plus: return "plus"
+        case .history: return "history"
         case .solutions(let request): return "solutions-\(request.id.uuidString)"
         }
     }

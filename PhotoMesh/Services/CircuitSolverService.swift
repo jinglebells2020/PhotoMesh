@@ -1,8 +1,26 @@
 import UIKit
 
-/// Anything that can turn a capture or a typed problem into a `CircuitAnalysis`.
+/// What a request turns into before solving: a circuit to (optionally) confirm, or a typed expression.
+enum SolveInput {
+    case circuit(Circuit, notes: String?, needsReview: Bool)
+    case expression(String)
+}
+
+/// Anything that can turn a capture, a drawing or a typed problem into a `SolveInput`.
 protocol CircuitSolverService {
-    func solve(_ request: SolutionRequest, progress: @escaping (String) -> Void) async throws -> CircuitAnalysis
+    func prepare(_ request: SolutionRequest, progress: @escaping (String) -> Void) async throws -> SolveInput
+}
+
+enum SolveRunner {
+    /// Deterministic part of the pipeline, shared by every solver.
+    static func analyze(_ input: SolveInput) throws -> CircuitAnalysis {
+        switch input {
+        case .circuit(let circuit, let notes, _):
+            return try CircuitAnalyzer.analyze(circuit, formatter: FormattingPreferences.formatter(), recognitionNotes: notes)
+        case .expression(let text):
+            return try ExpressionSolver.solve(text)
+        }
+    }
 }
 
 enum SolverProvider {
@@ -21,23 +39,21 @@ enum SolverProvider {
 struct VLMCircuitSolver: CircuitSolverService {
     let configuration: OpenRouterClient.Configuration
 
-    func solve(_ request: SolutionRequest, progress: @escaping (String) -> Void) async throws -> CircuitAnalysis {
+    func prepare(_ request: SolutionRequest, progress: @escaping (String) -> Void) async throws -> SolveInput {
         switch request.source {
         case .image(let image):
             progress("Reading the circuit…")
             let recognizer = CircuitRecognizer(client: OpenRouterClient(configuration: configuration))
             let recognized = try await recognizer.recognize(image)
-            progress("Solving…")
             var notes = recognized.notes
             if let confidence = recognized.confidence, confidence < 0.7 {
                 notes = ["The reader was not fully confident (\(Int(confidence * 100))%). Double-check the values below.", notes].compactMap { $0 }.joined(separator: " ")
             }
-            return try CircuitAnalyzer.analyze(recognized.circuit, formatter: FormattingPreferences.formatter(), recognitionNotes: notes)
+            return .circuit(recognized.circuit, notes: notes, needsReview: APIConfiguration.confirmRecognizedCircuits)
         case .expression(let text):
-            return try ExpressionSolver.solve(text)
+            return .expression(text)
         case .circuit(let circuit):
-            progress("Solving…")
-            return try CircuitAnalyzer.analyze(circuit, formatter: FormattingPreferences.formatter(), recognitionNotes: "Drawn by hand.")
+            return .circuit(circuit, notes: circuit.notes, needsReview: false)
         }
     }
 }
@@ -73,18 +89,16 @@ struct SampleCircuitSolver: CircuitSolverService {
         )
     )
 
-    func solve(_ request: SolutionRequest, progress: @escaping (String) -> Void) async throws -> CircuitAnalysis {
+    func prepare(_ request: SolutionRequest, progress: @escaping (String) -> Void) async throws -> SolveInput {
         switch request.source {
         case .image:
             progress("Reading the circuit…")
             try await Task.sleep(for: .milliseconds(900))
-            progress("Solving…")
-            return try CircuitAnalyzer.analyze(Self.sample, formatter: FormattingPreferences.formatter(), recognitionNotes: reason ?? "Sample circuit (offline mode).")
+            return .circuit(Self.sample, notes: reason ?? "Sample circuit (offline mode).", needsReview: APIConfiguration.confirmRecognizedCircuits)
         case .expression(let text):
-            return try ExpressionSolver.solve(text)
+            return .expression(text)
         case .circuit(let circuit):
-            progress("Solving…")
-            return try CircuitAnalyzer.analyze(circuit, formatter: FormattingPreferences.formatter(), recognitionNotes: "Drawn by hand.")
+            return .circuit(circuit, notes: circuit.notes, needsReview: false)
         }
     }
 }

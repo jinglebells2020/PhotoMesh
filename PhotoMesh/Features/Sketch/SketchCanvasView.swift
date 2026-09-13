@@ -1,76 +1,118 @@
 import SwiftUI
+import UIKit
 
-/// Hand-drawn circuit entry: strokes snap to a dot grid and become wires, resistors and sources,
-/// the way a handwriting keyboard turns strokes into characters.
+/// Hand-drawn circuit entry. Keep drawing; every stroke is recognized on the spot without
+/// interrupting you. Two fingers pan, pinch zooms, tap a part to edit it, double-tap to rotate.
+/// Solve walks through anything that still needs a type or a value.
 struct SketchCanvasView: View {
     let onSolve: (Circuit) -> Void
 
-    private struct PendingStroke: Equatable {
-        var guess: StrokeGuess
-        var bounds: CGRect
-        var options: [SketchElement.Kind]
+    private struct ReviewSession: Equatable {
+        var queue: [UUID]
+        var index = 0
+        var solveAfter: Bool
+
+        var current: UUID? { index < queue.count ? queue[index] : nil }
+        var isLast: Bool { index >= queue.count - 1 }
+    }
+
+    private struct TransformSession {
+        var zoomBase: CGFloat
+        var panBase: CGSize
+        var scale: CGFloat = 1
+        var anchor: CGPoint
+        var translation: CGSize = .zero
+        var active: Set<String> = []
     }
 
     @State private var document = SketchDocument()
     @State private var history: [[SketchElement]] = []
     @State private var stroke: [CGPoint] = []
-    @State private var pending: PendingStroke?
-    @State private var editing: SketchElement?
-    @State private var menuElement: SketchElement?
-    @State private var errorMessage: String?
+    @State private var zoom: CGFloat = 1
+    @State private var pan: CGSize = .zero
+    @State private var transform: TransformSession?
+    @State private var review: ReviewSession?
+    @State private var toast: String?
+    @State private var toastTask: Task<Void, Never>?
     @State private var selectedId: UUID?
+    @State private var placingGround = false
+    @State private var errorMessage: String?
+    @State private var viewSize: CGSize = .zero
+
+    private let minZoom: CGFloat = 0.35
+    private let maxZoom: CGFloat = 3
 
     var body: some View {
         VStack(spacing: 0) {
             GeometryReader { geo in
-                ZStack(alignment: .topLeading) {
+                ZStack(alignment: .top) {
                     Color.white
-                    DotGrid(spacing: SketchGrid.step, dotRadius: 1.2)
-                    SchematicView(layout: document.layout(), style: liveStyle, camera: document.canvasCamera)
+                    DotGrid(spacing: SketchGrid.step * zoom, dotRadius: 1.2, origin: CGPoint(x: pan.width, y: pan.height))
+                    SchematicView(layout: document.layout(), style: liveStyle, camera: document.schematicCamera(zoom: zoom, pan: pan))
                         .allowsHitTesting(false)
                     StrokeOverlay(points: stroke)
 
-                    if document.elements.isEmpty, stroke.isEmpty, pending == nil {
+                    SketchGestureHost(
+                        onStrokeBegan: { point in
+                            stroke = [point]
+                        },
+                        onStrokeMoved: { point in
+                            stroke.append(point)
+                        },
+                        onStrokeEnded: { cancelled in
+                            let points = stroke
+                            stroke = []
+                            guard !cancelled, points.count > 1 else { return }
+                            handle(StrokeClassifier.classify(points.map(canvasPoint)))
+                        },
+                        onTap: { point in tapped(at: canvasPoint(point)) },
+                        onDoubleTap: { point in doubleTapped(at: canvasPoint(point)) },
+                        onPan: { translation, state in
+                            updateTransform(gesture: "pan", state: state) { session in session.translation = translation }
+                        },
+                        onPinch: { scale, location, state in
+                            updateTransform(gesture: "pinch", state: state, anchor: location) { session in session.scale = scale }
+                        }
+                    )
+
+                    if document.elements.isEmpty, stroke.isEmpty {
                         emptyHint
                             .frame(width: geo.size.width, height: geo.size.height)
                     }
 
-                    if let pending {
-                        ChooserBubble(options: pending.options, onPick: { kind in place(kind, for: pending) }, onCancel: { self.pending = nil })
-                            .position(bubblePosition(for: pending.bounds, in: geo.size))
-                            .transition(.scale(scale: 0.9).combined(with: .opacity))
+                    if placingGround {
+                        banner("Tap the wire or terminal the ground connects to", systemImage: "arrowtriangle.down")
+                    } else if let toast {
+                        banner(toast, systemImage: "info.circle")
                     }
                 }
-                .contentShape(Rectangle())
-                .gesture(drawGesture)
-                .onAppear { document.canvasSize = geo.size }
-                .onChange(of: geo.size) { _, newSize in document.canvasSize = newSize }
+                .onAppear { viewSize = geo.size }
+                .onChange(of: geo.size) { _, newSize in viewSize = newSize }
             }
             .clipped()
+
+            if let review, let element = document.elements.first(where: { $0.id == review.current }) {
+                ElementPanel(
+                    element: element,
+                    progress: review.solveAfter ? "\(review.index + 1) of \(review.queue.count)" : nil,
+                    primaryTitle: review.solveAfter ? (review.isLast ? "Solve" : "Next") : "Done",
+                    onCommit: { kind, value in commit(kind: kind, value: value, for: element) },
+                    onSkip: { advanceReview() },
+                    onFlip: { update(element.id) { $0.flipped.toggle() } },
+                    onAsk: { update(element.id) { $0.asked.toggle() } },
+                    onDelete: {
+                        remove(element.id)
+                        advanceReview()
+                    }
+                )
+                .id(element.id)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
 
             toolbar
         }
         .background(Color.white)
-        .sheet(item: $editing) { element in
-            ValueEntrySheet(element: element) { value in
-                update(element.id) { $0.value = value }
-            }
-            .presentationDetents([.height(320)])
-        }
-        .confirmationDialog(menuTitle, isPresented: Binding(get: { menuElement != nil }, set: { if !$0 { menuElement = nil } }), titleVisibility: .visible, presenting: menuElement) { element in
-            if element.isComponent {
-                Button("Edit value") { editing = element }
-                Button(element.asked ? "Stop asking for its current" : "Find the current here") { update(element.id) { $0.asked.toggle() } }
-            }
-            if element.kind == .voltageSource {
-                Button("Flip polarity") { update(element.id) { $0.flipped.toggle() } }
-            }
-            if element.kind == .currentSource {
-                Button("Flip direction") { update(element.id) { $0.flipped.toggle() } }
-            }
-            Button("Delete", role: .destructive) { remove(element.id) }
-            Button("Cancel", role: .cancel) {}
-        }
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: review)
         .alert("Not solvable yet", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -88,47 +130,51 @@ struct SketchCanvasView: View {
             Text("Draw your circuit")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(PMTheme.secondaryText)
-            Text("A straight stroke becomes a wire, a zigzag a resistor, a circle a source. Tap a part to edit it.")
+            Text("Straight strokes become wires (corners are fine), a zigzag a resistor, a circle a source. Keep going; values come at the end. Two fingers move and zoom.")
                 .font(.system(size: 13))
                 .foregroundStyle(PMTheme.tertiaryText)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
+                .padding(.horizontal, 36)
         }
         .allowsHitTesting(false)
     }
 
+    private func banner(_ text: String, systemImage: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+            Text(text)
+        }
+        .font(.system(size: 13, weight: .medium))
+        .foregroundStyle(.white)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background(Capsule().fill(Color.black.opacity(0.72)))
+        .padding(.top, 12)
+        .allowsHitTesting(false)
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
     private var toolbar: some View {
-        HStack(spacing: 14) {
-            Button {
-                undo()
-            } label: {
-                Image(systemName: "arrow.uturn.backward")
-                    .font(.system(size: 17, weight: .medium))
-                    .frame(width: 40, height: 40)
-            }
-            .disabled(history.isEmpty)
-            Button {
+        HStack(spacing: 10) {
+            toolButton("arrow.uturn.backward", label: "Undo", disabled: history.isEmpty) { undo() }
+            toolButton("trash", label: "Clear", disabled: document.elements.isEmpty) {
                 commit()
                 document.elements.removeAll()
                 selectedId = nil
-            } label: {
-                Image(systemName: "trash")
-                    .font(.system(size: 17, weight: .medium))
-                    .frame(width: 40, height: 40)
+                review = nil
             }
-            .disabled(document.elements.isEmpty)
+            toolButton("arrowtriangle.down", label: "Ground", disabled: document.elements.isEmpty, active: placingGround) {
+                withAnimation { placingGround.toggle() }
+            }
+            toolButton("arrow.up.left.and.down.right.magnifyingglass", label: "Fit", disabled: document.elements.isEmpty) {
+                fitToContent()
+            }
 
-            Spacer()
+            Spacer(minLength: 4)
 
-            Text(statusText)
-                .font(.system(size: 12))
-                .foregroundStyle(PMTheme.secondaryText)
-                .lineLimit(2)
-                .multilineTextAlignment(.trailing)
-
-            Button(action: solve) {
+            Button(action: solveTapped) {
                 HStack(spacing: 8) {
-                    Text("Solve")
+                    Text(document.needingAttention.isEmpty ? "Solve" : "Review & solve")
                     Image(systemName: "arrow.right").font(.system(size: 15, weight: .semibold))
                 }
             }
@@ -136,116 +182,143 @@ struct SketchCanvasView: View {
             .disabled(!(document.hasSource && document.hasResistor))
             .opacity(document.hasSource && document.hasResistor ? 1 : 0.5)
         }
-        .foregroundStyle(PMTheme.ink)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
         .background(Color.white)
         .overlay(alignment: .top) { Divider() }
     }
 
-    private var statusText: String {
-        let resistors = document.elements.filter { $0.kind == .resistor }.count
-        let sources = document.elements.filter { $0.kind == .voltageSource || $0.kind == .currentSource }.count
-        if document.elements.isEmpty { return "" }
-        if !document.hasSource { return "Add a source (draw a circle)" }
-        if !document.hasResistor { return "Add a resistor (draw a zigzag)" }
-        if !document.missingValues.isEmpty { return "\(document.missingValues.first!.label) needs a value" }
-        return "\(resistors) resistor\(resistors == 1 ? "" : "s"), \(sources) source\(sources == 1 ? "" : "s")"
-    }
-
-    private var menuTitle: String {
-        guard let element = menuElement else { return "" }
-        if let kind = element.kind.componentKind, let value = element.value {
-            return "\(element.label) · \(FormattingPreferences.formatter().format(value, kind.unitSymbol))"
+    private func toolButton(_ systemImage: String, label: String, disabled: Bool, active: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 2) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 16, weight: .medium))
+                Text(label)
+                    .font(.system(size: 9.5))
+            }
+            .foregroundStyle(active ? PMTheme.accent : PMTheme.ink)
+            .frame(width: 44, height: 40)
+            .background(RoundedRectangle(cornerRadius: 9).fill(active ? PMTheme.accentSoft : Color.clear))
         }
-        return element.kind == .wire ? "Wire" : element.label
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .opacity(disabled ? 0.35 : 1)
+        .accessibilityLabel(label)
     }
 
     private var liveStyle: SchematicStyle {
         var style = SchematicStyle(formatter: FormattingPreferences.formatter())
-        style.pendingValueIds = Set(document.missingValues.map(\.label))
+        style.pendingValueIds = Set(document.needingAttention.map(\.label))
         style.askedIds = Set(document.elements.filter(\.asked).map(\.label))
-        if let selectedId, let element = document.elements.first(where: { $0.id == selectedId }) {
-            style.selection = element.isComponent ? .element(element.label) : nil
+        let highlighted = review?.current ?? selectedId
+        if let highlighted, let element = document.elements.first(where: { $0.id == highlighted }), element.isComponent {
+            style.selection = .element(element.label)
         }
         return style
     }
 
-    private func bubblePosition(for bounds: CGRect, in size: CGSize) -> CGPoint {
-        let width: CGFloat = 300
-        let x = min(max(bounds.midX, width / 2 + 8), size.width - width / 2 - 8)
-        let y = bounds.minY > 90 ? bounds.minY - 48 : bounds.maxY + 48
-        return CGPoint(x: x, y: min(max(y, 40), size.height - 40))
+    // MARK: Coordinates
+
+    private func canvasPoint(_ viewPoint: CGPoint) -> CGPoint {
+        CGPoint(x: (viewPoint.x - pan.width) / zoom, y: (viewPoint.y - pan.height) / zoom)
     }
 
-    // MARK: Drawing
-
-    private var drawGesture: some Gesture {
-        DragGesture(minimumDistance: 0, coordinateSpace: .local)
-            .onChanged { value in
-                if pending != nil { withAnimation { pending = nil } }
-                if stroke.isEmpty { stroke = [value.startLocation] }
-                stroke.append(value.location)
+    private func updateTransform(gesture: String, state: UIGestureRecognizer.State, anchor: CGPoint? = nil, change: (inout TransformSession) -> Void) {
+        switch state {
+        case .began:
+            if transform == nil {
+                transform = TransformSession(zoomBase: zoom, panBase: pan, anchor: anchor ?? CGPoint(x: viewSize.width / 2, y: viewSize.height / 2))
             }
-            .onEnded { value in
-                let points = stroke.isEmpty ? [value.location] : stroke
-                stroke = []
-                handle(StrokeClassifier.classify(points), points: points)
-            }
-    }
-
-    private func handle(_ guess: StrokeGuess, points: [CGPoint]) {
-        let bounds = StrokeClassifier.boundingBox(points)
-        switch guess {
-        case .tap(let point):
-            if let element = element(at: point) {
-                selectedId = element.id
-                Haptics.selection()
-                menuElement = element
-            } else {
-                selectedId = nil
-            }
-        case .wire(let from, let to):
-            addWire(from: from, to: to)
-        case .resistor(let center, let horizontal), .rectangle(let center, let horizontal):
-            addComponent(.resistor, center: center, horizontal: horizontal)
-        case .roundShape:
-            Haptics.impact(.light)
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                pending = PendingStroke(guess: guess, bounds: bounds, options: [.voltageSource, .currentSource, .resistor])
-            }
-        case .shortMark:
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                pending = PendingStroke(guess: guess, bounds: bounds, options: [.ground, .wire])
-            }
-        case .unknown:
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                pending = PendingStroke(guess: guess, bounds: bounds, options: [.wire, .resistor, .voltageSource, .currentSource, .ground])
-            }
+            transform?.active.insert(gesture)
+            if let anchor { transform?.anchor = anchor }
+            fallthrough
+        case .changed:
+            guard var session = transform else { return }
+            change(&session)
+            transform = session
+            let newZoom = min(max(session.zoomBase * session.scale, minZoom), maxZoom)
+            let ratio = newZoom / session.zoomBase
+            zoom = newZoom
+            pan = CGSize(
+                width: session.anchor.x - (session.anchor.x - session.panBase.width) * ratio + session.translation.width,
+                height: session.anchor.y - (session.anchor.y - session.panBase.height) * ratio + session.translation.height
+            )
+        case .ended, .cancelled, .failed:
+            transform?.active.remove(gesture)
+            if transform?.active.isEmpty ?? true { transform = nil }
+        default:
+            break
         }
     }
 
-    private func place(_ kind: SketchElement.Kind, for pending: PendingStroke) {
-        withAnimation { self.pending = nil }
-        let bounds = pending.bounds
-        let center = CGPoint(x: bounds.midX, y: bounds.midY)
-        switch kind {
-        case .wire:
-            if bounds.width >= bounds.height {
-                addWire(from: CGPoint(x: bounds.minX, y: bounds.midY), to: CGPoint(x: bounds.maxX, y: bounds.midY))
+    private func fitToContent() {
+        let frame = document.contentFrame
+        guard frame.width > 0, frame.height > 0, viewSize.width > 0 else { return }
+        let newZoom = min(max(min(viewSize.width / frame.width, viewSize.height / frame.height), minZoom), maxZoom)
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+            zoom = newZoom
+            pan = CGSize(width: viewSize.width / 2 - frame.midX * newZoom, height: viewSize.height / 2 - frame.midY * newZoom)
+        }
+    }
+
+    private func center(on element: SketchElement) {
+        guard viewSize.width > 0 else { return }
+        let c = element.center
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+            pan = CGSize(width: viewSize.width / 2 - c.x * zoom, height: viewSize.height * 0.42 - c.y * zoom)
+        }
+    }
+
+    // MARK: Stroke handling
+
+    private func handle(_ guess: StrokeGuess) {
+        switch guess {
+        case .tap(let point):
+            tapped(at: point)
+        case .wire(let from, let to):
+            addWire(from: from, to: to)
+        case .wirePath(let corners):
+            addWirePath(corners)
+        case .resistor(let center, let horizontal), .rectangle(let center, let horizontal):
+            addComponent(.resistor, center: center, horizontal: horizontal, needsKind: false)
+        case .roundShape(let center, _):
+            addComponent(.voltageSource, center: center, horizontal: inferHorizontal(around: center), needsKind: true)
+        case .shortMark(let center):
+            addWire(from: CGPoint(x: center.x - SketchGrid.step / 2, y: center.y), to: CGPoint(x: center.x + SketchGrid.step / 2, y: center.y))
+        case .unknown:
+            showToast("Couldn't read that stroke. Try a straight line, a zigzag or a circle.")
+            Haptics.notify(.warning)
+        }
+    }
+
+    private func tapped(at point: CGPoint) {
+        if placingGround {
+            addGround(at: point)
+            withAnimation { placingGround = false }
+            return
+        }
+        if let element = element(at: point) {
+            selectedId = element.id
+            Haptics.selection()
+            if element.isComponent {
+                review = ReviewSession(queue: [element.id], solveAfter: false)
             } else {
-                addWire(from: CGPoint(x: bounds.midX, y: bounds.minY), to: CGPoint(x: bounds.midX, y: bounds.maxY))
+                commit()
+                document.elements.removeAll { $0.id == element.id }
+                showToast("\(element.kind == .wire ? "Wire" : "Ground") removed")
             }
-        case .ground:
-            addGround(at: center)
-        case .resistor, .voltageSource, .currentSource:
-            let horizontal: Bool
-            if case .roundShape = pending.guess {
-                horizontal = inferHorizontal(around: center)
-            } else {
-                horizontal = bounds.width >= bounds.height
-            }
-            addComponent(kind, center: center, horizontal: horizontal)
+        } else {
+            selectedId = nil
+            if review?.solveAfter == false { review = nil }
+        }
+    }
+
+    private func doubleTapped(at point: CGPoint) {
+        if let element = element(at: point), element.isComponent {
+            update(element.id) { $0.rotate() }
+            Haptics.impact(.medium)
+        } else {
+            fitToContent()
         }
     }
 
@@ -253,13 +326,14 @@ struct SketchCanvasView: View {
 
     private func commit() {
         history.append(document.elements)
-        if history.count > 40 { history.removeFirst() }
+        if history.count > 60 { history.removeFirst() }
     }
 
     private func undo() {
         guard let previous = history.popLast() else { return }
         document.elements = previous
         selectedId = nil
+        review = nil
         Haptics.impact(.light)
     }
 
@@ -286,7 +360,6 @@ struct SketchCanvasView: View {
             let x = SketchGrid.snap(CGPoint(x: (rawFrom.x + rawTo.x) / 2, y: 0)).x
             from.x = x; to.x = x
         }
-        // Magnet the ends onto nearby terminals or wire ends.
         if let near = nearestConnectionPoint(to: from, within: SketchGrid.step * 1.1) {
             from = near
             if horizontal { to.y = near.y } else { to.x = near.x }
@@ -301,29 +374,66 @@ struct SketchCanvasView: View {
         Haptics.impact(.light)
     }
 
-    private func addComponent(_ kind: SketchElement.Kind, center rawCenter: CGPoint, horizontal: Bool) {
+    /// A stroke with corners becomes a chain of axis-aligned wires that meet exactly.
+    private func addWirePath(_ corners: [CGPoint]) {
+        guard corners.count >= 2 else { return }
+        var current = SketchGrid.snap(corners[0])
+        if let near = nearestConnectionPoint(to: current, within: SketchGrid.step * 1.1) { current = near }
+        var segments: [(CGPoint, CGPoint)] = []
+        for (index, raw) in corners.dropFirst().enumerated() {
+            var target = SketchGrid.snap(raw)
+            let isLast = index == corners.count - 2
+            if isLast, let near = nearestConnectionPoint(to: target, within: SketchGrid.step * 1.1) { target = near }
+            let horizontal = abs(raw.x - current.x) >= abs(raw.y - current.y)
+            var next = horizontal ? CGPoint(x: target.x, y: current.y) : CGPoint(x: current.x, y: target.y)
+            if isLast, next != target {
+                // Finish with a short perpendicular so the path ends exactly on the target.
+                if next != current { segments.append((current, next)) }
+                current = next
+                next = target
+            }
+            guard next != current else { continue }
+            if let last = segments.last, sameAxis(last.0, last.1, current, next) {
+                segments[segments.count - 1] = (last.0, next)
+            } else {
+                segments.append((current, next))
+            }
+            current = next
+        }
+        guard !segments.isEmpty else { return }
+        commit()
+        for (a, b) in segments {
+            document.elements.append(SketchElement(kind: .wire, a: a, b: b, label: document.nextLabel(for: .wire)))
+        }
+        Haptics.impact(.light)
+    }
+
+    private func sameAxis(_ a: CGPoint, _ b: CGPoint, _ c: CGPoint, _ d: CGPoint) -> Bool {
+        let firstHorizontal = abs(a.y - b.y) < 0.5, secondHorizontal = abs(c.y - d.y) < 0.5
+        return firstHorizontal == secondHorizontal && (firstHorizontal ? abs(a.y - c.y) < 0.5 : abs(a.x - c.x) < 0.5)
+    }
+
+    private func addComponent(_ kind: SketchElement.Kind, center rawCenter: CGPoint, horizontal: Bool, needsKind: Bool) {
         let center = SketchGrid.snap(rawCenter)
         let half = SketchGrid.step * SketchGrid.componentSteps / 2
         var a = horizontal ? CGPoint(x: center.x - half, y: center.y) : CGPoint(x: center.x, y: center.y - half)
         var b = horizontal ? CGPoint(x: center.x + half, y: center.y) : CGPoint(x: center.x, y: center.y + half)
-        // Line the component up with a wire it was drawn next to.
         if let near = nearestConnectionPoint(to: center, within: SketchGrid.step * 1.6) {
             if horizontal { a.y = near.y; b.y = near.y } else { a.x = near.x; b.x = near.x }
         }
         commit()
         var element = SketchElement(kind: kind, a: a, b: b, label: document.nextLabel(for: kind))
-        element.asked = false
+        element.needsKind = needsKind
         document.elements.append(element)
         attachWires(to: element)
-        selectedId = element.id
         Haptics.impact(.medium)
-        editing = element
     }
 
     private func addGround(at rawPoint: CGPoint) {
         var point = SketchGrid.snap(rawPoint)
-        if let near = nearestConnectionPoint(to: point, within: SketchGrid.step * 1.6) { point = near }
+        if let near = nearestConnectionPoint(to: point, within: SketchGrid.step * 2) { point = near }
         commit()
+        document.elements.removeAll { $0.kind == .ground }   // one reference node
         document.elements.append(SketchElement(kind: .ground, a: point, b: point, label: document.nextLabel(for: .ground)))
         Haptics.impact(.light)
     }
@@ -342,6 +452,55 @@ struct SketchCanvasView: View {
                 }
                 document.elements[index] = wire
             }
+        }
+    }
+
+    // MARK: Review
+
+    private func solveTapped() {
+        let pending = document.needingAttention.map(\.id)
+        if pending.isEmpty {
+            finishSolve()
+        } else {
+            review = ReviewSession(queue: pending, solveAfter: true)
+            if let first = document.elements.first(where: { $0.id == pending[0] }) { center(on: first) }
+        }
+    }
+
+    private func commit(kind: SketchElement.Kind, value: Double?, for element: SketchElement) {
+        commit()
+        document.relabel(element.id, as: kind)
+        if let index = document.elements.firstIndex(where: { $0.id == element.id }) {
+            document.elements[index].value = value
+            document.elements[index].needsKind = false
+        }
+        advanceReview()
+    }
+
+    private func advanceReview() {
+        guard var session = review else { return }
+        session.index += 1
+        if let next = session.current, let element = document.elements.first(where: { $0.id == next }) {
+            review = session
+            center(on: element)
+        } else {
+            review = nil
+            if session.solveAfter { finishSolve() }
+        }
+    }
+
+    private func finishSolve() {
+        if let missing = document.needingAttention.first {
+            review = ReviewSession(queue: [missing.id], solveAfter: true)
+            return
+        }
+        let circuit = document.circuit()
+        do {
+            let validated = try circuit.validated()
+            Haptics.impact(.medium)
+            onSolve(validated)
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -377,30 +536,23 @@ struct SketchCanvasView: View {
         for element in document.elements {
             let d: CGFloat
             if element.kind == .ground {
-                d = hypot(element.a.x - point.x, element.a.y - point.y + 12)
+                d = hypot(element.a.x - point.x, element.a.y - point.y - 14)
             } else {
                 d = CGFloat(distanceToSegment(SPoint(x: point.x, y: point.y), SPoint(x: element.a.x, y: element.a.y), SPoint(x: element.b.x, y: element.b.y)))
             }
-            let tolerance: CGFloat = element.kind == .wire ? 14 : 22
+            let tolerance: CGFloat = (element.kind == .wire ? 14 : 22) / max(zoom, 0.5)
             if d <= tolerance, best == nil || d < best!.1 { best = (element, d) }
         }
         return best?.0
     }
 
-    // MARK: Solve
-
-    private func solve() {
-        if let missing = document.missingValues.first {
-            editing = missing
-            return
-        }
-        let circuit = document.circuit()
-        do {
-            let validated = try circuit.validated()
-            Haptics.impact(.medium)
-            onSolve(validated)
-        } catch {
-            errorMessage = error.localizedDescription
+    private func showToast(_ text: String) {
+        toastTask?.cancel()
+        withAnimation { toast = text }
+        toastTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1.8))
+            guard !Task.isCancelled else { return }
+            withAnimation { toast = nil }
         }
     }
 }
@@ -422,75 +574,20 @@ private struct StrokeOverlay: View {
     }
 }
 
-/// "What did you draw?" options shown next to an ambiguous stroke.
-private struct ChooserBubble: View {
-    let options: [SketchElement.Kind]
-    let onPick: (SketchElement.Kind) -> Void
-    let onCancel: () -> Void
-
-    var body: some View {
-        HStack(spacing: 4) {
-            ForEach(options, id: \.self) { kind in
-                Button {
-                    onPick(kind)
-                } label: {
-                    VStack(spacing: 3) {
-                        Image(systemName: icon(for: kind))
-                            .font(.system(size: 17, weight: .medium))
-                        Text(title(for: kind))
-                            .font(.system(size: 10, weight: .medium))
-                    }
-                    .foregroundStyle(PMTheme.ink)
-                    .frame(width: 58, height: 50)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-            Button(action: onCancel) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(PMTheme.secondaryText)
-                    .frame(width: 34, height: 50)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white)
-                .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
-        )
-    }
-
-    private func icon(for kind: SketchElement.Kind) -> String {
-        switch kind {
-        case .wire: return "minus"
-        case .resistor: return "waveform.path"
-        case .voltageSource: return "plusminus.circle"
-        case .currentSource: return "arrow.up.circle"
-        case .ground: return "arrowtriangle.down"
-        }
-    }
-
-    private func title(for kind: SketchElement.Kind) -> String {
-        switch kind {
-        case .wire: return "Wire"
-        case .resistor: return "Resistor"
-        case .voltageSource: return "Voltage"
-        case .currentSource: return "Current"
-        case .ground: return "Ground"
-        }
-    }
-}
-
-/// Value + SI prefix entry for a freshly drawn component.
-private struct ValueEntrySheet: View {
+/// Bottom panel that asks what a part is and what its value is, one part at a time.
+private struct ElementPanel: View {
     let element: SketchElement
-    let onSave: (Double) -> Void
+    let progress: String?
+    let primaryTitle: String
+    let onCommit: (SketchElement.Kind, Double?) -> Void
+    let onSkip: () -> Void
+    let onFlip: () -> Void
+    let onAsk: () -> Void
+    let onDelete: () -> Void
 
-    @Environment(\.dismiss) private var dismiss
-    @State private var text = ""
-    @State private var multiplier: Double = 1
+    @State private var kind: SketchElement.Kind
+    @State private var text: String
+    @State private var multiplier: Double
     @FocusState private var focused: Bool
 
     private struct Prefix: Identifiable {
@@ -499,8 +596,30 @@ private struct ValueEntrySheet: View {
         var id: String { symbol }
     }
 
-    private var prefixes: [Prefix] {
-        switch element.kind {
+    init(element: SketchElement, progress: String?, primaryTitle: String, onCommit: @escaping (SketchElement.Kind, Double?) -> Void, onSkip: @escaping () -> Void, onFlip: @escaping () -> Void, onAsk: @escaping () -> Void, onDelete: @escaping () -> Void) {
+        self.element = element
+        self.progress = progress
+        self.primaryTitle = primaryTitle
+        self.onCommit = onCommit
+        self.onSkip = onSkip
+        self.onFlip = onFlip
+        self.onAsk = onAsk
+        self.onDelete = onDelete
+        let prefixes = ElementPanel.prefixes(for: element.kind)
+        var startText = ""
+        var startMultiplier = prefixes.first { $0.multiplier == 1 }?.multiplier ?? 1
+        if let value = element.value {
+            let best = prefixes.min { abs(log10(value / $0.multiplier)) < abs(log10(value / $1.multiplier)) } ?? prefixes[0]
+            startMultiplier = best.multiplier
+            startText = QuantityFormatter().number(value / best.multiplier)
+        }
+        _kind = State(initialValue: element.kind)
+        _text = State(initialValue: startText)
+        _multiplier = State(initialValue: startMultiplier)
+    }
+
+    private static func prefixes(for kind: SketchElement.Kind) -> [Prefix] {
+        switch kind {
         case .resistor: return [Prefix(symbol: "Ω", multiplier: 1), Prefix(symbol: "kΩ", multiplier: 1e3), Prefix(symbol: "MΩ", multiplier: 1e6)]
         case .voltageSource: return [Prefix(symbol: "mV", multiplier: 1e-3), Prefix(symbol: "V", multiplier: 1), Prefix(symbol: "kV", multiplier: 1e3)]
         case .currentSource: return [Prefix(symbol: "µA", multiplier: 1e-6), Prefix(symbol: "mA", multiplier: 1e-3), Prefix(symbol: "A", multiplier: 1)]
@@ -508,64 +627,90 @@ private struct ValueEntrySheet: View {
         }
     }
 
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    HStack {
-                        TextField("Value", text: $text)
-                            .keyboardType(.decimalPad)
-                            .font(.system(size: 28, weight: .semibold, design: .rounded))
-                            .focused($focused)
-                        Picker("Unit", selection: $multiplier) {
-                            ForEach(prefixes) { prefix in
-                                Text(prefix.symbol).tag(prefix.multiplier)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .frame(width: 160)
-                    }
-                } footer: {
-                    Text(element.kind == .voltageSource ? "The + terminal is at the top (or left). Use Flip polarity from the part's menu to turn it around."
-                         : element.kind == .currentSource ? "The arrow points down (or right). Use Flip direction from the part's menu to turn it around."
-                         : "")
-                }
-            }
-            .navigationTitle("\(element.label) value")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { save() }
-                        .font(.system(size: 17, weight: .semibold))
-                        .disabled(parsedValue == nil)
-                }
-            }
-            .onAppear {
-                if let value = element.value {
-                    let best = prefixes.min { abs(log10(value / $0.multiplier)) < abs(log10(value / $1.multiplier)) } ?? prefixes[0]
-                    multiplier = best.multiplier
-                    text = QuantityFormatter().number(value / best.multiplier)
-                } else if let defaultPrefix = prefixes.first(where: { $0.multiplier == 1 }) {
-                    multiplier = defaultPrefix.multiplier
-                }
-                focused = true
-            }
-        }
-        .tint(PMTheme.accent)
-    }
+    private var prefixes: [Prefix] { ElementPanel.prefixes(for: kind) }
 
     private var parsedValue: Double? {
         guard let number = Double(text.replacingOccurrences(of: ",", with: ".").replacingOccurrences(of: "−", with: "-")), number > 0 else { return nil }
         return number * multiplier
     }
 
-    private func save() {
-        guard let value = parsedValue else { return }
-        onSave(value)
-        dismiss()
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Text(element.label)
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .foregroundStyle(PMTheme.ink)
+                Text(element.needsKind ? "What is this?" : kind.title)
+                    .font(.system(size: 13))
+                    .foregroundStyle(element.needsKind ? PMTheme.whyOrange : PMTheme.secondaryText)
+                Spacer()
+                if let progress {
+                    Text(progress)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(PMTheme.secondaryText)
+                }
+                if kind == .voltageSource || kind == .currentSource {
+                    iconButton("arrow.left.arrow.right", label: kind == .voltageSource ? "Flip polarity" : "Flip direction", action: onFlip)
+                }
+                iconButton(element.asked ? "questionmark.circle.fill" : "questionmark.circle", label: "Find the current here", tint: element.asked ? PMTheme.whyOrange : PMTheme.ink, action: onAsk)
+                iconButton("trash", label: "Delete", action: onDelete)
+            }
+
+            if element.needsKind {
+                Picker("Type", selection: $kind) {
+                    Text("Resistor").tag(SketchElement.Kind.resistor)
+                    Text("Voltage source").tag(SketchElement.Kind.voltageSource)
+                    Text("Current source").tag(SketchElement.Kind.currentSource)
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: kind) { _, _ in
+                    multiplier = prefixes.first { $0.multiplier == 1 }?.multiplier ?? 1
+                }
+            }
+
+            HStack(spacing: 10) {
+                TextField("Value", text: $text)
+                    .keyboardType(.decimalPad)
+                    .font(.system(size: 24, weight: .semibold, design: .rounded))
+                    .focused($focused)
+                    .padding(.horizontal, 12)
+                    .frame(height: 44)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(PMTheme.groupedBackground))
+                Picker("Unit", selection: $multiplier) {
+                    ForEach(prefixes) { prefix in
+                        Text(prefix.symbol).tag(prefix.multiplier)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 150)
+            }
+
+            HStack {
+                Button("Skip", action: onSkip)
+                    .font(.system(size: 15))
+                    .foregroundStyle(PMTheme.secondaryText)
+                Spacer()
+                Button(primaryTitle) { onCommit(kind, parsedValue) }
+                    .buttonStyle(PMPrimaryButtonStyle())
+                    .disabled(parsedValue == nil)
+                    .opacity(parsedValue == nil ? 0.5 : 1)
+            }
+        }
+        .padding(14)
+        .background(Color.white)
+        .overlay(alignment: .top) { Divider() }
+        .onAppear { focused = true }
+    }
+
+    private func iconButton(_ systemImage: String, label: String, tint: Color = PMTheme.ink, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(tint)
+                .frame(width: 34, height: 34)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
     }
 }
 

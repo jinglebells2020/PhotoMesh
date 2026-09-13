@@ -13,12 +13,15 @@ struct SolutionsSheet: View {
 
     private enum LoadState {
         case loading
+        case review(Circuit, notes: String?)
         case loaded(CircuitAnalysis)
         case failed(String)
     }
 
     @State private var state: LoadState = .loading
     @State private var phase = "Reading the circuit…"
+    @State private var editing: Circuit?
+    @State private var showEditor = false
 
     var body: some View {
         NavigationStack {
@@ -37,6 +40,14 @@ struct SolutionsSheet: View {
                             LoadingCard(phase: phase, image: sourceImage)
                         case .failed(let message):
                             FailedCard(message: message) { Task { await load() } }
+                        case .review(let circuit, let notes):
+                            ReviewCard(circuit: circuit, notes: notes, image: sourceImage) {
+                                solve(.circuit(circuit, notes: notes, needsReview: false))
+                            } onEdit: {
+                                editing = circuit
+                                showEditor = true
+                            }
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
                         case .loaded(let analysis):
                             ForEach(Array(analysis.methods.enumerated()), id: \.element.id) { index, method in
                                 MethodCard(method: method, methodIndex: index, analysis: analysis, request: request)
@@ -58,6 +69,13 @@ struct SolutionsSheet: View {
             }
             .navigationTitle("Solutions")
             .toolbar(.hidden, for: .navigationBar)
+            .navigationDestination(isPresented: $showEditor) {
+                if let editing {
+                    CircuitEditorView(circuit: editing) { corrected in
+                        solve(.circuit(corrected, notes: "Corrected by you.", needsReview: false))
+                    }
+                }
+            }
             .navigationDestination(for: SolutionDestination.self) { destination in
                 switch destination {
                 case .steps(let analysis, let index):
@@ -85,13 +103,34 @@ struct SolutionsSheet: View {
         phase = "Reading the circuit…"
         let solver = SolverProvider.make()
         do {
-            let analysis = try await solver.solve(request) { text in
+            let input = try await solver.prepare(request) { text in
                 Task { @MainActor in phase = text }
             }
+            if case .circuit(let circuit, let notes, let needsReview) = input, needsReview {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                    state = .review(circuit, notes: notes)
+                }
+                Haptics.impact(.light)
+            } else {
+                solve(input)
+            }
+        } catch {
+            Haptics.notify(.error)
+            state = .failed(error.localizedDescription)
+        }
+    }
+
+    private func solve(_ input: SolveInput) {
+        phase = "Solving…"
+        do {
+            let analysis = try SolveRunner.analyze(input)
             withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                 state = .loaded(analysis)
             }
             Haptics.notify(.success)
+            if let circuit = analysis.circuit {
+                HistoryStore.shared.remember(circuit: circuit, analysis: analysis, origin: isDrawn ? .drawn : .scan)
+            }
         } catch {
             Haptics.notify(.error)
             state = .failed(error.localizedDescription)
@@ -396,5 +435,119 @@ struct StaticSchematic: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(Color.black.opacity(0.08)))
+    }
+}
+
+/// "Is this what is on the page?" – shown before solving a scanned circuit.
+private struct ReviewCard: View {
+    let circuit: Circuit
+    let notes: String?
+    let image: UIImage?
+    let onConfirm: () -> Void
+    let onEdit: () -> Void
+
+    private var layout: SchematicLayout { SchematicLayoutEngine.layout(for: circuit) }
+    private var formatter: QuantityFormatter { FormattingPreferences.formatter() }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("CHECK THE CIRCUIT")
+                .font(.system(size: 12, weight: .semibold))
+                .kerning(0.6)
+                .foregroundStyle(PMTheme.secondaryText)
+            Text("Is this what's on the page?")
+                .font(.system(size: 21, weight: .bold))
+                .foregroundStyle(PMTheme.ink)
+                .padding(.top, 4)
+
+            StaticSchematic(layout: layout)
+                .frame(height: 200)
+                .padding(.top, 14)
+
+            if let image {
+                HStack(spacing: 10) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(height: 60)
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).stroke(Color.black.opacity(0.08)))
+                    Text("Your photo, for comparison.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(PMTheme.secondaryText)
+                }
+                .padding(.top, 10)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(circuit.components) { component in
+                    HStack(spacing: 8) {
+                        Text(component.id)
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .frame(width: 34, alignment: .leading)
+                        Text(formatter.format(component.value, component.kind.unitSymbol))
+                            .font(.system(size: 14, design: .rounded))
+                        Spacer(minLength: 0)
+                        Text(terminals(component))
+                            .font(.system(size: 13, design: .rounded))
+                            .foregroundStyle(PMTheme.secondaryText)
+                    }
+                }
+                HStack(spacing: 8) {
+                    Text("Ground")
+                        .font(.system(size: 13))
+                        .foregroundStyle(PMTheme.secondaryText)
+                    Text(circuit.groundNode)
+                        .font(.system(size: 14, design: .rounded))
+                    Spacer()
+                }
+            }
+            .foregroundStyle(PMTheme.ink)
+            .padding(.top, 14)
+
+            if let question = circuit.question {
+                Text(question)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundStyle(PMTheme.ink)
+                    .padding(.top, 12)
+            }
+            if let notes, !notes.isEmpty {
+                Text(notes)
+                    .font(.system(size: 12))
+                    .foregroundStyle(PMTheme.secondaryText)
+                    .padding(.top, 6)
+            }
+
+            HStack(spacing: 12) {
+                Button(action: onEdit) {
+                    Text("Fix something")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(PMTheme.accent)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 14)
+                        .background(Capsule().stroke(PMTheme.accent, lineWidth: 1.5))
+                }
+                .buttonStyle(.plain)
+                Spacer()
+                Button(action: onConfirm) {
+                    HStack(spacing: 8) {
+                        Text("Looks right")
+                        Image(systemName: "arrow.right").font(.system(size: 15, weight: .semibold))
+                    }
+                }
+                .buttonStyle(PMPrimaryButtonStyle())
+            }
+            .padding(.top, 18)
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: PMTheme.cardRadius, style: .continuous).fill(Color.white))
+    }
+
+    private func terminals(_ component: Component) -> String {
+        switch component.kind {
+        case .resistor: return "\(component.nodeA) — \(component.nodeB)"
+        case .voltageSource: return "+\(component.nodeA)  −\(component.nodeB)"
+        case .currentSource: return "\(component.nodeA) → \(component.nodeB)"
+        }
     }
 }

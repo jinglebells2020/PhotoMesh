@@ -11,6 +11,7 @@ enum SettingsKeys {
     static let hasSeenHelp = "onboarding.hasSeenHelp"
     static let openRouterModel = "recognition.model"
     static let useSampleCircuit = "recognition.useSample"
+    static let confirmRecognized = "recognition.confirm"
 }
 
 /// Something a settings picker can show: a fixed list of titled cases.

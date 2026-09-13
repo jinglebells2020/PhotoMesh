@@ -26,7 +26,9 @@ method to follow.
 | DC solver: nodal (MNA, supernodes) + mesh (auto loop detection, supermeshes), cross‑checked | Done, unit‑tested |
 | Schematic redrawn from the photo, fixed window above the steps that zooms to what each step talks about | Done |
 | Full‑screen circuit explorer (pinch, pan, tap a node or part for details in a floating card) | Done |
-| Hand‑drawn circuit entry on a dot grid (Calculator → Draw circuit) | Done |
+| Hand‑drawn circuit entry on a dot grid (Calculator → Draw circuit): continuous recognition, cornered wires, pan/zoom, double‑tap rotate, guided review before solving | Done |
+| "Check the circuit" step after a scan with an editor for parts, values, nodes, ground and the question | Done |
+| History of solved circuits (button right of the shutter) | Done |
 | AC / dependent sources, more methods | Next |
 
 The camera runs on device only. In the Simulator the home screen shows a neutral
@@ -72,14 +74,28 @@ a component or wire to read about it in the floating card at the bottom.
 
 ### Drawing a circuit by hand
 
-Calculator → *Draw circuit* opens a dot‑grid canvas. Strokes are classified by
-`StrokeClassifier`: a straight stroke becomes an axis‑aligned wire, a zigzag a resistor, a
-closed rectangle a resistor, a circle asks whether it is a voltage source, a current source or
-a resistor, a short mark offers Ground, and anything else offers every option. Parts snap to the
-grid and to nearby wire ends; a value sheet with SI prefixes appears for each new part; tapping a
-part opens edit / flip polarity / "find the current here" / delete. `SketchDocument` derives the
-nodes with union‑find (T‑junctions included), builds the `Circuit` with exact geometry, and the
-same engine and screens take it from there.
+Calculator → *Draw circuit* opens a dot‑grid canvas that never interrupts you: one finger
+draws, two fingers pan, pinch zooms. `StrokeClassifier` turns each stroke into an axis‑aligned
+wire (a stroke with corners becomes a chain of wires that meet exactly), a resistor (zigzag or
+rectangle), or a source (a circle, provisionally a voltage source), and parts snap to the grid
+and to nearby wire ends. *Review & solve* then walks through every part that still needs a type
+or a value, one at a time, with the part highlighted on the canvas. Tap a part to edit it, flip
+it, mark it as the unknown, or delete it; double‑tap rotates it; the Ground tool places the
+reference. `SketchDocument` derives the nodes with union‑find (T‑junctions included), builds the
+`Circuit` with exact geometry, and the same engine and screens take it from there.
+
+### Checking a scan
+
+After recognition the Solutions sheet first shows the redrawn circuit, the part list, the ground
+node and the question next to a thumbnail of the photo. *Looks right* solves; *Fix something*
+opens an editor where parts can be added or removed and their type, value, name and terminal
+nodes changed, the ground node picked, and the question edited. Turn the check off in Settings →
+Recognition if you prefer straight‑to‑answer.
+
+### History
+
+Every solved circuit (scanned or drawn) is kept on the device; the History button right of the
+shutter lists them with a thumbnail, and tapping one re‑runs the engine and opens its solutions.
 
 ### Recognition setup
 
@@ -124,7 +140,8 @@ PhotoMesh/
     Settings/                 Settings (incl. Recognition + Diagnostics), Language, About, Plus
     Solutions/                Solutions sheet, Solving Steps, Circuit detail
     Schematic/                Canvas renderer, animated step window, full-screen explorer
-    Sketch/                   Hand-drawn circuit canvas, stroke classifier, sketch → netlist
+    Sketch/                   Hand-drawn canvas, UIKit gesture host, stroke classifier, sketch → netlist
+    History/                  Saved circuits sheet (store in Support/HistoryStore.swift)
 .github/workflows/testflight.yml        archive + upload to TestFlight
 ```
 

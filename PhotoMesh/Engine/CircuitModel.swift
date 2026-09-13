@@ -34,11 +34,11 @@ enum ComponentKind: String, Codable, Hashable {
 /// Every computed element current uses the same convention: positive when flowing from `nodeA` to `nodeB`
 /// through the element.
 struct Component: Identifiable, Hashable, Codable {
-    let id: String
-    let kind: ComponentKind
-    let value: Double
-    let nodeA: String
-    let nodeB: String
+    var id: String
+    var kind: ComponentKind
+    var value: Double
+    var nodeA: String
+    var nodeB: String
 
     func otherNode(_ node: String) -> String { node == nodeA ? nodeB : nodeA }
     func touches(_ node: String) -> Bool { nodeA == node || nodeB == node }

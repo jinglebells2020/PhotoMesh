@@ -4,6 +4,8 @@ import SwiftUI
 enum StrokeGuess: Equatable {
     case tap(CGPoint)
     case wire(from: CGPoint, to: CGPoint)
+    /// A wire with corners: consecutive points of an axis-aligned polyline (raw, not yet snapped).
+    case wirePath([CGPoint])
     case resistor(center: CGPoint, horizontal: Bool)
     case roundShape(center: CGPoint, size: CGSize)
     case rectangle(center: CGPoint, horizontal: Bool)
@@ -42,6 +44,12 @@ enum StrokeClassifier {
                 return .rectangle(center: CGPoint(x: bounds.midX, y: bounds.midY), horizontal: bounds.width >= bounds.height)
             }
             return .unknown(bounds: bounds)
+        }
+
+        // A wire that turns: a few long, axis-aligned segments.
+        let corners = simplify(points, epsilon: max(7, 0.05 * extent))
+        if corners.count >= 3, corners.count <= 7, isOrthogonalPolyline(corners, minimumSegment: 16) {
+            return .wirePath(corners)
         }
 
         // Zigzag: several reversals of the sideways offset along the chord.
@@ -103,6 +111,43 @@ enum StrokeClassifier {
             area += p.x * q.y - q.x * p.y
         }
         return area / 2
+    }
+
+    /// Ramer–Douglas–Peucker: keeps only the corners of a stroke.
+    static func simplify(_ points: [CGPoint], epsilon: CGFloat) -> [CGPoint] {
+        guard points.count > 2 else { return points }
+        var keep = [Bool](repeating: false, count: points.count)
+        keep[0] = true
+        keep[points.count - 1] = true
+        var stack = [(0, points.count - 1)]
+        while let (start, end) = stack.popLast() {
+            guard end > start + 1 else { continue }
+            var farthest = start
+            var largest: CGFloat = 0
+            let a = points[start], b = points[end]
+            for i in (start + 1)..<end {
+                let d = maxDeviation([points[i]], from: a, to: b)
+                if d > largest { largest = d; farthest = i }
+            }
+            if largest > epsilon {
+                keep[farthest] = true
+                stack.append((start, farthest))
+                stack.append((farthest, end))
+            }
+        }
+        return points.indices.filter { keep[$0] }.map { points[$0] }
+    }
+
+    /// Every segment long enough and within ~35° of horizontal or vertical.
+    static func isOrthogonalPolyline(_ corners: [CGPoint], minimumSegment: CGFloat) -> Bool {
+        for (a, b) in zip(corners, corners.dropFirst()) {
+            let dx = abs(b.x - a.x), dy = abs(b.y - a.y)
+            let length = hypot(dx, dy)
+            guard length >= minimumSegment else { return false }
+            let angle = atan2(min(dx, dy), max(dx, dy))   // 0 = axis aligned, π/4 = diagonal
+            if angle > 35 * .pi / 180 { return false }
+        }
+        return true
     }
 
     static func sidewaysReversals(_ points: [CGPoint], from a: CGPoint, to b: CGPoint, threshold: CGFloat) -> Int {

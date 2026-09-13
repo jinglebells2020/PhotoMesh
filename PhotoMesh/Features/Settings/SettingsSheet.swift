@@ -7,6 +7,7 @@ struct SettingsSheet: View {
     @AppStorage(SettingsKeys.unitNotation) private var unitNotation: UnitNotation = .engineering
     @AppStorage(SettingsKeys.currentConvention) private var currentConvention: CurrentConvention = .conventional
     @AppStorage(SettingsKeys.useSampleCircuit) private var useSampleCircuit = false
+    @AppStorage(SettingsKeys.confirmRecognized) private var confirmRecognized = true
 
     var body: some View {
         NavigationStack {
@@ -55,6 +56,10 @@ struct SettingsSheet: View {
                                 .minimumScaleFactor(0.7)
                         }
                     }
+                    Toggle(isOn: $confirmRecognized) {
+                        Text("Check circuit before solving").foregroundStyle(PMTheme.ink)
+                    }
+                    .tint(PMTheme.accent)
                     Toggle(isOn: $useSampleCircuit) {
                         Text("Use sample circuit").foregroundStyle(PMTheme.ink)
                     }

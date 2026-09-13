@@ -103,6 +103,8 @@ struct RootView: View {
             AboutSheet()
         case .plus:
             PlusSheet()
+        case .history:
+            HistorySheet()
         case .solutions(let request):
             SolutionsSheet(request: request)
                 .presentationBackground(PMTheme.darkSheet)

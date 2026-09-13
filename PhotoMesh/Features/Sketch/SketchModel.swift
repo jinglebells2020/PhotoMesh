@@ -2,7 +2,7 @@ import SwiftUI
 
 /// One thing drawn on the canvas. Points are canvas coordinates snapped to the dot grid.
 struct SketchElement: Identifiable, Equatable {
-    enum Kind: Hashable {
+    enum Kind: Hashable, CaseIterable {
         case wire, resistor, voltageSource, currentSource, ground
 
         var componentKind: ComponentKind? {
@@ -23,6 +23,16 @@ struct SketchElement: Identifiable, Equatable {
             case .ground: return "G"
             }
         }
+
+        var title: String {
+            switch self {
+            case .wire: return "Wire"
+            case .resistor: return "Resistor"
+            case .voltageSource: return "Voltage source"
+            case .currentSource: return "Current source"
+            case .ground: return "Ground"
+            }
+        }
     }
 
     let id: UUID
@@ -35,6 +45,8 @@ struct SketchElement: Identifiable, Equatable {
     var flipped = false
     /// Marked as the quantity the user wants to find.
     var asked = false
+    /// The stroke was ambiguous (a circle): confirm what it is during review.
+    var needsKind = false
 
     init(kind: Kind, a: CGPoint, b: CGPoint, label: String, value: Double? = nil) {
         id = UUID()
@@ -48,10 +60,25 @@ struct SketchElement: Identifiable, Equatable {
     var isComponent: Bool { kind.componentKind != nil }
     var isHorizontal: Bool { abs(b.x - a.x) >= abs(b.y - a.y) }
     var center: CGPoint { CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2) }
+    var needsAttention: Bool { isComponent && (value == nil || needsKind) }
 
     /// Terminal that acts as `nodeA` of the component (positive terminal / current entry).
     var terminalA: CGPoint { flipped ? b : a }
     var terminalB: CGPoint { flipped ? a : b }
+
+    /// Turns a component a quarter turn around its centre.
+    mutating func rotate() {
+        guard isComponent else { return }
+        let c = SketchGrid.snap(center)
+        let half = SketchGrid.step * SketchGrid.componentSteps / 2
+        if isHorizontal {
+            a = CGPoint(x: c.x, y: c.y - half)
+            b = CGPoint(x: c.x, y: c.y + half)
+        } else {
+            a = CGPoint(x: c.x - half, y: c.y)
+            b = CGPoint(x: c.x + half, y: c.y)
+        }
+    }
 }
 
 enum SketchGrid {
@@ -71,7 +98,6 @@ enum SketchGrid {
 /// The drawing plus everything derived from it: connectivity, the `Circuit`, and its layout.
 struct SketchDocument: Equatable {
     var elements: [SketchElement] = []
-    var canvasSize: CGSize = CGSize(width: 393, height: 500)
 
     private var counters: [SketchElement.Kind: Int] {
         var counts: [SketchElement.Kind: Int] = [:]
@@ -86,9 +112,37 @@ struct SketchDocument: Equatable {
         return "\(kind.prefix)\(index)"
     }
 
+    /// Re-numbers a component when its kind changes (a "V1" that turns out to be a resistor).
+    mutating func relabel(_ id: UUID, as kind: SketchElement.Kind) {
+        guard let index = elements.firstIndex(where: { $0.id == id }), elements[index].kind != kind else { return }
+        elements[index].kind = kind
+        var copy = self
+        copy.elements.remove(at: index)
+        elements[index].label = copy.nextLabel(for: kind)
+    }
+
     var hasSource: Bool { elements.contains { $0.kind == .voltageSource || $0.kind == .currentSource } }
     var hasResistor: Bool { elements.contains { $0.kind == .resistor } }
     var missingValues: [SketchElement] { elements.filter { $0.isComponent && $0.value == nil } }
+    var needingAttention: [SketchElement] { elements.filter(\.needsAttention) }
+
+    /// Area the drawing occupies (canvas points), padded; used to normalise geometry and to fit the view.
+    var contentFrame: CGRect {
+        var minX = CGFloat.infinity, minY = CGFloat.infinity, maxX = -CGFloat.infinity, maxY = -CGFloat.infinity
+        for element in elements {
+            for p in [element.a, element.b] {
+                minX = min(minX, p.x); minY = min(minY, p.y)
+                maxX = max(maxX, p.x); maxY = max(maxY, p.y)
+            }
+        }
+        guard minX.isFinite else { return CGRect(x: 0, y: 0, width: SketchGrid.step * 16, height: SketchGrid.step * 12) }
+        let pad = SketchGrid.step * 3
+        var rect = CGRect(x: minX - pad, y: minY - pad, width: maxX - minX + 2 * pad, height: maxY - minY + 2 * pad)
+        let minWidth = SketchGrid.step * 12, minHeight = SketchGrid.step * 9
+        if rect.width < minWidth { rect = rect.insetBy(dx: (rect.width - minWidth) / 2, dy: 0) }
+        if rect.height < minHeight { rect = rect.insetBy(dx: 0, dy: (rect.height - minHeight) / 2) }
+        return rect
+    }
 
     // MARK: Connectivity
 
@@ -173,11 +227,12 @@ struct SketchDocument: Equatable {
     /// Builds the netlist. Components without a value get 0 so the layout still works; `validated()` catches them.
     func circuit() -> Circuit {
         let nodes = nodeAssignment()
+        let frame = contentFrame
         var components: [Component] = []
         var placements: [String: CircuitGeometry.Placement] = [:]
         var nodePointSums: [String: (CGPoint, Int)] = [:]
-        let w = max(canvasSize.width, 1), h = max(canvasSize.height, 1)
-        func norm(_ p: CGPoint) -> SPoint { SPoint(x: p.x / w, y: p.y / h) }
+        let w = max(frame.width, 1), h = max(frame.height, 1)
+        func norm(_ p: CGPoint) -> SPoint { SPoint(x: Double((p.x - frame.minX) / w), y: Double((p.y - frame.minY) / h)) }
 
         for element in elements {
             guard let kind = element.kind.componentKind else { continue }
@@ -185,13 +240,9 @@ struct SketchDocument: Equatable {
             let nodeB = nodes[SketchGrid.key(element.terminalB)] ?? "?"
             components.append(Component(id: element.label, kind: kind, value: element.value ?? 0, nodeA: nodeA, nodeB: nodeB))
             let pad: CGFloat = 10
-            let rect = SRect(
-                minX: (min(element.a.x, element.b.x) - (element.isHorizontal ? 0 : pad)) / w,
-                minY: (min(element.a.y, element.b.y) - (element.isHorizontal ? pad : 0)) / h,
-                maxX: (max(element.a.x, element.b.x) + (element.isHorizontal ? 0 : pad)) / w,
-                maxY: (max(element.a.y, element.b.y) + (element.isHorizontal ? pad : 0)) / h
-            )
-            placements[element.label] = CircuitGeometry.Placement(box: rect, isHorizontal: element.isHorizontal)
+            let lo = norm(CGPoint(x: min(element.a.x, element.b.x) - (element.isHorizontal ? 0 : pad), y: min(element.a.y, element.b.y) - (element.isHorizontal ? pad : 0)))
+            let hi = norm(CGPoint(x: max(element.a.x, element.b.x) + (element.isHorizontal ? 0 : pad), y: max(element.a.y, element.b.y) + (element.isHorizontal ? pad : 0)))
+            placements[element.label] = CircuitGeometry.Placement(box: SRect(minX: lo.x, minY: lo.y, maxX: hi.x, maxY: hi.y), isHorizontal: element.isHorizontal)
         }
         for element in elements {
             for p in [element.a, element.b] {
@@ -208,7 +259,7 @@ struct SketchDocument: Equatable {
             CircuitGeometry.Wire(node: nodes[SketchGrid.key(wire.a)] ?? "?", from: norm(wire.a), to: norm(wire.b))
         }
         let groundPoint = elements.first { $0.kind == .ground }.map { norm($0.a) }
-        let geometry = CircuitGeometry(placements: placements, nodePoints: nodePoints, aspectRatio: w / h, wires: wires, alignmentTolerance: 0, groundPoint: groundPoint)
+        let geometry = CircuitGeometry(placements: placements, nodePoints: nodePoints, aspectRatio: Double(w / h), wires: wires, alignmentTolerance: 0, groundPoint: groundPoint)
         let unknowns = elements.filter { $0.asked && $0.isComponent }.map { Unknown(kind: .current, element: $0.label) }
         let hasGround = elements.contains { $0.kind == .ground }
         return Circuit(
@@ -226,15 +277,19 @@ struct SketchDocument: Equatable {
     /// Live drawing of the current sketch.
     func layout() -> SchematicLayout {
         let c = circuit()
-        guard let geometry = c.geometry, !c.components.isEmpty || !elements.isEmpty else {
+        guard let geometry = c.geometry, !elements.isEmpty else {
             return SchematicLayout(symbols: [], wires: [], junctions: [], nodeLabels: [], groundNode: "", groundPoint: nil, bounds: .empty)
         }
         return SchematicLayoutEngine.layout(circuit: c, geometry: geometry)
     }
 
-    /// Camera that maps layout units 1:1 onto canvas points.
-    var canvasCamera: SchematicCamera {
-        let scale = canvasSize.height / SchematicLayoutEngine.canvasHeight
-        return SchematicCamera(scale: scale, offset: .zero)
+    /// Camera that maps layout units onto canvas points, then onto the view (zoom + pan).
+    func schematicCamera(zoom: CGFloat, pan: CGSize) -> SchematicCamera {
+        let frame = contentFrame
+        let unitsToCanvas = frame.height / CGFloat(SchematicLayoutEngine.canvasHeight)
+        return SchematicCamera(
+            scale: zoom * unitsToCanvas,
+            offset: CGSize(width: frame.minX * zoom + pan.width, height: frame.minY * zoom + pan.height)
+        )
     }
 }

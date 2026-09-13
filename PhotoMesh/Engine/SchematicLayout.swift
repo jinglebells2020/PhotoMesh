@@ -200,10 +200,49 @@ enum SchematicLayoutEngine {
 
     /// Builds the drawing from the recognizer's / sketch's geometry, or from a fallback when there is none.
     static func layout(for circuit: Circuit) -> SchematicLayout {
-        if let geometry = circuit.geometry, geometry.placements.count == circuit.components.count {
-            return layout(circuit: circuit, geometry: geometry)
+        if let geometry = circuit.geometry, !geometry.placements.isEmpty {
+            return layout(circuit: circuit, geometry: completed(geometry, for: circuit))
         }
         return ringLayout(circuit: circuit)
+    }
+
+    /// Invents a placement for components that have none (added in the editor): between the
+    /// reference points of their two nodes, nudged sideways when several share that spot.
+    static func completed(_ geometry: CircuitGeometry, for circuit: Circuit) -> CircuitGeometry {
+        var result = geometry
+        result.placements = geometry.placements.filter { key, _ in circuit.components.contains { $0.id == key } }
+        var reference: [String: SPoint] = geometry.nodePoints
+        for node in circuit.nodes where reference[node] == nil {
+            var sum = SPoint.zero, count = 0
+            for component in circuit.components(at: node) {
+                if let box = geometry.placements[component.id]?.box { sum = sum + box.center; count += 1 }
+            }
+            if count > 0 { reference[node] = sum * (1 / Double(count)) }
+        }
+        var used = 0
+        for component in circuit.components where result.placements[component.id] == nil {
+            let a = reference[component.nodeA] ?? SPoint(x: 0.3, y: 0.5)
+            let b = reference[component.nodeB] ?? SPoint(x: 0.7, y: 0.5)
+            let horizontal = abs(b.x - a.x) >= abs(b.y - a.y)
+            let mid = SPoint.mid(a, b)
+            let nudge = Double(used) * 0.06
+            used += 1
+            let box: SRect
+            if horizontal {
+                let half = max(abs(b.x - a.x) * 0.25, 0.06)
+                box = SRect(minX: mid.x - half, minY: mid.y + nudge - 0.02, maxX: mid.x + half, maxY: mid.y + nudge + 0.02)
+            } else {
+                let half = max(abs(b.y - a.y) * 0.25, 0.06)
+                box = SRect(minX: mid.x + nudge - 0.02, minY: mid.y - half, maxX: mid.x + nudge + 0.02, maxY: mid.y + half)
+            }
+            result.placements[component.id] = CircuitGeometry.Placement(box: box, isHorizontal: horizontal)
+        }
+        // Stale node points for renamed nodes are harmless; wires are re-routed when nodes changed.
+        if result.wires != nil, Set(circuit.nodes) != Set((geometry.wires ?? []).map(\.node)).union(Set(geometry.nodePoints.keys)) {
+            result.wires = nil
+            result.alignmentTolerance = max(result.alignmentTolerance, 0.01)
+        }
+        return result
     }
 
     static func layout(circuit: Circuit, geometry: CircuitGeometry) -> SchematicLayout {

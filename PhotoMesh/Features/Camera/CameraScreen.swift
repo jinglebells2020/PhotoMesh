@@ -154,6 +154,9 @@ struct CameraScreen: View {
                         .frame(width: 84)
                         .padding(.leading, 38)
                     Spacer()
+                    HistoryButton { router.present(.history) }
+                        .frame(width: 84)
+                        .padding(.trailing, 38)
                 }
             }
 
@@ -316,6 +319,29 @@ struct CalculatorButton: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Calculator")
+    }
+}
+
+struct HistoryButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 7) {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 21, weight: .regular))
+                    .frame(height: 25)
+                Text("History")
+                    .font(.system(size: 11, weight: .regular))
+            }
+            .foregroundStyle(.white)
+            .shadow(color: .black.opacity(0.4), radius: 2)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("History")
     }
 }
 

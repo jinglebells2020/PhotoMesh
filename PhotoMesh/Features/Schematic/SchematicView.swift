@@ -33,18 +33,25 @@ struct DotGrid: View {
     var spacing: CGFloat = 22
     var dotRadius: CGFloat = 1.1
     var color = Color(red: 0.78, green: 0.80, blue: 0.84)
+    /// View-space position of one grid dot; others repeat every `spacing`.
+    var origin: CGPoint? = nil
 
     var body: some View {
         Canvas { context, size in
+            var step = max(spacing, 1)
+            while step < 9 { step *= 2 }   // thin out when zoomed far out
+            let base = origin ?? CGPoint(x: step / 2, y: step / 2)
+            let startX = base.x - (base.x / step).rounded(.up) * step
+            let startY = base.y - (base.y / step).rounded(.up) * step
             var path = Path()
-            var y: CGFloat = spacing / 2
-            while y < size.height {
-                var x: CGFloat = spacing / 2
-                while x < size.width {
+            var y = startY
+            while y < size.height + step {
+                var x = startX
+                while x < size.width + step {
                     path.addEllipse(in: CGRect(x: x - dotRadius, y: y - dotRadius, width: dotRadius * 2, height: dotRadius * 2))
-                    x += spacing
+                    x += step
                 }
-                y += spacing
+                y += step
             }
             context.fill(path, with: .color(color))
         }
