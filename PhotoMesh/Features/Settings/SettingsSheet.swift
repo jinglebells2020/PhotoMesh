@@ -8,6 +8,7 @@ struct SettingsSheet: View {
     @AppStorage(SettingsKeys.currentConvention) private var currentConvention: CurrentConvention = .conventional
     @AppStorage(SettingsKeys.useSampleCircuit) private var useSampleCircuit = false
     @AppStorage(SettingsKeys.confirmRecognized) private var confirmRecognized = true
+    @AppStorage(SettingsKeys.fastRecognition) private var fastRecognition = false
 
     var body: some View {
         NavigationStack {
@@ -58,6 +59,15 @@ struct SettingsSheet: View {
                     }
                     Toggle(isOn: $confirmRecognized) {
                         Text("Check circuit before solving").foregroundStyle(PMTheme.ink)
+                    }
+                    .tint(PMTheme.accent)
+                    Toggle(isOn: $fastRecognition) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Fast recognition").foregroundStyle(PMTheme.ink)
+                            Text("Less thinking: about 3× quicker, a bit less careful on messy photos")
+                                .font(.system(size: 12))
+                                .foregroundStyle(PMTheme.secondaryText)
+                        }
                     }
                     .tint(PMTheme.accent)
                     Toggle(isOn: $useSampleCircuit) {

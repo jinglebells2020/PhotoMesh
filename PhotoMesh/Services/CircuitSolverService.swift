@@ -28,7 +28,7 @@ enum SolverProvider {
     static func make() -> any CircuitSolverService {
         if APIConfiguration.useSampleCircuit { return SampleCircuitSolver() }
         if let key = APIConfiguration.apiKey, !key.isEmpty {
-            return VLMCircuitSolver(configuration: OpenRouterClient.Configuration(apiKey: key, model: APIConfiguration.model))
+            return VLMCircuitSolver(configuration: OpenRouterClient.Configuration(apiKey: key, model: APIConfiguration.model, fastReasoning: APIConfiguration.fastRecognition))
         }
         return SampleCircuitSolver(reason: "No API key is set, so this is the built-in sample circuit. Add your OpenRouter key in Settings → Recognition to analyze your own photos.")
     }

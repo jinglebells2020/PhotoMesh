@@ -10,6 +10,11 @@ struct OpenRouterClient {
         var model: String
         var timeout: TimeInterval = 90
         var endpoint = URL(string: "https://openrouter.ai/api/v1/chat/completions")!
+        /// Ask the model to think less: 2–3× faster, slightly less careful on messy pictures.
+        var fastReasoning = false
+        /// Output budget. Reasoning models spend hidden thinking tokens from the same budget,
+        /// so this must be far larger than the JSON itself.
+        var maxTokens = 16000
     }
 
     enum ClientError: LocalizedError {
@@ -67,31 +72,37 @@ struct OpenRouterClient {
             let dataURL = "data:image/jpeg;base64," + imageJPEG.base64EncodedString()
             userContent.append(["type": "image_url", "image_url": ["url": dataURL]])
         }
-        let body: [String: Any] = [
-            "model": configuration.model,
-            "temperature": 0.1,
-            "max_tokens": 3000,
-            "response_format": ["type": "json_object"],
-            "messages": [
-                ["role": "system", "content": system],
-                ["role": "user", "content": userContent],
-            ],
-        ]
 
-        var request = URLRequest(url: configuration.endpoint, timeoutInterval: configuration.timeout)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(configuration.apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("https://photomesh.app", forHTTPHeaderField: "HTTP-Referer")
-        request.setValue("PhotoMesh", forHTTPHeaderField: "X-Title")
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        func makeRequest(maxTokens: Int) throws -> URLRequest {
+            var body: [String: Any] = [
+                "model": configuration.model,
+                "temperature": 0.1,
+                "max_tokens": maxTokens,
+                "response_format": ["type": "json_object"],
+                "messages": [
+                    ["role": "system", "content": system],
+                    ["role": "user", "content": userContent],
+                ],
+            ]
+            if configuration.fastReasoning { body["reasoning"] = ["effort": "low"] }
+            var request = URLRequest(url: configuration.endpoint, timeoutInterval: configuration.timeout)
+            request.httpMethod = "POST"
+            request.setValue("Bearer \(configuration.apiKey)", forHTTPHeaderField: "Authorization")
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("https://photomesh.app", forHTTPHeaderField: "HTTP-Referer")
+            request.setValue("PhotoMesh", forHTTPHeaderField: "X-Title")
+            request.httpBody = try JSONSerialization.data(withJSONObject: body)
+            return request
+        }
 
         let started = Date()
-        RecognitionLog.shared.record("request → \(configuration.model), \(imageJPEG.map { "\($0.count / 1024) KB image" } ?? "no image")")
+        var budget = configuration.maxTokens
+        RecognitionLog.shared.record("request → \(configuration.model)\(configuration.fastReasoning ? " (fast)" : ""), \(imageJPEG.map { "\($0.count / 1024) KB image" } ?? "no image"), budget \(budget)")
 
         var lastError: Error?
-        for attempt in 0..<2 {
+        for attempt in 0..<3 {
             do {
+                let request = try makeRequest(maxTokens: budget)
                 let (data, response) = try await session.data(for: request)
                 let status = (response as? HTTPURLResponse)?.statusCode ?? 0
                 let elapsed = String(format: "%.1f s", Date().timeIntervalSince(started))
@@ -113,12 +124,23 @@ struct OpenRouterClient {
                     throw ClientError.emptyResponse("Unexpected response format.")
                 }
                 if let message = decoded.error?.message { throw ClientError.badStatus(status, message) }
-                guard let content = decoded.choices?.first?.message.text, !content.isEmpty else {
-                    let reason = decoded.choices?.first?.finishReason.map { "Finish reason: \($0)." } ?? "No content."
-                    RecognitionLog.shared.record("empty content. \(reason)")
-                    throw ClientError.emptyResponse(reason)
+                let finish = decoded.choices?.first?.finishReason ?? "?"
+                let usage = decoded.usage
+                RecognitionLog.shared.record("finish=\(finish), tokens total \(usage?.totalTokens.map(String.init) ?? "?"), reasoning \(usage?.reasoningTokens.map(String.init) ?? "?")")
+                if finish == "length", attempt < 2 {
+                    // The hidden reasoning ate the budget; give it much more room and ask once more.
+                    budget = min(budget * 2, 48000)
+                    RecognitionLog.shared.record("answer truncated, retrying with budget \(budget)")
+                    continue
                 }
-                RecognitionLog.shared.record("content \(content.count) chars, finish=\(decoded.choices?.first?.finishReason ?? "?"), tokens=\(decoded.usage?.totalTokens.map(String.init) ?? "?")")
+                guard let content = decoded.choices?.first?.message.text, !content.isEmpty else {
+                    RecognitionLog.shared.record("empty content")
+                    throw ClientError.emptyResponse("Finish reason: \(finish).")
+                }
+                if finish == "length" {
+                    throw ClientError.emptyResponse("The answer was cut short twice. Try a tighter crop of the circuit.")
+                }
+                RecognitionLog.shared.record("content \(content.count) chars")
                 return content
             } catch let error as ClientError {
                 throw error
@@ -170,8 +192,17 @@ struct OpenRouterClient {
             let message: String?
         }
         struct Usage: Decodable {
+            struct Details: Decodable {
+                let reasoningTokens: Int?
+                enum CodingKeys: String, CodingKey { case reasoningTokens = "reasoning_tokens" }
+            }
             let totalTokens: Int?
-            enum CodingKeys: String, CodingKey { case totalTokens = "total_tokens" }
+            let completionDetails: Details?
+            var reasoningTokens: Int? { completionDetails?.reasoningTokens }
+            enum CodingKeys: String, CodingKey {
+                case totalTokens = "total_tokens"
+                case completionDetails = "completion_tokens_details"
+            }
         }
         let choices: [Choice]?
         let error: APIError?

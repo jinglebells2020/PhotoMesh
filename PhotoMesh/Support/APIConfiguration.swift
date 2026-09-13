@@ -38,6 +38,11 @@ enum APIConfiguration {
     static var confirmRecognizedCircuits: Bool {
         UserDefaults.standard.object(forKey: SettingsKeys.confirmRecognized) as? Bool ?? true
     }
+
+    /// Low reasoning effort: faster answers, slightly less careful on messy pictures (default off).
+    static var fastRecognition: Bool {
+        UserDefaults.standard.bool(forKey: SettingsKeys.fastRecognition)
+    }
 }
 
 /// Number formatting preferences shared by the engine and the UI.
