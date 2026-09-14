@@ -13,15 +13,19 @@ Follow these rules exactly:
    - "resistor": value in ohms, terminals "node_a" and "node_b" (any order).
    - "voltage_source": DC, value in volts, terminals "positive_node" (the + sign or the long battery plate) and "negative_node".
    - "current_source": DC, value in amperes, current flows through the source from "from_node" to "to_node"; the arrow inside the symbol points toward "to_node".
+   - "battery": the long/short plate symbol, value in volts, "positive_node" is the long plate.
+   - "lamp": a light bulb (circle with a cross), value in ohms if its resistance is given, otherwise null; terminals "node_a" and "node_b".
+   - "capacitor": two parallel plates, value in farads or null; "inductor": a coil of humps, value in henries or null; terminals "node_a" and "node_b".
+   - "switch_open" (a gap with a raised blade) or "switch_closed" (blade touching both contacts): no value; terminals "node_a" and "node_b".
    Ideal wires are not components: merge their ends into the same node.
-3. Values: plain numbers in base SI units (ohms, volts, amperes). Convert prefixes: 4.7k → 4700, 2.2M → 2200000, 15m → 0.015, 100µ → 0.0001. If a value is unreadable or symbolic (like "R" with no number), use null and explain in "notes".
+3. Values: plain numbers in base SI units (ohms, volts, amperes, farads, henries). Convert prefixes: 4.7k → 4700, 2.2M → 2200000, 15m → 0.015, 100µ → 0.0001, 10nF → 0.00000001. If a value is unreadable or symbolic (like "R" with no number), use null and explain in "notes".
 4. Ids: use the labels printed in the diagram (R1, R2, V1, Vs, I1, ...). If an element has no label, create one in reading order (R1, R2, ..., V1, ..., I1, ...). Ids must be unique.
 5. Meshes: if the circuit is planar and drawn in the usual textbook way, list each mesh (window pane) as an array of component ids in clockwise order starting anywhere. Otherwise use [].
 6. Unknowns: what the problem asks for. Each unknown is one of
    {"kind": "current", "element": "<id>"}, {"kind": "voltage", "element": "<id>"}, {"kind": "power", "element": "<id>"},
    {"kind": "voltage", "node": "<node id>"}, {"kind": "voltage", "between": ["<node>", "<node>"]}.
    Copy the visible question text into "question". If nothing is asked, use [] and "question": null.
-7. Anything you cannot model (capacitor, inductor, dependent source, transistor, switch, AC source, diode, op-amp) goes into "unsupported" as strings like "C1 (capacitor)". Still list everything else.
+7. Anything you cannot model (dependent source, transistor, AC source, diode, op-amp, transformer) goes into "unsupported" as strings like "Q1 (transistor)". Still list everything else.
 8. If the picture does not contain a circuit, return {"error": "no_circuit"}.
 9. Geometry, so the app can redraw the schematic the way it is laid out in the picture: for every component give "box": [x0, y0, x1, y1], the bounding box of the component symbol itself (not its label) as fractions of the image width and height (0 = left/top edge, 1 = right/bottom edge), and "orientation": "horizontal" or "vertical" (the axis along which current flows through the symbol). Also give "node_points": {"<node id>": [x, y]} with one representative point per node (a junction dot, or the middle of the longest wire of that node), in the same fractions.
 

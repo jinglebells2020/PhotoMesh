@@ -27,7 +27,7 @@ enum EquationLaTeX {
 
     private static let subscriptDigits: [Character: Character] = ["₀": "0", "₁": "1", "₂": "2", "₃": "3", "₄": "4", "₅": "5", "₆": "6", "₇": "7", "₈": "8", "₉": "9"]
     private static let superscriptDigits: [Character: Character] = ["⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4", "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9", "⁻": "-"]
-    private static let operatorCharacters: Set<Character> = ["=", "+", "−", "-", "·", "/", "→", "⇒", "×", "÷", "^", "√", ":", ",", "!", "%", "*", "<", ">", "≈", "≠", "≤", "≥", "′", "✓", "✗"]
+    private static let operatorCharacters: Set<Character> = ["=", "+", "−", "-", "·", "/", "→", "⇒", "×", "÷", "^", "√", ":", ",", "!", "%", "*", "<", ">", "≈", "≠", "≤", "≥", "′", "✓", "✗", "‖", "—"]
     private static let functionNames: Set<String> = ["sin", "cos", "tan", "log", "ln", "exp"]
 
     private static func tokenize(_ line: String) -> [Token] {
@@ -185,6 +185,8 @@ enum EquationLaTeX {
         case ":": return .punct("{:}\\;")
         case "!": return .punct("!")
         case "%": return .punct("\\%")
+        case "‖": return .op("\\parallel")
+        case "—": return .op("\\rightarrow")
         case "′": return .punct("'")
         case "✓": return .punct("\\checkmark")
         case "✗": return .punct("\\times")

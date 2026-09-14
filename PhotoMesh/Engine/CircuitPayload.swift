@@ -95,24 +95,38 @@ struct CircuitPayload: Decodable {
             let kind: ComponentKind
             switch payload.type.lowercased().replacingOccurrences(of: " ", with: "_") {
             case "resistor", "r": kind = .resistor
-            case "voltage_source", "voltagesource", "battery", "dc_voltage_source", "v": kind = .voltageSource
+            case "voltage_source", "voltagesource", "dc_voltage_source", "v": kind = .voltageSource
+            case "battery", "cell": kind = .battery
             case "current_source", "currentsource", "dc_current_source", "i": kind = .currentSource
+            case "capacitor", "c": kind = .capacitor
+            case "inductor", "coil", "l": kind = .inductor
+            case "lamp", "bulb", "light_bulb", "light": kind = .lamp
+            case "switch_open", "open_switch", "switch": kind = .switchOpen
+            case "switch_closed", "closed_switch": kind = .switchClosed
             default: continue   // unsupported kinds are reported separately by the model
             }
 
-            guard let value = payload.value?.value else { throw PayloadError.missingValue(id) }
+            // Switches have no value; capacitors and inductors may come without one (DC ignores it).
+            let value: Double
+            if let given = payload.value?.value {
+                value = given
+            } else if kind.isSwitch || kind == .capacitor || kind == .inductor {
+                value = 0
+            } else {
+                throw PayloadError.missingValue(id)
+            }
             let a: String?
             let b: String?
-            switch kind {
-            case .resistor:
-                a = payload.nodeA?.value ?? payload.positiveNode?.value ?? payload.fromNode?.value
-                b = payload.nodeB?.value ?? payload.negativeNode?.value ?? payload.toNode?.value
+            switch kind.dcRole {
             case .voltageSource:
                 a = payload.positiveNode?.value ?? payload.nodeA?.value
                 b = payload.negativeNode?.value ?? payload.nodeB?.value
             case .currentSource:
                 a = payload.fromNode?.value ?? payload.nodeA?.value
                 b = payload.toNode?.value ?? payload.nodeB?.value
+            case .resistor, .open, .short:
+                a = payload.nodeA?.value ?? payload.positiveNode?.value ?? payload.fromNode?.value
+                b = payload.nodeB?.value ?? payload.negativeNode?.value ?? payload.toNode?.value
             }
             guard let nodeA = a, let nodeB = b, !nodeA.isEmpty, !nodeB.isEmpty else { throw PayloadError.badComponent(id) }
             converted.append(Component(id: id, kind: kind, value: value, nodeA: nodeA, nodeB: nodeB))

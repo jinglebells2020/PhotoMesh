@@ -33,7 +33,7 @@ struct CircuitDetailView: View {
                                     .foregroundStyle(PMTheme.secondaryText)
                             }
                             Spacer()
-                            Text(formatter.format(component.value, component.kind.unitSymbol))
+                            Text(component.kind.valueText(component.value, formatter: formatter))
                                 .font(.system(size: 16, weight: .medium, design: .rounded))
                         }
                         .foregroundStyle(PMTheme.ink)
@@ -110,10 +110,10 @@ struct CircuitDetailView: View {
     }
 
     private func terminals(_ component: Component) -> String {
-        switch component.kind {
-        case .resistor: return "\(component.nodeA) — \(component.nodeB)"
+        switch component.kind.dcRole {
         case .voltageSource: return "+ \(component.nodeA), − \(component.nodeB)"
         case .currentSource: return "\(component.nodeA) → \(component.nodeB)"
+        case .resistor, .open, .short: return "\(component.nodeA) — \(component.nodeB)"
         }
     }
 

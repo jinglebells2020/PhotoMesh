@@ -245,12 +245,16 @@ extension SketchDocument {
         }
     }
 
-    /// Changes what a part is; the value no longer applies, so it is cleared.
+    /// Changes what a part is; the value no longer applies, so it is cleared (a switch toggling
+    /// between open and closed keeps everything else).
     mutating func setKind(_ id: UUID, _ kind: SketchElement.Kind) {
         guard let index = elements.firstIndex(where: { $0.id == id }), elements[index].kind != kind else { return }
+        let sameFamily = elements[index].kind.prefix == kind.prefix
         relabel(id, as: kind)
-        elements[index].value = nil
-        elements[index].flipped = false
+        if !sameFamily {
+            elements[index].value = nil
+            elements[index].flipped = false
+        }
     }
 
     /// Removes an element. With `heal`, a component that sat inside a straight wire leaves the wire whole.

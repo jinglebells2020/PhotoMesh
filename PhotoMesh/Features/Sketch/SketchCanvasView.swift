@@ -53,6 +53,7 @@ struct SketchCanvasView: View {
     @State private var eraseStrokeStarted = false
     @State private var drag: DragSession?
     @State private var showTips = false
+    @State private var showParts = false
     @State private var toast: String?
     @State private var toastTask: Task<Void, Never>?
     @State private var errorMessage: String?
@@ -122,13 +123,13 @@ struct SketchCanvasView: View {
                     if let element = selectedElement {
                         Group {
                             if bubbleMode == .kind {
-                                ChooserBubble(options: [.resistor, .voltageSource, .currentSource].filter { $0 != element.kind }, onPick: { kind in changeKind(of: element, to: kind) }, onCancel: { bubbleMode = .actions })
+                                ChooserBubble(options: SketchElement.Kind.parts.filter { $0 != element.kind && !($0.isSwitch && element.kind.isSwitch) }, onPick: { kind in changeKind(of: element, to: kind) }, onCancel: { bubbleMode = .actions })
                             } else {
                                 ActionBubble(
                                     element: element,
                                     onValue: { editing = element },
                                     onRotate: { rotate(element) },
-                                    onFlip: { update(element.id) { $0.flipped.toggle() } },
+                                    onFlip: { flip(element) },
                                     onAsk: { update(element.id) { $0.asked.toggle() } },
                                     onKind: { bubbleMode = .kind },
                                     onDelete: { delete(element) }
@@ -168,6 +169,13 @@ struct SketchCanvasView: View {
                 update(element.id) { $0.value = value }
             }
             .presentationDetents([.height(320)])
+        }
+        .sheet(isPresented: $showParts) {
+            PartsPaletteSheet { kind in
+                showParts = false
+                addPart(kind)
+            }
+            .presentationDetents([.height(360)])
         }
         .alert("Not solvable yet", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) {}
@@ -233,10 +241,13 @@ struct SketchCanvasView: View {
             toolButton("pencil.tip", label: "Draw", disabled: false, active: tool == .draw) { setTool(.draw) }
             toolButton("eraser", label: "Erase", disabled: document.elements.isEmpty && tool != .erase, active: tool == .erase) { setTool(tool == .erase ? .draw : .erase) }
             toolButton("arrowtriangle.down", label: "Ground", disabled: document.elements.isEmpty && tool != .ground, active: tool == .ground) { setTool(tool == .ground ? .draw : .ground) }
+            toolButton("plus.square", label: "Parts", disabled: false) {
+                dismissPopups()
+                showParts = true
+            }
             Divider().frame(height: 26).padding(.horizontal, 3)
             toolButton("arrow.uturn.backward", label: "Undo", disabled: history.isEmpty) { undo() }
             toolButton("trash", label: "Clear", disabled: document.elements.isEmpty) { clear() }
-            toolButton("arrow.up.left.and.down.right.magnifyingglass", label: "Fit", disabled: document.elements.isEmpty) { fitToContent() }
 
             Spacer(minLength: 4)
 
@@ -339,6 +350,7 @@ struct SketchCanvasView: View {
         case .wire(let from, let to): return .wire(from: canvasPoint(from), to: canvasPoint(to))
         case .wirePath(let corners): return .wirePath(corners.map(canvasPoint))
         case .resistor(let center, let horizontal): return .resistor(center: canvasPoint(center), horizontal: horizontal)
+        case .inductor(let center, let horizontal): return .inductor(center: canvasPoint(center), horizontal: horizontal)
         case .roundShape(let center, let size): return .roundShape(center: canvasPoint(center), size: CGSize(width: size.width / zoom, height: size.height / zoom))
         case .rectangle(let center, let horizontal): return .rectangle(center: canvasPoint(center), horizontal: horizontal)
         case .loop(let r): return .loop(rect(r))
@@ -468,18 +480,20 @@ struct SketchCanvasView: View {
             Haptics.impact(.light)
         case .resistor(let center, let horizontal):
             place(.resistor, center: center, horizontal: horizontal)
+        case .inductor(let center, let horizontal):
+            place(.inductor, center: center, horizontal: horizontal)
         case .rectangle(let center, let horizontal):
             place(.resistor, center: center, horizontal: horizontal ?? document.inferHorizontal(around: center))
         case .roundShape(let center, let size):
             Haptics.impact(.light)
-            pending = PendingStroke(options: [.voltageSource, .currentSource, .resistor],
+            pending = PendingStroke(options: [.voltageSource, .currentSource, .lamp, .battery],
                                     bounds: CGRect(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height),
                                     guess: guess)
         case .shortMark(let center):
-            pending = PendingStroke(options: [.ground, .wire], bounds: CGRect(x: center.x - 12, y: center.y - 12, width: 24, height: 24), guess: guess)
+            pending = PendingStroke(options: [.ground, .wire, .capacitor, .switchOpen], bounds: CGRect(x: center.x - 12, y: center.y - 12, width: 24, height: 24), guess: guess)
         case .unknown(let bounds):
             Haptics.notify(.warning)
-            pending = PendingStroke(options: [.wire, .resistor, .voltageSource, .currentSource, .ground], bounds: bounds, guess: guess)
+            pending = PendingStroke(options: [.wire, .ground] + SketchElement.Kind.parts, bounds: bounds, guess: guess)
         }
     }
 
@@ -505,7 +519,7 @@ struct SketchCanvasView: View {
             commit()
             document.placeGround(at: center)
             Haptics.impact(.light)
-        case .resistor, .voltageSource, .currentSource:
+        default:
             let horizontal: Bool
             switch pending.guess {
             case .roundShape, .shortMark:
@@ -518,13 +532,40 @@ struct SketchCanvasView: View {
         }
     }
 
-    /// Adds a part and asks for its value straight away.
+    /// Adds a part and asks for its value straight away (switches have none).
     private func place(_ kind: SketchElement.Kind, center: CGPoint, horizontal: Bool) {
         commit()
         let element = document.addComponent(kind, center: center, horizontal: horizontal)
         Haptics.impact(.medium)
         selectedId = nil
-        editing = element
+        if kind.needsValue { editing = element } else { selectedId = element.id }
+    }
+
+    /// From the parts palette: drop the part in the middle of the view, ready to be dragged.
+    private func addPart(_ kind: SketchElement.Kind) {
+        let center = canvasPoint(CGPoint(x: viewSize.width / 2, y: viewSize.height * 0.45))
+        switch kind {
+        case .wire:
+            commit()
+            document.addWire(from: CGPoint(x: center.x - SketchGrid.step * 2, y: center.y), to: CGPoint(x: center.x + SketchGrid.step * 2, y: center.y))
+        case .ground:
+            commit()
+            document.placeGround(at: center)
+        default:
+            place(kind, center: center, horizontal: true)
+        }
+        showToast("Hold the part and drag it into place")
+    }
+
+    /// Sources swap polarity or direction; a switch toggles between open and closed.
+    private func flip(_ element: SketchElement) {
+        if element.kind.isSwitch {
+            commit()
+            document.setKind(element.id, element.kind == .switchOpen ? .switchClosed : .switchOpen)
+            Haptics.selection()
+        } else {
+            update(element.id) { $0.flipped.toggle() }
+        }
     }
 
     // MARK: Taps and part actions
@@ -623,7 +664,7 @@ struct SketchCanvasView: View {
         document.setKind(element.id, kind)
         bubbleMode = .actions
         Haptics.selection()
-        if let updated = document.elements.first(where: { $0.id == element.id }) { editing = updated }
+        if kind.needsValue, let updated = document.elements.first(where: { $0.id == element.id }) { editing = updated }
     }
 
     private func dismissPopups() {
@@ -708,48 +749,141 @@ private struct StrokeOverlay: View {
 }
 
 /// Icon + label buttons in a floating pill, shared by "what did you draw?" and "change type".
+/// Long lists wrap onto a second row.
 private struct ChooserBubble: View {
     let options: [SketchElement.Kind]
     let onPick: (SketchElement.Kind) -> Void
     let onCancel: () -> Void
 
+    private var rows: [[SketchElement.Kind]] {
+        let perRow = options.count > 5 ? Int((Double(options.count) / 2).rounded(.up)) : options.count
+        return stride(from: 0, to: options.count, by: max(perRow, 1)).map { Array(options[$0..<min($0 + perRow, options.count)]) }
+    }
+
     var body: some View {
-        HStack(spacing: 2) {
-            ForEach(options, id: \.self) { kind in
-                BubbleButton(systemImage: icon(for: kind), title: title(for: kind)) { onPick(kind) }
+        VStack(spacing: 0) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                HStack(spacing: 2) {
+                    ForEach(row, id: \.self) { kind in
+                        Button {
+                            onPick(kind)
+                        } label: {
+                            VStack(spacing: 3) {
+                                PartGlyph(kind: kind)
+                                    .frame(width: 34, height: 18)
+                                Text(shortTitle(kind))
+                                    .font(.system(size: 9.5, weight: .medium))
+                            }
+                            .foregroundStyle(PMTheme.ink)
+                            .frame(width: 54, height: 50)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(kind.title)
+                    }
+                    if index == rows.count - 1 {
+                        Button(action: onCancel) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(PMTheme.secondaryText)
+                                .frame(width: 30, height: 50)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Dismiss")
+                    }
+                }
             }
-            Button(action: onCancel) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(PMTheme.secondaryText)
-                    .frame(width: 32, height: 50)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Dismiss")
         }
         .padding(.horizontal, 6)
         .background(BubbleBackground())
     }
 
-    private func icon(for kind: SketchElement.Kind) -> String {
+    private func shortTitle(_ kind: SketchElement.Kind) -> String {
         switch kind {
-        case .wire: return "minus"
-        case .resistor: return "waveform.path"
-        case .voltageSource: return "plusminus.circle"
-        case .currentSource: return "arrow.up.circle"
-        case .ground: return "arrowtriangle.down"
-        }
-    }
-
-    private func title(for kind: SketchElement.Kind) -> String {
-        switch kind {
-        case .wire: return "Wire"
-        case .resistor: return "Resistor"
         case .voltageSource: return "Voltage"
         case .currentSource: return "Current"
-        case .ground: return "Ground"
+        case .switchOpen: return "Switch"
+        case .switchClosed: return "Switch"
+        default: return kind.title
         }
+    }
+}
+
+/// The schematic symbol of a part, drawn small: the same shapes the circuit is drawn with.
+struct PartGlyph: View {
+    let kind: SketchElement.Kind
+    var color: Color = PMTheme.ink
+
+    var body: some View {
+        Canvas { context, size in
+            let midY = size.height / 2
+            var path = Path()
+            switch kind {
+            case .wire:
+                path.move(to: CGPoint(x: 2, y: midY)); path.addLine(to: CGPoint(x: size.width - 2, y: midY))
+            case .ground:
+                let x = size.width / 2
+                path.move(to: CGPoint(x: x, y: 0)); path.addLine(to: CGPoint(x: x, y: midY - 2))
+                for (i, half) in [9.0, 6.0, 3.0].enumerated() {
+                    let y = midY - 2 + CGFloat(i) * 4
+                    path.move(to: CGPoint(x: x - half, y: y)); path.addLine(to: CGPoint(x: x + half, y: y))
+                }
+            default:
+                guard let componentKind = kind.componentKind else { return }
+                // Draw the real symbol at layout scale, then squeeze it into the glyph box.
+                let symbol = SchematicLayout.Symbol(id: "", kind: componentKind, value: 0, nodeA: "", nodeB: "", a: SPoint(x: 0, y: 0), b: SPoint(x: 100, y: 0), labelSide: SPoint(x: 0, y: -1))
+                let raw = SchematicRenderer.symbolPath(symbol)
+                let box = raw.boundingRect
+                let scale = min((size.width - 2) / max(box.width, 1), (size.height - 2) / max(box.height, 1))
+                path = raw.applying(CGAffineTransform(translationX: -box.midX, y: -box.midY).concatenating(CGAffineTransform(scaleX: scale, y: scale)).concatenating(CGAffineTransform(translationX: size.width / 2, y: midY)))
+            }
+            context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round))
+        }
+    }
+}
+
+/// Every part, one tap away: dropped in the middle of the canvas to be dragged into place.
+private struct PartsPaletteSheet: View {
+    let onPick: (SketchElement.Kind) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    private let kinds: [SketchElement.Kind] = SketchElement.Kind.parts + [.switchClosed, .wire, .ground]
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
+                    ForEach(kinds, id: \.self) { kind in
+                        Button {
+                            Haptics.selection()
+                            onPick(kind)
+                        } label: {
+                            VStack(spacing: 8) {
+                                PartGlyph(kind: kind)
+                                    .frame(width: 64, height: 26)
+                                Text(kind.title)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(PMTheme.ink)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.8)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(PMTheme.groupedBackground))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(16)
+            }
+            .navigationTitle("Add a part")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { Button("Close") { dismiss() } }
+            }
+        }
+        .tint(PMTheme.accent)
     }
 }
 
@@ -773,8 +907,8 @@ private struct ActionBubble: View {
             if element.isComponent {
                 BubbleButton(systemImage: "pencil", title: "Value", action: onValue)
                 BubbleButton(systemImage: "rotate.right", title: "Rotate", action: onRotate)
-                if element.kind != .resistor {
-                    BubbleButton(systemImage: "arrow.left.arrow.right", title: "Flip", action: onFlip)
+                if element.kind.canFlip {
+                    BubbleButton(systemImage: element.kind.isSwitch ? "switch.2" : "arrow.left.arrow.right", title: element.kind.isSwitch ? "Toggle" : "Flip", action: onFlip)
                 }
                 BubbleButton(systemImage: element.asked ? "questionmark.circle.fill" : "questionmark.circle", title: "Find I", tint: element.asked ? PMTheme.whyOrange : PMTheme.ink, action: onAsk)
                 BubbleButton(systemImage: "arrow.triangle.2.circlepath", title: "Type", action: onKind)
@@ -836,7 +970,8 @@ private struct SketchTipsOverlay: View {
         Tip(glyph: .zigzag, title: "Zigzag or box", detail: "A resistor. Draw it on a wire and it slots in."),
         Tip(glyph: .circle, title: "Circle", detail: "A source: you pick voltage or current."),
         Tip(glyph: .symbol("hand.tap"), title: "Tap, double-tap, hold", detail: "Tap a part for value, rotate, flip, type, delete. Double-tap rotates. Hold and drag to move it."),
-        Tip(glyph: .symbol("hand.draw"), title: "Two fingers", detail: "Move and zoom the canvas. Erase rubs parts and wires out; Ground marks the reference."),
+        Tip(glyph: .symbol("hand.draw"), title: "Two fingers", detail: "Move and zoom the canvas; double-tap empty space to fit. Erase rubs things out, Ground marks the reference."),
+        Tip(glyph: .symbol("plus.square"), title: "Parts", detail: "Capacitors, inductors, lamps, batteries and switches: draw humps for a coil, or pick any part from the palette and drag it into place."),
     ]
 
     var body: some View {
@@ -947,9 +1082,11 @@ private struct ValueEntrySheet: View {
 
     private var prefixes: [Prefix] {
         switch element.kind {
-        case .resistor: return [Prefix(symbol: "Ω", multiplier: 1), Prefix(symbol: "kΩ", multiplier: 1e3), Prefix(symbol: "MΩ", multiplier: 1e6)]
-        case .voltageSource: return [Prefix(symbol: "mV", multiplier: 1e-3), Prefix(symbol: "V", multiplier: 1), Prefix(symbol: "kV", multiplier: 1e3)]
+        case .resistor, .lamp: return [Prefix(symbol: "Ω", multiplier: 1), Prefix(symbol: "kΩ", multiplier: 1e3), Prefix(symbol: "MΩ", multiplier: 1e6)]
+        case .voltageSource, .battery: return [Prefix(symbol: "mV", multiplier: 1e-3), Prefix(symbol: "V", multiplier: 1), Prefix(symbol: "kV", multiplier: 1e3)]
         case .currentSource: return [Prefix(symbol: "µA", multiplier: 1e-6), Prefix(symbol: "mA", multiplier: 1e-3), Prefix(symbol: "A", multiplier: 1)]
+        case .capacitor: return [Prefix(symbol: "pF", multiplier: 1e-12), Prefix(symbol: "nF", multiplier: 1e-9), Prefix(symbol: "µF", multiplier: 1e-6)]
+        case .inductor: return [Prefix(symbol: "µH", multiplier: 1e-6), Prefix(symbol: "mH", multiplier: 1e-3), Prefix(symbol: "H", multiplier: 1)]
         default: return [Prefix(symbol: "", multiplier: 1)]
         }
     }
@@ -993,7 +1130,7 @@ private struct ValueEntrySheet: View {
                     let best = prefixes.min { abs(log10(value / $0.multiplier)) < abs(log10(value / $1.multiplier)) } ?? prefixes[0]
                     multiplier = best.multiplier
                     text = QuantityFormatter().number(value / best.multiplier)
-                } else if let defaultPrefix = prefixes.first(where: { $0.multiplier == 1 }) {
+                } else if let defaultPrefix = prefixes.first(where: { $0.multiplier == 1 }) ?? prefixes.last {
                     multiplier = defaultPrefix.multiplier
                 }
                 focused = true
@@ -1004,8 +1141,10 @@ private struct ValueEntrySheet: View {
 
     private var footer: String {
         switch element.kind {
-        case .voltageSource: return "The + terminal is at the top (or left). Use Flip from the part's menu to turn it around."
+        case .voltageSource, .battery: return "The + terminal is at the top (or left). Use Flip from the part's menu to turn it around."
         case .currentSource: return "The arrow points down (or right). Use Flip from the part's menu to turn it around."
+        case .capacitor: return "At DC a capacitor blocks current; the value is kept for the drawing."
+        case .inductor: return "At DC an inductor is a plain wire; the value is kept for the drawing."
         default: return "Tap the part later to change this."
         }
     }

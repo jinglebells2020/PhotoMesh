@@ -36,7 +36,7 @@ struct CircuitEditorView: View {
                                     .foregroundStyle(PMTheme.secondaryText)
                             }
                             Spacer()
-                            Text(formatter.format(component.value, component.kind.unitSymbol))
+                            Text(component.kind.valueText(component.value, formatter: formatter))
                                 .font(.system(size: 16, weight: .medium, design: .rounded))
                         }
                         .foregroundStyle(PMTheme.ink)
@@ -100,10 +100,10 @@ struct CircuitEditorView: View {
     }
 
     private func terminals(_ component: Component) -> String {
-        switch component.kind {
-        case .resistor: return "\(component.nodeA) — \(component.nodeB)"
+        switch component.kind.dcRole {
         case .voltageSource: return "+ \(component.nodeA), − \(component.nodeB)"
         case .currentSource: return "\(component.nodeA) → \(component.nodeB)"
+        case .resistor, .open, .short: return "\(component.nodeA) — \(component.nodeB)"
         }
     }
 
@@ -146,9 +146,12 @@ struct ComponentEditorView: View {
 
     private var prefixes: [Prefix] {
         switch component.kind {
-        case .resistor: return [Prefix(symbol: "Ω", multiplier: 1), Prefix(symbol: "kΩ", multiplier: 1e3), Prefix(symbol: "MΩ", multiplier: 1e6)]
-        case .voltageSource: return [Prefix(symbol: "mV", multiplier: 1e-3), Prefix(symbol: "V", multiplier: 1), Prefix(symbol: "kV", multiplier: 1e3)]
+        case .resistor, .lamp: return [Prefix(symbol: "Ω", multiplier: 1), Prefix(symbol: "kΩ", multiplier: 1e3), Prefix(symbol: "MΩ", multiplier: 1e6)]
+        case .voltageSource, .battery: return [Prefix(symbol: "mV", multiplier: 1e-3), Prefix(symbol: "V", multiplier: 1), Prefix(symbol: "kV", multiplier: 1e3)]
         case .currentSource: return [Prefix(symbol: "µA", multiplier: 1e-6), Prefix(symbol: "mA", multiplier: 1e-3), Prefix(symbol: "A", multiplier: 1)]
+        case .capacitor: return [Prefix(symbol: "pF", multiplier: 1e-12), Prefix(symbol: "nF", multiplier: 1e-9), Prefix(symbol: "µF", multiplier: 1e-6)]
+        case .inductor: return [Prefix(symbol: "µH", multiplier: 1e-6), Prefix(symbol: "mH", multiplier: 1e-3), Prefix(symbol: "H", multiplier: 1)]
+        case .switchOpen, .switchClosed: return [Prefix(symbol: "", multiplier: 1)]
         }
     }
 
@@ -168,10 +171,11 @@ struct ComponentEditorView: View {
                         }
                 }
                 Picker("Type", selection: $component.kind) {
-                    Text("Resistor").tag(ComponentKind.resistor)
-                    Text("Voltage source").tag(ComponentKind.voltageSource)
-                    Text("Current source").tag(ComponentKind.currentSource)
+                    ForEach(ComponentKind.allCases, id: \.self) { kind in
+                        Text(kind.displayName).tag(kind)
+                    }
                 }
+                .pickerStyle(.menu)
                 .foregroundStyle(PMTheme.ink)
                 .onChange(of: component.kind) { _, _ in
                     multiplier = prefixes.first { $0.multiplier == 1 }?.multiplier ?? 1
@@ -179,7 +183,8 @@ struct ComponentEditorView: View {
                 }
             }
 
-            Section("VALUE") {
+            if component.kind.hasValue {
+              Section("VALUE") {
                 HStack(spacing: 12) {
                     TextField("Value", text: $valueText)
                         .keyboardType(.decimalPad)
@@ -194,6 +199,7 @@ struct ComponentEditorView: View {
                     .frame(width: 150)
                     .onChange(of: multiplier) { _, _ in applyValue() }
                 }
+              }
             }
 
             Section {
@@ -202,7 +208,7 @@ struct ComponentEditorView: View {
             } header: {
                 Text("TERMINALS")
             } footer: {
-                Text(component.kind == .currentSource ? "The arrow inside the source points toward the second terminal." : component.kind == .voltageSource ? "The first terminal is the + side." : "Order does not matter for a resistor.")
+                Text(terminalFooter)
             }
 
             Section {
@@ -225,18 +231,31 @@ struct ComponentEditorView: View {
     }
 
     private var firstTerminalTitle: String {
-        switch component.kind {
-        case .resistor: return "Node A"
+        switch component.kind.dcRole {
         case .voltageSource: return "+ terminal node"
         case .currentSource: return "From node"
+        case .resistor, .open, .short: return "Node A"
         }
     }
 
     private var secondTerminalTitle: String {
-        switch component.kind {
-        case .resistor: return "Node B"
+        switch component.kind.dcRole {
         case .voltageSource: return "− terminal node"
         case .currentSource: return "To node"
+        case .resistor, .open, .short: return "Node B"
+        }
+    }
+
+    private var terminalFooter: String {
+        switch component.kind {
+        case .currentSource: return "The arrow inside the source points toward the second terminal."
+        case .voltageSource: return "The first terminal is the + side."
+        case .battery: return "The first terminal is the + side (the long plate)."
+        case .capacitor: return "At DC a capacitor is an open circuit: it carries no current and takes the voltage between its nodes."
+        case .inductor: return "At DC an inductor is a short circuit: its two nodes are the same node."
+        case .switchOpen: return "Open: no current flows. Change the type to close it."
+        case .switchClosed: return "Closed: acts as a wire. Change the type to open it."
+        case .resistor, .lamp: return "Order does not matter."
         }
     }
 

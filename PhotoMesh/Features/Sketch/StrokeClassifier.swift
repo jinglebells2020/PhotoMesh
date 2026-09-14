@@ -7,6 +7,8 @@ enum StrokeGuess: Equatable {
     /// A wire with corners: consecutive points of an axis-aligned polyline (raw, not yet snapped).
     case wirePath([CGPoint])
     case resistor(center: CGPoint, horizontal: Bool)
+    /// A row of humps all on one side of the stroke's chord (a coil).
+    case inductor(center: CGPoint, horizontal: Bool)
     case roundShape(center: CGPoint, size: CGSize)
     /// A box (IEC resistor). `horizontal` is nil for a square: the surroundings decide.
     case rectangle(center: CGPoint, horizontal: Bool?)
@@ -65,18 +67,25 @@ enum StrokeClassifier {
             return .unknown(bounds: bounds)
         }
 
-        // A wire that turns: a few long, axis-aligned segments.
+        // A wire that turns: a few long, axis-aligned segments. Something that keeps swinging from
+        // side to side of its chord is a zigzag or a coil, never a wire path.
+        let swings = chord > 24 ? sidewaysReversals(points, from: first, to: last, threshold: 4) : 0
         let corners = withoutShortSegments(simplify(points, epsilon: max(7, 0.05 * extent)), minimum: 16)
-        if corners.count >= 3, corners.count <= 7, isOrthogonalPolyline(corners, minimumSegment: 16) {
+        if swings < 3, corners.count >= 3, corners.count <= 7, isOrthogonalPolyline(corners, minimumSegment: 16) {
             return .wirePath(corners)
         }
 
-        // Zigzag: several reversals of the sideways offset along the chord.
+        // Zigzag: several reversals of the sideways offset along the chord. Humps that all bulge to
+        // the same side are a coil; a zigzag crosses the chord back and forth.
         if chord > 24 {
             let reversals = sidewaysReversals(points, from: first, to: last, threshold: 4)
             if reversals >= 3 {
                 let horizontal = abs(last.x - first.x) >= abs(last.y - first.y)
-                return .resistor(center: CGPoint(x: bounds.midX, y: bounds.midY), horizontal: horizontal)
+                let center = CGPoint(x: bounds.midX, y: bounds.midY)
+                if isOneSided(points, from: first, to: last, tolerance: 5) {
+                    return .inductor(center: center, horizontal: horizontal)
+                }
+                return .resistor(center: center, horizontal: horizontal)
             }
         }
 
@@ -246,6 +255,15 @@ enum StrokeClassifier {
             if angle > 35 * .pi / 180 { return false }
         }
         return true
+    }
+
+    /// True when the stroke never crosses more than `tolerance` to the other side of its chord.
+    static func isOneSided(_ points: [CGPoint], from a: CGPoint, to b: CGPoint, tolerance: CGFloat) -> Bool {
+        let dx = b.x - a.x, dy = b.y - a.y
+        let length = max(hypot(dx, dy), 0.001)
+        let offsets = points.map { (($0.x - a.x) * dy - ($0.y - a.y) * dx) / length }
+        guard let lo = offsets.min(), let hi = offsets.max() else { return false }
+        return lo >= -tolerance || hi <= tolerance
     }
 
     static func sidewaysReversals(_ points: [CGPoint], from a: CGPoint, to b: CGPoint, threshold: CGFloat) -> Int {

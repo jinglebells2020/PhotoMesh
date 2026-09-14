@@ -19,8 +19,8 @@ enum MeshAnalysis {
 
     /// The schematic layout lets every mesh current run clockwise on the drawing, the convention
     /// textbooks use so a shared resistor reads I₁ − I₂.
-    static func solve(_ circuit: Circuit, formatter: QuantityFormatter, layout: SchematicLayout? = nil) throws -> MethodSolution {
-        let context = AnalysisContext(circuit: circuit, formatter: formatter)
+    static func solve(_ circuit: Circuit, formatter: QuantityFormatter, layout: SchematicLayout? = nil, presented: Circuit? = nil) throws -> MethodSolution {
+        let context = AnalysisContext(circuit: circuit, formatter: formatter, presented: presented)
         let graph = CircuitGraph(circuit)
         var loops = try findLoops(circuit: circuit, graph: graph, layout: layout)
         if let layout {
@@ -39,7 +39,9 @@ enum MeshAnalysis {
             for (index, forward) in loop.edges {
                 let component = components[index]
                 let s: Double = forward ? 1 : -1
-                switch component.kind {
+                switch component.kind.dcRole {
+                case .open, .short:
+                    continue
                 case .resistor:
                     for (j, other) in loops.enumerated() {
                         let sj = other.sign(of: index)
@@ -73,10 +75,11 @@ enum MeshAnalysis {
         for (index, component) in components.enumerated() {
             let i = loops.enumerated().reduce(0.0) { $0 + $1.element.sign(of: index) * meshCurrents[$1.offset] }
             currents.append(i)
-            switch component.kind {
+            switch component.kind.dcRole {
             case .resistor: drops.append(i * component.value)
             case .voltageSource: drops.append(component.value)
             case .currentSource: drops.append(sourceVoltages[index] ?? 0)
+            case .open, .short: drops.append(0)
             }
         }
 
@@ -456,7 +459,9 @@ enum MeshAnalysis {
             for (index, forward) in loop.edges where index != skip {
                 let component = components[index]
                 let s: Double = forward ? 1 : -1
-                switch component.kind {
+                switch component.kind.dcRole {
+                case .open, .short:
+                    continue
                 case .resistor:
                     var inner = ""
                     var count = 0

@@ -2,16 +2,48 @@ import Foundation
 
 // MARK: - Circuit description ("calculable form")
 
-enum ComponentKind: String, Codable, Hashable {
+enum ComponentKind: String, Codable, Hashable, CaseIterable {
     case resistor
     case voltageSource = "voltage_source"
     case currentSource = "current_source"
+    case capacitor
+    case inductor
+    case lamp
+    case battery
+    case switchOpen = "switch_open"
+    case switchClosed = "switch_closed"
+
+    /// How the element behaves in a DC steady-state analysis.
+    enum DCRole { case resistor, voltageSource, currentSource, open, short }
+
+    var dcRole: DCRole {
+        switch self {
+        case .resistor, .lamp: return .resistor
+        case .voltageSource, .battery: return .voltageSource
+        case .currentSource: return .currentSource
+        case .capacitor, .switchOpen: return .open
+        case .inductor, .switchClosed: return .short
+        }
+    }
+
+    /// The plain kind the solver works with (lamps solve as resistors, batteries as voltage sources).
+    var analyzedKind: ComponentKind {
+        switch dcRole {
+        case .resistor: return .resistor
+        case .voltageSource: return .voltageSource
+        case .currentSource: return .currentSource
+        case .open, .short: return self
+        }
+    }
 
     var unitSymbol: String {
         switch self {
-        case .resistor: return "Ω"
-        case .voltageSource: return "V"
+        case .resistor, .lamp: return "Ω"
+        case .voltageSource, .battery: return "V"
         case .currentSource: return "A"
+        case .capacitor: return "F"
+        case .inductor: return "H"
+        case .switchOpen, .switchClosed: return ""
         }
     }
 
@@ -20,6 +52,28 @@ enum ComponentKind: String, Codable, Hashable {
         case .resistor: return "Resistor"
         case .voltageSource: return "Voltage source"
         case .currentSource: return "Current source"
+        case .capacitor: return "Capacitor"
+        case .inductor: return "Inductor"
+        case .lamp: return "Lamp"
+        case .battery: return "Battery"
+        case .switchOpen: return "Switch (open)"
+        case .switchClosed: return "Switch (closed)"
+        }
+    }
+
+    /// Switches have a state instead of a value.
+    var hasValue: Bool { self != .switchOpen && self != .switchClosed }
+    var isSwitch: Bool { !hasValue }
+    var isSource: Bool { dcRole == .voltageSource || dcRole == .currentSource }
+    /// The first terminal is the + side.
+    var hasPolarity: Bool { dcRole == .voltageSource }
+
+    /// "4.7 kΩ", "12 V", "open" – what to print next to the symbol.
+    func valueText(_ value: Double, formatter: QuantityFormatter) -> String {
+        switch self {
+        case .switchOpen: return "open"
+        case .switchClosed: return "closed"
+        default: return formatter.format(value, unitSymbol)
         }
     }
 }
@@ -84,6 +138,9 @@ struct Circuit: Hashable, Codable {
     var voltageSources: [Component] { components.filter { $0.kind == .voltageSource } }
     var currentSources: [Component] { components.filter { $0.kind == .currentSource } }
 
+    /// True when some element is not a plain resistor / source and needs the DC redraw first.
+    var needsDCEquivalent: Bool { components.contains { $0.kind != $0.kind.analyzedKind } }
+
     func component(_ id: String) -> Component? { components.first { $0.id == id } }
 
     func components(at node: String) -> [Component] { components.filter { $0.touches(node) } }
@@ -134,19 +191,20 @@ extension Circuit {
         if !unsupported.isEmpty { throw CircuitValidationError.unsupportedElements(unsupported) }
 
         var cleaned = self
-        // Drop resistors whose two ends are the same node: they carry no current.
-        cleaned.components.removeAll { $0.kind == .resistor && $0.nodeA == $0.nodeB }
+        // Drop elements whose two ends are the same node and that do nothing there: resistors,
+        // lamps, opens and shorts carry no current across a single node.
+        cleaned.components.removeAll { $0.nodeA == $0.nodeB && !$0.kind.isSource }
 
         for component in cleaned.components {
-            if component.kind != .resistor, component.nodeA == component.nodeB {
+            if component.kind.isSource, component.nodeA == component.nodeB {
                 throw CircuitValidationError.shortedSource(component.id)
             }
-            if component.kind == .resistor, !(component.value > 0) {
+            if component.kind.dcRole == .resistor, !(component.value > 0) {
                 throw CircuitValidationError.nonPositiveResistor(component.id)
             }
         }
 
-        guard cleaned.components.contains(where: { $0.kind != .resistor }) else {
+        guard cleaned.components.contains(where: { $0.kind.isSource }) else {
             throw CircuitValidationError.noSource
         }
 
@@ -171,6 +229,91 @@ extension Circuit {
 
         guard CircuitGraph(cleaned).isConnected else { throw CircuitValidationError.disconnected }
         return cleaned
+    }
+}
+
+// MARK: - DC steady state
+
+/// What the DC redraw did to one element.
+struct DCReplacement: Hashable {
+    enum Change: Hashable { case open, short, asResistor, asVoltageSource }
+    var id: String
+    var kind: ComponentKind
+    var change: Change
+    /// For shorts: the node that disappears and the node it merges into.
+    var mergedNode: String?
+    var intoNode: String?
+}
+
+extension Circuit {
+    /// The circuit the solver actually works on at DC steady state: capacitors and open switches
+    /// are removed (no current), inductors and closed switches merge their two nodes (no voltage),
+    /// lamps become resistors and batteries voltage sources. `alias` maps every original node to
+    /// the node it became; `presented` is the original drawing with the same renaming, so labels
+    /// in the steps and on the schematic agree.
+    func dcEquivalent() -> (solved: Circuit, presented: Circuit, alias: [String: String], replacements: [DCReplacement]) {
+        var parent: [String: String] = [:]
+        for node in nodes { parent[node] = node }
+        func find(_ node: String) -> String {
+            var current = node
+            while let p = parent[current], p != current { current = p }
+            return current
+        }
+        // Merge across shorts; ground wins, otherwise the natural-order first name survives.
+        for component in components where component.kind.dcRole == .short {
+            let a = find(component.nodeA), b = find(component.nodeB)
+            guard a != b else { continue }
+            let keep: String
+            if a == groundNode { keep = a } else if b == groundNode { keep = b } else { keep = Circuit.naturalOrder(a, b) ? a : b }
+            let drop = keep == a ? b : a
+            parent[drop] = keep
+        }
+        var alias: [String: String] = [:]
+        for node in nodes { alias[node] = find(node) }
+
+        var replacements: [DCReplacement] = []
+        var solvedComponents: [Component] = []
+        for component in components {
+            let a = alias[component.nodeA] ?? component.nodeA, b = alias[component.nodeB] ?? component.nodeB
+            switch component.kind.dcRole {
+            case .open:
+                replacements.append(DCReplacement(id: component.id, kind: component.kind, change: .open))
+            case .short:
+                let merged = [component.nodeA, component.nodeB].first { alias[$0] != $0 }
+                replacements.append(DCReplacement(id: component.id, kind: component.kind, change: .short, mergedNode: merged, intoNode: merged.flatMap { alias[$0] }))
+            case .resistor, .voltageSource, .currentSource:
+                if component.kind != component.kind.analyzedKind {
+                    replacements.append(DCReplacement(id: component.id, kind: component.kind, change: component.kind.dcRole == .resistor ? .asResistor : .asVoltageSource))
+                }
+                solvedComponents.append(Component(id: component.id, kind: component.kind.analyzedKind, value: component.value, nodeA: a, nodeB: b))
+            }
+        }
+        var solved = self
+        solved.components = solvedComponents
+        solved.groundNode = alias[groundNode] ?? groundNode
+        solved.meshes = []
+        solved.geometry = nil
+
+        var presented = self
+        presented.components = components.map { c in
+            var copy = c
+            copy.nodeA = alias[c.nodeA] ?? c.nodeA
+            copy.nodeB = alias[c.nodeB] ?? c.nodeB
+            return copy
+        }
+        presented.groundNode = solved.groundNode
+        if var geometry = presented.geometry {
+            var points: [String: SPoint] = [:]
+            for (node, point) in geometry.nodePoints { points[alias[node] ?? node] = points[alias[node] ?? node] ?? point }
+            geometry.nodePoints = points
+            geometry.wires = geometry.wires?.map { w in
+                var copy = w
+                copy.node = alias[w.node] ?? w.node
+                return copy
+            }
+            presented.geometry = geometry
+        }
+        return (solved, presented, alias, replacements)
     }
 }
 

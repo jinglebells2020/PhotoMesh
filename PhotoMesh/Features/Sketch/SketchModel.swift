@@ -3,22 +3,40 @@ import SwiftUI
 /// One thing drawn on the canvas. Points are canvas coordinates snapped to the dot grid.
 struct SketchElement: Identifiable, Equatable {
     enum Kind: Hashable, CaseIterable {
-        case wire, resistor, voltageSource, currentSource, ground
+        case wire, resistor, capacitor, inductor, lamp, voltageSource, currentSource, battery, switchOpen, switchClosed, ground
 
         var componentKind: ComponentKind? {
             switch self {
             case .resistor: return .resistor
+            case .capacitor: return .capacitor
+            case .inductor: return .inductor
+            case .lamp: return .lamp
             case .voltageSource: return .voltageSource
             case .currentSource: return .currentSource
+            case .battery: return .battery
+            case .switchOpen: return .switchOpen
+            case .switchClosed: return .switchClosed
             case .wire, .ground: return nil
             }
         }
 
+        static func from(_ kind: ComponentKind) -> Kind {
+            allCases.first { $0.componentKind == kind } ?? .resistor
+        }
+
+        /// Kinds a drawn part can be changed into.
+        static let parts: [Kind] = [.resistor, .capacitor, .inductor, .lamp, .voltageSource, .currentSource, .battery, .switchOpen]
+
         var prefix: String {
             switch self {
             case .resistor: return "R"
+            case .capacitor: return "C"
+            case .inductor: return "L"
+            case .lamp: return "LP"
             case .voltageSource: return "V"
             case .currentSource: return "I"
+            case .battery: return "B"
+            case .switchOpen, .switchClosed: return "S"
             case .wire: return "W"
             case .ground: return "G"
             }
@@ -27,12 +45,16 @@ struct SketchElement: Identifiable, Equatable {
         var title: String {
             switch self {
             case .wire: return "Wire"
-            case .resistor: return "Resistor"
-            case .voltageSource: return "Voltage source"
-            case .currentSource: return "Current source"
             case .ground: return "Ground"
+            default: return componentKind?.displayName ?? "Part"
             }
         }
+
+        /// A value the user must enter (switches have a state instead).
+        var needsValue: Bool { componentKind?.hasValue ?? false }
+        var isSwitch: Bool { self == .switchOpen || self == .switchClosed }
+        /// Flip swaps polarity or direction; for a switch it toggles open/closed.
+        var canFlip: Bool { isSwitch || (componentKind.map { $0.hasPolarity || $0 == .currentSource } ?? false) }
     }
 
     let id: UUID
@@ -122,8 +144,13 @@ struct SketchDocument: Equatable {
     }
 
     /// Re-numbers a component when its kind changes (a "V1" that turns out to be a resistor).
+    /// Kinds that share a prefix (a switch opening or closing) keep their label.
     mutating func relabel(_ id: UUID, as kind: SketchElement.Kind) {
         guard let index = elements.firstIndex(where: { $0.id == id }), elements[index].kind != kind else { return }
+        if elements[index].kind.prefix == kind.prefix {
+            elements[index].kind = kind
+            return
+        }
         elements[index].kind = kind
         var copy = self
         copy.elements.remove(at: index)
@@ -132,7 +159,7 @@ struct SketchDocument: Equatable {
 
     var hasSource: Bool { elements.contains { $0.kind == .voltageSource || $0.kind == .currentSource } }
     var hasResistor: Bool { elements.contains { $0.kind == .resistor } }
-    var missingValues: [SketchElement] { elements.filter { $0.isComponent && $0.value == nil } }
+    var missingValues: [SketchElement] { elements.filter { $0.isComponent && $0.kind.needsValue && $0.value == nil } }
     var isSolvable: Bool { hasSource && hasResistor }
 
     /// Area the drawing occupies (canvas points), padded; used to normalise geometry and to fit the view.

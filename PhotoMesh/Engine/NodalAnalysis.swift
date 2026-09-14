@@ -5,8 +5,8 @@ import Foundation
 /// the walkthrough derives every KCL equation term by term, clears the fractions, and solves the
 /// system by elimination one operation at a time.
 enum NodalAnalysis {
-    static func solve(_ circuit: Circuit, formatter: QuantityFormatter) throws -> MethodSolution {
-        let context = AnalysisContext(circuit: circuit, formatter: formatter)
+    static func solve(_ circuit: Circuit, formatter: QuantityFormatter, presented: Circuit? = nil) throws -> MethodSolution {
+        let context = AnalysisContext(circuit: circuit, formatter: formatter, presented: presented)
         let ground = circuit.groundNode
         let nodes = circuit.nodes
         let unknownNodes = nodes.filter { $0 != ground }

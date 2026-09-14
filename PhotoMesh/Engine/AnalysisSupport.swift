@@ -2,8 +2,13 @@ import Foundation
 
 /// Shared naming, equation formatting, element bookkeeping and answer building for both methods.
 struct AnalysisContext {
+    /// The circuit the equations are written for (plain resistors and sources).
     let circuit: Circuit
     let formatter: QuantityFormatter
+    /// The circuit as drawn (capacitors, lamps, switches…) when it differs from `circuit`.
+    var presented: Circuit? = nil
+
+    var displayCircuit: Circuit { presented ?? circuit }
 
     // MARK: Symbols
 
@@ -37,13 +42,13 @@ struct AnalysisContext {
     func watts(_ value: Double) -> String { formatter.format(value, "W") }
 
     func describe(_ component: Component) -> String {
-        switch component.kind {
-        case .resistor:
-            return "\(component.id) = \(ohms(component.value)) between \(component.nodeA) and \(component.nodeB)"
+        switch component.kind.dcRole {
         case .voltageSource:
             return "\(component.id) = \(volts(component.value)), + at \(component.nodeA), − at \(component.nodeB)"
         case .currentSource:
             return "\(component.id) = \(amps(component.value)) from \(component.nodeA) into \(component.nodeB)"
+        case .resistor, .open, .short:
+            return "\(component.id) = \(component.kind.valueText(component.value, formatter: formatter)) between \(component.nodeA) and \(component.nodeB)"
         }
     }
 }
@@ -129,14 +134,18 @@ enum ElementResults {
         circuit.components.map { component in
             let va = voltages[component.nodeA] ?? 0
             let vb = voltages[component.nodeB] ?? 0
-            switch component.kind {
+            switch component.kind.dcRole {
             case .resistor:
                 let v = va - vb
-                return ElementResult(id: component.id, kind: .resistor, value: component.value, nodeA: component.nodeA, nodeB: component.nodeB, current: v / component.value, voltage: v)
+                return ElementResult(id: component.id, kind: component.kind, value: component.value, nodeA: component.nodeA, nodeB: component.nodeB, current: v / component.value, voltage: v)
             case .voltageSource:
-                return ElementResult(id: component.id, kind: .voltageSource, value: component.value, nodeA: component.nodeA, nodeB: component.nodeB, current: sourceCurrents[component.id] ?? 0, voltage: component.value)
+                return ElementResult(id: component.id, kind: component.kind, value: component.value, nodeA: component.nodeA, nodeB: component.nodeB, current: sourceCurrents[component.id] ?? 0, voltage: component.value)
             case .currentSource:
-                return ElementResult(id: component.id, kind: .currentSource, value: component.value, nodeA: component.nodeA, nodeB: component.nodeB, current: component.value, voltage: va - vb)
+                return ElementResult(id: component.id, kind: component.kind, value: component.value, nodeA: component.nodeA, nodeB: component.nodeB, current: component.value, voltage: va - vb)
+            case .open:
+                return ElementResult(id: component.id, kind: component.kind, value: component.value, nodeA: component.nodeA, nodeB: component.nodeB, current: 0, voltage: va - vb)
+            case .short:
+                return ElementResult(id: component.id, kind: component.kind, value: component.value, nodeA: component.nodeA, nodeB: component.nodeB, current: 0, voltage: 0)
             }
         }
     }
@@ -195,12 +204,22 @@ enum Answers {
         return "from \(from) to \(to)"
     }
 
+    /// The element's terminals as drawn: a short's two ends have merged into one node, so the
+    /// original names are used for the wording.
+    private static func terminals(of element: ElementResult, context: AnalysisContext) -> (String, String) {
+        if element.nodeA == element.nodeB, let drawn = context.displayCircuit.component(element.id) {
+            return (drawn.nodeA, drawn.nodeB)
+        }
+        return (element.nodeA, element.nodeB)
+    }
+
     /// "1.538 A from n2 to 0"
     static func currentDescription(_ element: ElementResult, context: AnalysisContext) -> String {
         let magnitude = context.amps(abs(element.current))
         if abs(element.current) < 1e-12 { return magnitude }
-        let from = element.current >= 0 ? element.nodeA : element.nodeB
-        let to = element.current >= 0 ? element.nodeB : element.nodeA
+        let (a, b) = terminals(of: element, context: context)
+        let from = element.current >= 0 ? a : b
+        let to = element.current >= 0 ? b : a
         return "\(magnitude) from \(from) to \(to)"
     }
 
@@ -208,8 +227,9 @@ enum Answers {
     static func voltageDescription(_ element: ElementResult, context: AnalysisContext) -> String {
         let magnitude = context.volts(abs(element.voltage))
         if abs(element.voltage) < 1e-12 { return magnitude }
-        let high = element.voltage >= 0 ? element.nodeA : element.nodeB
-        let low = element.voltage >= 0 ? element.nodeB : element.nodeA
+        let (a, b) = terminals(of: element, context: context)
+        let high = element.voltage >= 0 ? a : b
+        let low = element.voltage >= 0 ? b : a
         return "\(magnitude), \(high) higher than \(low)"
     }
 }
@@ -219,21 +239,27 @@ enum Answers {
 enum SharedSteps {
     /// "Given / find": every element with its value and where it sits, then the question.
     static func readCircuit(context: AnalysisContext) -> AnalysisStep {
-        let circuit = context.circuit
+        let circuit = context.displayCircuit
+        let f = context.formatter
         var lines = circuit.components.map { c -> String in
             switch c.kind {
-            case .resistor: return "\(c.id) = \(context.ohms(c.value)) between \(c.nodeA) and \(c.nodeB)"
-            case .voltageSource: return "\(c.id) = \(context.volts(c.value)), + at \(c.nodeA), − at \(c.nodeB)"
-            case .currentSource: return "\(c.id) = \(context.amps(c.value)) from \(c.nodeA) into \(c.nodeB)"
+            case .resistor, .lamp, .capacitor, .inductor:
+                return "\(c.id) = \(f.format(c.value, c.kind.unitSymbol)) between \(c.nodeA) and \(c.nodeB)"
+            case .voltageSource, .battery:
+                return "\(c.id) = \(context.volts(c.value)), + at \(c.nodeA), − at \(c.nodeB)"
+            case .currentSource:
+                return "\(c.id) = \(context.amps(c.value)) from \(c.nodeA) into \(c.nodeB)"
+            case .switchOpen, .switchClosed:
+                return "\(c.id) \(c.kind == .switchOpen ? "open" : "closed") between \(c.nodeA) and \(c.nodeB)"
             }
         }
         let question = circuit.question ?? "Find the current through every element"
         lines.append(question.lowercased().hasPrefix("find") ? question : "Find: \(question)")
-        let sources = circuit.components.filter { $0.kind != .resistor }.count
-        let resistors = circuit.components.count - sources
+        let sources = circuit.components.filter { $0.kind.isSource }.count
+        let others = circuit.components.count - sources
         return AnalysisStep(
             title: "Read the circuit",
-            summary: "\(sources) source\(sources == 1 ? "" : "s"), \(resistors) resistor\(resistors == 1 ? "" : "s"), \(circuit.nodes.count) nodes",
+            summary: "\(sources) source\(sources == 1 ? "" : "s"), \(others) other element\(others == 1 ? "" : "s"), \(circuit.nodes.count) nodes",
             equations: lines,
             explanation: "Before solving anything, write down what is given and what is asked. Every value here comes straight from the diagram; the node names are the junctions the elements share.",
             result: question,
@@ -241,17 +267,132 @@ enum SharedSteps {
         )
     }
 
+    /// What the DC steady-state redraw did: capacitors open, inductors short, lamps as resistors, batteries as sources.
+    static func dcEquivalentStep(context: AnalysisContext, replacements: [DCReplacement]) -> AnalysisStep {
+        var lines: [String] = []
+        var explanationParts: [String] = []
+        for r in replacements {
+            switch r.change {
+            case .open:
+                lines.append("\(r.id) (\(r.kind.displayName.lowercased())): open circuit → I(\(r.id)) = 0")
+            case .short:
+                if let merged = r.mergedNode, let into = r.intoNode {
+                    lines.append("\(r.id) (\(r.kind.displayName.lowercased())): short circuit → V(\(r.id)) = 0, node \(merged) is node \(into)")
+                } else {
+                    lines.append("\(r.id) (\(r.kind.displayName.lowercased())): short circuit → V(\(r.id)) = 0")
+                }
+            case .asResistor:
+                lines.append("\(r.id) (\(r.kind.displayName.lowercased())): treat as a resistor")
+            case .asVoltageSource:
+                lines.append("\(r.id) (\(r.kind.displayName.lowercased())): treat as a voltage source, + at the long plate")
+            }
+        }
+        if replacements.contains(where: { $0.kind == .capacitor }) {
+            explanationParts.append("A capacitor's current is C·dV/dt; once nothing changes with time that is zero, so it acts like a break in the wire and only holds a voltage.")
+        }
+        if replacements.contains(where: { $0.kind == .inductor }) {
+            explanationParts.append("An inductor's voltage is L·dI/dt, zero at steady state, so it acts like a plain wire: its two ends are one node and it carries whatever current that wire carries.")
+        }
+        if replacements.contains(where: { $0.kind.isSwitch }) {
+            explanationParts.append("An open switch is a gap (no current); a closed switch is a wire (no voltage).")
+        }
+        if replacements.contains(where: { $0.kind == .lamp }) {
+            explanationParts.append("A lamp is a resistor that happens to glow.")
+        }
+        if replacements.contains(where: { $0.kind == .battery }) {
+            explanationParts.append("A battery is an ideal voltage source here; the longer plate is the + terminal.")
+        }
+        return AnalysisStep(
+            title: "Redraw for DC steady state",
+            summary: "\(replacements.count) element\(replacements.count == 1 ? "" : "s") replaced by \(replacements.count == 1 ? "its" : "their") DC behaviour",
+            equations: lines,
+            explanation: "The question is about steady DC values, long after anything has settled. " + explanationParts.joined(separator: " ") + " The rest of the analysis works on this simpler circuit; the answers are then read back onto the original elements.",
+            result: lines.first ?? "",
+            focus: StepFocus(elements: replacements.map(\.id), zoom: true)
+        )
+    }
+
+    /// Reads the solved (plain) circuit's results back onto the drawn circuit: kept elements take
+    /// their values, opens get zero current and the node difference as voltage, shorts get zero
+    /// voltage and the current that must pass through them (charge conservation over the shorts).
+    static func expand(_ method: MethodSolution, original: Circuit, presented: Circuit, alias: [String: String], formatter: QuantityFormatter) -> MethodSolution {
+        var voltages: [String: Double] = [:]
+        for node in original.nodes { voltages[alias[node] ?? node] = method.nodeVoltages[alias[node] ?? node] ?? 0 }
+        let byId = Dictionary(uniqueKeysWithValues: method.elements.map { ($0.id, $0) })
+        var currents: [String: Double] = [:]
+        var results: [ElementResult] = []
+        for (index, c) in presented.components.enumerated() {
+            let originalComponent = original.components[index]
+            let va = voltages[c.nodeA] ?? 0, vb = voltages[c.nodeB] ?? 0
+            if let r = byId[c.id] {
+                currents[c.id] = r.current
+                results.append(ElementResult(id: c.id, kind: c.kind, value: c.value, nodeA: c.nodeA, nodeB: c.nodeB, current: r.current, voltage: r.voltage))
+            } else if originalComponent.kind.dcRole == .short {
+                results.append(ElementResult(id: c.id, kind: c.kind, value: c.value, nodeA: c.nodeA, nodeB: c.nodeB, current: 0, voltage: 0))   // filled below
+            } else {
+                currents[c.id] = 0
+                results.append(ElementResult(id: c.id, kind: c.kind, value: c.value, nodeA: c.nodeA, nodeB: c.nodeB, current: 0, voltage: originalComponent.kind.dcRole == .open ? va - vb : 0))
+            }
+        }
+        // Currents through the shorts: peel the tree they form over the original nodes.
+        let shorts = original.components.filter { $0.kind.dcRole == .short && byId[$0.id] == nil }
+        if !shorts.isEmpty {
+            var injection: [String: Double] = [:]
+            for c in original.components where currents[c.id] != nil {
+                let i = currents[c.id] ?? 0
+                injection[c.nodeA, default: 0] -= i
+                injection[c.nodeB, default: 0] += i
+            }
+            var degree: [String: Int] = [:]
+            for c in shorts { degree[c.nodeA, default: 0] += 1; degree[c.nodeB, default: 0] += 1 }
+            var remaining = Set(shorts.map(\.id))
+            var found: [String: Double] = [:]
+            var queue = degree.filter { $0.value == 1 }.map(\.key)
+            while let leaf = queue.popLast() {
+                guard let edge = shorts.first(where: { remaining.contains($0.id) && $0.touches(leaf) }) else { continue }
+                let flow = injection[leaf] ?? 0
+                found[edge.id] = edge.nodeA == leaf ? flow : -flow
+                remaining.remove(edge.id)
+                let other = edge.otherNode(leaf)
+                injection[other, default: 0] += flow
+                degree[other, default: 0] -= 1
+                degree[leaf] = 0
+                if degree[other] == 1 { queue.append(other) }
+            }
+            results = results.map { r in
+                guard let i = found[r.id] else { return r }
+                return ElementResult(id: r.id, kind: r.kind, value: r.value, nodeA: r.nodeA, nodeB: r.nodeB, current: i, voltage: 0)
+            }
+        }
+        let context = AnalysisContext(circuit: presented, formatter: formatter, presented: original)
+        let answers = Answers.build(context: context, voltages: voltages, elements: results)
+        var steps = method.steps
+        // Rebuild the closing steps so they mention every drawn element.
+        while let last = steps.last, last.title == "Answer" || last.title == "Check the result" { steps.removeLast() }
+        steps.append(checkStep(context: context, elements: results, voltages: voltages))
+        steps.append(answerStep(context: context, answers: answers, elements: results, voltages: voltages))
+        var copy = method
+        copy.elements = results
+        copy.nodeVoltages = voltages
+        copy.answers = answers
+        copy.headline = answers.first.map { "\($0.label): \($0.value)" } ?? method.headline
+        copy.steps = steps
+        return copy
+    }
+
     static func elementVoltages(context: AnalysisContext, elements: [ElementResult], voltages: [String: Double]) -> AnalysisStep {
         let f = context.formatter
         var lines: [String] = []
         for e in elements {
-            switch e.kind {
+            switch e.kind.dcRole {
             case .resistor:
                 lines.append("\(context.elementVoltageSymbol(e.id)) = \(e.id)·\(context.currentSymbol(e.id)) = \(context.ohms(e.value))·\(f.term(e.current, "A")) = \(context.volts(e.voltage))")
             case .voltageSource:
                 lines.append("\(context.elementVoltageSymbol(e.id)) = \(context.volts(e.voltage)) (given)")
-            case .currentSource:
+            case .currentSource, .open:
                 lines.append("\(context.elementVoltageSymbol(e.id)) = \(context.voltageTerm(e.nodeA, known: voltages)) − \(context.voltageTerm(e.nodeB, known: voltages)) = \(context.volts(e.voltage))")
+            case .short:
+                lines.append("\(context.elementVoltageSymbol(e.id)) = 0 (short at DC)")
             }
         }
         return AnalysisStep(
@@ -274,7 +415,7 @@ enum SharedSteps {
         var absorbed = 0.0, delivered = 0.0
         for e in elements {
             let p = e.power
-            switch e.kind {
+            switch e.kind.dcRole {
             case .resistor:
                 lines.append("P(\(e.id)) = I²·R = (\(f.term(e.current, "A")))²·\(context.ohms(e.value)) = \(context.watts(p))")
                 absorbedTerms.append(context.watts(p)); absorbed += p
@@ -282,6 +423,8 @@ enum SharedSteps {
                 let magnitude = abs(p)
                 lines.append("P(\(e.id)) = V·I = \(context.volts(e.voltage))·\(f.term(e.current, "A")) = \(context.watts(p))  (\(e.id) \(p < 0 ? "delivers" : "absorbs") \(context.watts(magnitude)))")
                 if p < 0 { deliveredTerms.append(context.watts(magnitude)); delivered += magnitude } else if p > 1e-15 { absorbedTerms.append(context.watts(p)); absorbed += p }
+            case .open, .short:
+                continue   // no power at DC
             }
         }
         lines.append(deliveredTerms.count > 1 ? "Delivered: \(deliveredTerms.joined(separator: " + ")) = \(context.watts(delivered))" : "Delivered by the sources: \(context.watts(delivered))")

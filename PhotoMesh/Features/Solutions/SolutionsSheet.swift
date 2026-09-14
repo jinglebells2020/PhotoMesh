@@ -324,7 +324,7 @@ private struct RecognizedCircuitCard: View {
                 HStack(spacing: 6) {
                     Image(systemName: analysis.methodsAgree ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
                         .foregroundStyle(analysis.methodsAgree ? PMTheme.accent : PMTheme.whyOrange)
-                    Text(analysis.methodsAgree ? "Nodal and mesh analysis agree" : "The methods disagree – check the recognized values")
+                    Text(analysis.methodsAgree ? (analysis.methods.count > 1 ? "All \(analysis.methods.count) methods agree" : "Solved") : "The methods disagree – check the recognized values")
                         .font(.system(size: 13))
                         .foregroundStyle(PMTheme.secondaryText)
                 }
@@ -362,7 +362,7 @@ private struct RecognizedCircuitCard: View {
     }
 
     private func valueText(_ component: Component) -> String {
-        FormattingPreferences.formatter().format(component.value, component.kind.unitSymbol)
+        component.kind.valueText(component.value, formatter: FormattingPreferences.formatter())
     }
 }
 
@@ -524,7 +524,7 @@ private struct ReviewCard: View {
                         Text(component.id)
                             .font(.system(size: 14, weight: .semibold, design: .rounded))
                             .frame(width: 34, alignment: .leading)
-                        Text(formatter.format(component.value, component.kind.unitSymbol))
+                        Text(component.kind.valueText(component.value, formatter: formatter))
                             .font(.system(size: 14, design: .rounded))
                         Spacer(minLength: 0)
                         Text(terminals(component))
@@ -583,10 +583,10 @@ private struct ReviewCard: View {
     }
 
     private func terminals(_ component: Component) -> String {
-        switch component.kind {
-        case .resistor: return "\(component.nodeA) — \(component.nodeB)"
+        switch component.kind.dcRole {
         case .voltageSource: return "+\(component.nodeA)  −\(component.nodeB)"
         case .currentSource: return "\(component.nodeA) → \(component.nodeB)"
+        case .resistor, .open, .short: return "\(component.nodeA) — \(component.nodeB)"
         }
     }
 }

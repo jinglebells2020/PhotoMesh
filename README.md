@@ -23,10 +23,13 @@ method to follow.
 | About us, PhotoMesh Plus | Done (layout only, no purchases) |
 | Solutions sheet (one card per method) → Solving Steps (Next Step, Why, feedback) → Circuit detail (netlist, node voltages, element results) | Done |
 | Photo → netlist recognition (OpenRouter, `google/gemini-3.5-flash-lite` first, `gemini-3.6-flash` on doubt) | Done; testers use a built-in, rate-limited key |
-| DC solver: nodal (MNA, supernodes) + mesh (auto loop detection, supermeshes), cross‑checked | Done, unit‑tested |
+| DC solver: series/parallel reduction (when it applies) + nodal (MNA, supernodes) + mesh (planar windows, supermeshes), cross‑checked | Done, unit‑tested |
+| Textbook walkthroughs: given/find, KCL/KVL term by term, fractions cleared, systems solved by elimination one step at a time, power‑balance and KCL check | Done |
+| Capacitors, inductors, lamps, batteries and switches (solved at DC steady state, drawn with their own symbols) | Done |
+| Current flow animated on the schematic (moving dots along wires and around meshes) | Done |
 | Schematic redrawn from the photo, fixed window above the steps that zooms to what each step talks about | Done |
 | Full‑screen circuit explorer (pinch, pan, tap a node or part for details in a floating card) | Done |
-| Hand‑drawn circuit entry on a dot grid (Draw button on the home screen): lines, cornered wires and loops, zigzag/box resistors, circle sources, parts slot into wires, tap actions, eraser, pan/zoom | Done |
+| Hand‑drawn circuit entry on a dot grid (Draw button on the home screen): lines, cornered wires and loops, zigzag/box resistors, coils, circle sources, parts slot into wires, tap actions, hold‑to‑move, Draw/Erase/Ground modes, parts palette, pan/zoom | Done |
 | Step equations typeset as LaTeX (fractions, subscripts, units) | Done |
 | "Check the circuit" step after a scan with an editor for parts, values, nodes, ground and the question | Done |
 | History of solved circuits (button right of the shutter) | Done |
@@ -45,14 +48,26 @@ circuit through the real engine, so every screen can be exercised without hardwa
    mesh hints, and what the question asks. `CircuitPayload` decodes it tolerantly and
    `Circuit.validated()` rejects shorted sources, dangling parts, disconnected graphs and
    unsupported elements with a readable message.
-3. **Solve** – `CircuitAnalyzer` runs
-   - `NodalAnalysis`: modified nodal analysis internally; the steps show known node voltages,
-     supernodes, one KCL equation per node in fraction form plus collected form, the solved
-     system, element currents, voltages, and the answer;
-   - `MeshAnalysis`: uses the recognizer's mesh hints when they form a valid independent set,
-     otherwise finds a shortest cycle basis itself; current sources become known mesh currents
-     or supermeshes; steps mirror the nodal ones with KVL equations.
-   Both methods are compared element by element; the UI shows whether they agree.
+3. **Solve** – `CircuitAnalyzer` first redraws the circuit for DC steady state when needed
+   (capacitors and open switches become opens, inductors and closed switches become shorts that
+   merge their nodes, lamps solve as resistors, batteries as voltage sources; a step explains
+   each replacement and the results are read back onto the drawn elements). Then it runs
+   - `ReductionAnalysis` (only when there is one source and the resistors form a plain
+     series/parallel pattern): combines two resistors per step with the rule and the arithmetic
+     shown, applies Ohm's law to the equivalent, then undoes each combination, sharing the
+     current along series parts and the voltage across parallel parts;
+   - `NodalAnalysis`: modified nodal analysis internally; the walkthrough lists every current
+     leaving a node ("through R1 to n1: (V₂ − V₁)/R1 = (V₂ − 9)/1000"), clears the fractions
+     with a common multiple so the equations have whole‑number coefficients, handles fixed
+     nodes and supernodes, and solves the system by numbered elimination steps followed by
+     back‑substitution (`SystemNarrator`), checked against the matrix solution;
+   - `MeshAnalysis`: meshes are the windows of the drawing (planar face enumeration from the
+     layout, falling back to the recognizer's hints or a cycle basis), all clockwise so shared
+     resistors read R·(I₁ − I₂); KVL lists each element crossed, the sum, the expansion and the
+     collected equation; current sources become known mesh currents or supermeshes; a negative
+     result gets a "read the signs" step.
+   Every method opens with a given/find step and closes with a power‑balance + KCL check and the
+   answer. The methods are compared element by element; the UI shows whether they agree.
 4. **Present** – one card per method on the Solutions sheet, each opening its own walkthrough.
 
 Values are formatted with engineering prefixes (37.5 mA, 4.7 kΩ) following the settings.
@@ -70,6 +85,11 @@ Every solving step carries a `StepFocus`: the nodes, elements or meshes it talks
 to zoom onto them, and which node voltages / currents / mesh currents are known at that point.
 `SchematicWindow` (top of the Solving Steps screen) animates its camera to that focus, dims
 everything else, draws current arrows with values, node voltages, and circulating mesh arrows.
+Steps that know the currents also show them moving: dots travel along every wire and through
+every element in the true direction, faster where the current is larger (the current in each
+wire segment is derived from the element currents by conserving charge along each node's wire
+tree), and mesh steps show dots circulating around each window, reversed for a negative mesh
+current. The animation runs only while such a step is open and respects Reduce Motion.
 The expand button (or a tap) opens `CircuitExplorerView`: free pinch/pan, double‑tap to fit, tap
 a component or wire to read about it in the floating card at the bottom.
 
@@ -91,8 +111,10 @@ the spot by `StrokeClassifier`, judged in finger coordinates so it behaves the s
 | A straight stroke, or one with corners | Axis‑aligned wire(s); ends magnet onto terminals, wire ends and wire interiors (T‑junctions) |
 | A big closed outline | A rectangular loop of four wires |
 | A zigzag, or a small box/square | A resistor (a square faces the way the nearby wires run) |
-| A circle | A bubble asks: voltage source, current source or resistor |
-| A short mark / anything unreadable | A bubble with the possible parts |
+| A row of humps on one side | An inductor |
+| A circle | A bubble asks: voltage source, current source, lamp or battery |
+| A short mark / anything unreadable | A bubble with the possible parts (capacitor, switch, ground, wire, …) |
+| The Parts button | Any part (capacitor, inductor, lamp, battery, open/closed switch, …) dropped in the middle, ready to drag |
 
 A part drawn **on** a wire slots into it: the wire is cut at the terminals, a short wire is taken
 over entirely, a part drawn at the end of a wire is pulled inside it, and the part slides a step
@@ -103,10 +125,13 @@ the wire first (rotation then re‑seats the part). All of this lives in `Sketch
 is exercised on Linux by the sketch harness.
 
 Right after a part appears, a small sheet asks for its value (skip with *Later*; *Solve* comes
-back to anything still missing). Tap a part for its actions: value, rotate, flip, mark as the
-unknown, change type, delete; double‑tap rotates. The eraser rubs parts out and cuts wires only
-where it touched them. The Ground tool places the reference; the “?” button replays the
-first‑run tips. `SketchDocument` derives the nodes with union‑find (T‑junctions included), builds
+back to anything still missing; switches have a state instead of a value). Tap a part for its
+actions: value, rotate, flip (or toggle a switch), mark as the unknown, change type, delete;
+double‑tap rotates about the connected terminal, so a part hanging off a rail turns back into
+the rail. Hold a part, wire or ground and drag to move it: on release it snaps to the grid, slots
+into the wire it lands on and heals the wire it left. The toolbar has explicit Draw, Erase and
+Ground modes; the eraser rubs parts out and cuts wires only where it touched them. The “?”
+button replays the first‑run tips. `SketchDocument` derives the nodes with union‑find (T‑junctions included), builds
 the `Circuit` with exact geometry, and the same engine and screens take it from there.
 
 ### Typeset steps
@@ -193,7 +218,9 @@ PhotoMesh/
     CircuitModel.swift        Circuit / Component / validation / graph helpers
     NodalAnalysis.swift       node-voltage method + steps (with StepFocus)
     MeshAnalysis.swift        mesh-current method, loop detection + steps
-    CircuitAnalyzer.swift     runs both methods, cross-checks, builds the layout
+    CircuitAnalyzer.swift     DC redraw, runs every method, cross-checks, builds the layout
+    ReductionAnalysis.swift   series/parallel simplification walkthrough
+    StepAlgebra.swift         nice numbers, fraction clearing, narrated elimination
     SchematicLayout.swift     geometry → schematic drawing primitives
     CircuitPayload.swift      tolerant JSON decoding of the model output
     Units.swift               engineering-notation formatter / parser

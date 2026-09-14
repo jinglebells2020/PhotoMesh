@@ -226,7 +226,7 @@ enum SchematicRenderer {
                 path.move(to: cg(end))
             }
             path.addLine(to: cg(b))
-        case .voltageSource, .currentSource:
+        case .voltageSource, .currentSource, .lamp:
             let r = sourceRadius(symbol)
             let c = symbol.center
             path.move(to: cg(a)); path.addLine(to: cg(c - u * r))
@@ -240,13 +240,80 @@ enum SchematicRenderer {
                 path.move(to: cg(tip - u * head + n * (head * 0.6)))
                 path.addLine(to: cg(tip))
                 path.addLine(to: cg(tip - u * head - n * (head * 0.6)))
+            } else if symbol.kind == .lamp {
+                // The X of a lamp.
+                let k = r * 0.7071
+                path.move(to: cg(c + u * k + n * k)); path.addLine(to: cg(c - u * k - n * k))
+                path.move(to: cg(c + u * k - n * k)); path.addLine(to: cg(c - u * k + n * k))
+            }
+        case .capacitor:
+            let c = symbol.center
+            let gap = 5.0, plate = min(max(length * 0.16, 10), 18)
+            path.move(to: cg(a)); path.addLine(to: cg(c - u * gap))
+            path.move(to: cg(c - u * gap + n * plate)); path.addLine(to: cg(c - u * gap - n * plate))
+            path.move(to: cg(c + u * gap + n * plate)); path.addLine(to: cg(c + u * gap - n * plate))
+            path.move(to: cg(c + u * gap)); path.addLine(to: cg(b))
+        case .inductor:
+            let lead = length * 0.2
+            let start = a + u * lead, end = b - u * lead
+            let humps = 4
+            let width = (length - 2 * lead) / Double(humps)
+            path.move(to: cg(a)); path.addLine(to: cg(start))
+            for i in 0..<humps {
+                let from = start + u * (width * Double(i))
+                let to = start + u * (width * Double(i + 1))
+                let control1 = from + n * (width * 1.1)
+                let control2 = to + n * (width * 1.1)
+                path.addCurve(to: cg(to), control1: cg(control1), control2: cg(control2))
+            }
+            path.move(to: cg(end)); path.addLine(to: cg(b))
+        case .battery:
+            let c = symbol.center
+            let long = min(max(length * 0.16, 10), 18), short = long * 0.5
+            let step = 5.0
+            path.move(to: cg(a)); path.addLine(to: cg(c - u * (step * 1.5)))
+            for (i, half) in [long, short, long, short].enumerated() {
+                let x = c - u * (step * 1.5) + u * (step * Double(i))
+                path.move(to: cg(x + n * half)); path.addLine(to: cg(x - n * half))
+            }
+            path.move(to: cg(c + u * (step * 1.5))); path.addLine(to: cg(b))
+        case .switchOpen, .switchClosed:
+            let lead = length * 0.25
+            let start = a + u * lead, end = b - u * lead
+            let contact = 3.0
+            path.move(to: cg(a)); path.addLine(to: cg(start - u * contact))
+            path.addEllipse(in: CGRect(x: start.x - contact, y: start.y - contact, width: 2 * contact, height: 2 * contact))
+            path.addEllipse(in: CGRect(x: end.x - contact, y: end.y - contact, width: 2 * contact, height: 2 * contact))
+            path.move(to: cg(end + u * contact)); path.addLine(to: cg(b))
+            let blade = start.distance(to: end) * 0.95
+            if symbol.kind == .switchOpen {
+                let angle = 30.0 * .pi / 180
+                let tip = start + u * (blade * cos(angle)) - n * (blade * sin(angle))
+                path.move(to: cg(start + u * contact)); path.addLine(to: cg(tip))
+            } else {
+                path.move(to: cg(start + u * contact)); path.addLine(to: cg(end - u * contact))
             }
         }
         return path
     }
 
     private static func drawSymbolDecorations(_ symbol: SchematicLayout.Symbol, camera: SchematicCamera, color: Color, in context: inout GraphicsContext) {
-        guard symbol.kind == .voltageSource else { return }
+        guard symbol.kind == .voltageSource || symbol.kind == .battery else { return }
+        if symbol.kind == .battery {
+            // + beside the long plate, − beside the short one, off to the label-free side.
+            let length = max(symbol.length, 1)
+            let u = SPoint(x: (symbol.b.x - symbol.a.x) / length, y: (symbol.b.y - symbol.a.y) / length)
+            let n = SPoint(x: -u.y, y: u.x)
+            let side = symbol.labelSide * -1
+            let offset = abs(side.x) > abs(side.y) ? side * 14 : n * 22 * (side.y >= 0 ? 1 : -1)
+            _ = offset
+            let plus = camera.convert(symbol.center - u * 14 + side * 22)
+            let minus = camera.convert(symbol.center + u * 14 + side * 22)
+            let fontSize = min(max(10 * camera.scale, 7), 13)
+            context.draw(Text("+").font(.system(size: fontSize, weight: .bold)).foregroundStyle(color), at: plus, anchor: .center)
+            context.draw(Text("−").font(.system(size: fontSize, weight: .bold)).foregroundStyle(color), at: minus, anchor: .center)
+            return
+        }
         let r = sourceRadius(symbol)
         let length = max(symbol.length, 1)
         let u = SPoint(x: (symbol.b.x - symbol.a.x) / length, y: (symbol.b.y - symbol.a.y) / length)
@@ -260,7 +327,7 @@ enum SchematicRenderer {
     private static func drawSymbolLabel(_ symbol: SchematicLayout.Symbol, camera: SchematicCamera, color: Color, style: SchematicStyle, in context: inout GraphicsContext) {
         guard camera.scale > 0.1 else { return }
         let side = symbol.labelSide
-        let clearance: Double = symbol.kind == .resistor ? 20 : sourceRadius(symbol) + 10
+        let clearance: Double = (symbol.kind.dcRole == .voltageSource || symbol.kind.dcRole == .currentSource || symbol.kind == .lamp) ? sourceRadius(symbol) + 10 : 20
         let anchorLayout = symbol.center + side * clearance
         var p = camera.convert(anchorLayout)
         let anchor: UnitPoint
@@ -272,7 +339,7 @@ enum SchematicRenderer {
             p.y += side.y > 0 ? 4 : -4
         }
         let idText = Text(symbol.id).font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundStyle(color)
-        let valueString = style.pendingValueIds.contains(symbol.id) ? "?" : style.formatter.format(symbol.value, symbol.kind.unitSymbol)
+        let valueString = style.pendingValueIds.contains(symbol.id) ? "?" : symbol.kind.valueText(symbol.value, formatter: style.formatter)
         let valueText = Text(valueString).font(.system(size: 11, design: .rounded)).foregroundStyle(style.pendingValueIds.contains(symbol.id) ? PMTheme.whyOrange : color.opacity(0.85))
         let asked = style.askedIds.contains(symbol.id) ? Text("  ?").font(.system(size: 11, weight: .bold)).foregroundStyle(PMTheme.whyOrange) : nil
 
@@ -314,7 +381,7 @@ enum SchematicRenderer {
 
         // Value on the side opposite to the component label.
         let side = symbol.labelSide * -1
-        let anchorLayout = symbol.center + side * (symbol.kind == .resistor ? 18 : sourceRadius(symbol) + 8)
+        let anchorLayout = symbol.center + side * ((symbol.kind.dcRole == .voltageSource || symbol.kind.dcRole == .currentSource || symbol.kind == .lamp) ? sourceRadius(symbol) + 8 : 18)
         var p = camera.convert(anchorLayout)
         let anchor: UnitPoint
         if abs(side.x) > abs(side.y) {

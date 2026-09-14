@@ -13,19 +13,37 @@ enum CircuitAnalyzerError: LocalizedError {
 /// Runs every applicable method on a recognized circuit and cross-checks the results.
 enum CircuitAnalyzer {
     static func analyze(_ raw: Circuit, formatter: QuantityFormatter = QuantityFormatter(), recognitionNotes: String? = nil) throws -> CircuitAnalysis {
-        let circuit = try raw.validated()
+        let original = try raw.validated()
+        let (solvedRaw, presented, alias, replacements) = original.dcEquivalent()
+        let solved: Circuit
+        do {
+            solved = try solvedRaw.validated()
+        } catch {
+            guard !replacements.isEmpty else { throw error }
+            let opens = replacements.filter { $0.change == .open }.map(\.id)
+            if !opens.isEmpty, let validation = error as? CircuitValidationError,
+               validation == .disconnected || { if case .danglingElement = validation { return true }; return false }() {
+                throw CircuitAnalyzerError.allMethodsFailed("At DC steady state \(opens.joined(separator: ", ")) \(opens.count == 1 ? "is an open circuit" : "are open circuits"), which leaves part of the circuit without a closed path: no steady current flows there. Move or remove \(opens.count == 1 ? "it" : "them") to analyze the rest.")
+            }
+            throw CircuitAnalyzerError.allMethodsFailed("After replacing \(replacements.map(\.id).joined(separator: ", ")) by their DC behaviour: \(error.localizedDescription)")
+        }
         var methods: [MethodSolution] = []
         var failures: [String] = []
         // The drawing comes first so the mesh method can run its currents clockwise on it.
-        let layout = SchematicLayoutEngine.layout(for: circuit)
+        let layout = SchematicLayoutEngine.layout(for: presented)
+        let displayed = replacements.isEmpty ? nil : original   // the drawing as the user sees it
 
+        // The simplest method first, when the network allows it.
+        if let reduced = try? ReductionAnalysis.solve(solved, formatter: formatter, presented: displayed) {
+            methods.append(reduced)
+        }
         do {
-            methods.append(try NodalAnalysis.solve(circuit, formatter: formatter))
+            methods.append(try NodalAnalysis.solve(solved, formatter: formatter, presented: displayed))
         } catch {
             failures.append("Nodal analysis: \(error.localizedDescription)")
         }
         do {
-            methods.append(try MeshAnalysis.solve(circuit, formatter: formatter, layout: layout))
+            methods.append(try MeshAnalysis.solve(solved, formatter: formatter, layout: replacements.isEmpty ? layout : SchematicLayoutEngine.layout(for: solved), presented: displayed))
         } catch {
             failures.append("Mesh analysis: \(error.localizedDescription)")
         }
@@ -34,9 +52,19 @@ enum CircuitAnalyzer {
             throw CircuitAnalyzerError.allMethodsFailed(failures.joined(separator: "\n"))
         }
 
+        if !replacements.isEmpty {
+            let context = AnalysisContext(circuit: solved, formatter: formatter, presented: original)
+            let dcStep = SharedSteps.dcEquivalentStep(context: context, replacements: replacements)
+            methods = methods.map { method in
+                var expanded = SharedSteps.expand(method, original: original, presented: presented, alias: alias, formatter: formatter)
+                expanded.steps.insert(dcStep, at: min(1, expanded.steps.count))
+                return expanded
+            }
+        }
+
         return CircuitAnalysis(
-            circuit: circuit,
-            question: circuit.question ?? defaultQuestion(for: circuit),
+            circuit: presented,
+            question: presented.question ?? defaultQuestion(for: presented),
             methods: methods,
             methodsAgree: agree(methods),
             recognitionNotes: recognitionNotes,

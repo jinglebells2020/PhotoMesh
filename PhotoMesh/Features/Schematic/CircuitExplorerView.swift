@@ -196,7 +196,7 @@ struct CircuitExplorerView: View {
                 .foregroundStyle(PMTheme.secondaryText)
             Spacer()
             if let component {
-                Text(formatter.format(component.value, component.kind.unitSymbol))
+                Text(component.kind.valueText(component.value, formatter: formatter))
                     .font(.system(size: 15, weight: .semibold, design: .rounded))
             }
         }
@@ -245,10 +245,12 @@ struct CircuitExplorerView: View {
     }
 
     private func terminalText(_ component: Component) -> String {
-        switch component.kind {
-        case .resistor: return "Between \(component.nodeA) and \(component.nodeB)"
+        switch component.kind.dcRole {
         case .voltageSource: return "+ terminal on \(component.nodeA), − terminal on \(component.nodeB)"
         case .currentSource: return "Pushes current from \(component.nodeA) into \(component.nodeB)"
+        case .open: return "Between \(component.nodeA) and \(component.nodeB) (open at DC)"
+        case .short: return "Between \(component.nodeA) and \(component.nodeB) (a short at DC)"
+        case .resistor: return "Between \(component.nodeA) and \(component.nodeB)"
         }
     }
 }
