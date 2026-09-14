@@ -49,6 +49,8 @@ struct StepFocus: Hashable {
     /// Show the currents moving: dots travel along wires and elements (or around meshes) in the
     /// direction the current really flows, faster where it is larger.
     var animateCurrents = false
+    /// Mark + and − across each element whose current is known (voltage steps).
+    var showPolarity = false
 
     var isEmpty: Bool { nodes.isEmpty && elements.isEmpty && loops.isEmpty }
 }

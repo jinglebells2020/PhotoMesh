@@ -57,6 +57,8 @@ struct SchematicStyle {
     var askedIds: Set<String> = []
     /// Time in seconds driving the moving current dots; nil draws them still (or not at all).
     var flowPhase: Double?
+    /// Dots at wire corners as well as junctions (Settings → Node dots).
+    var showsCornerDots = NodeDotStyle.current == .all
 }
 
 /// Draws a `SchematicLayout` into a `GraphicsContext`. Geometry is built in layout units and
@@ -87,12 +89,20 @@ enum SchematicRenderer {
             context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: focused || selected ? 3 : 2, lineCap: .round))
         }
 
-        // Junction dots
+        // Junction dots, and corner dots when asked for
         for junction in layout.junctions {
             let focused = focusedNodes.contains(junction.node) || style.selection == .node(junction.node)
             let p = camera.convert(junction.point)
             let r: CGFloat = focused ? 5 : 4
             context.fill(Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r)), with: .color(focused ? PMTheme.accent : (hasFocus ? dim : ink)))
+        }
+        if style.showsCornerDots {
+            for corner in layout.corners {
+                let focused = focusedNodes.contains(corner.node) || style.selection == .node(corner.node)
+                let p = camera.convert(corner.point)
+                let r: CGFloat = focused ? 4 : 3.2
+                context.fill(Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r)), with: .color(focused ? PMTheme.accent : (hasFocus ? dim : ink)))
+            }
         }
 
         // Ground
@@ -123,14 +133,19 @@ enum SchematicRenderer {
             drawSymbolLabel(symbol, camera: camera, color: color, style: style, in: &context)
         }
 
-        // Node labels and voltages
+        // Node labels and voltages. A step that talks about nodes marks each one with a dot at its
+        // label point, the way an analysis textbook marks "node 1", "node 2" even between two series parts.
         if style.showsNodeLabels {
             for label in layout.nodeLabels {
                 let focused = focusedNodes.contains(label.node) || style.selection == .node(label.node)
                 let p = camera.convert(label.point)
+                if focused, !style.focus.nodes.isEmpty {
+                    let r: CGFloat = 4.5
+                    context.fill(Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r)), with: .color(PMTheme.accent))
+                }
                 let anchorPoint = CGPoint(x: p.x + 7, y: p.y - 9)
                 let color: Color = focused ? PMTheme.accent : (hasFocus ? nodeLabelColor.opacity(0.4) : nodeLabelColor)
-                var text = label.node
+                var text = subscripted(label.node)
                 if let v = style.focus.nodeVoltages[label.node], label.node != layout.groundNode {
                     text += "  " + style.formatter.format(v, "V")
                 }
@@ -141,10 +156,11 @@ enum SchematicRenderer {
             }
         }
 
-        // Currents
+        // Currents (and, when a step is about voltages, the + / − polarity each current implies)
         for (id, current) in style.focus.elementCurrents {
             guard let symbol = layout.symbol(id) else { continue }
             drawCurrentArrow(symbol, current: current, camera: camera, style: style, in: &context)
+            if style.focus.showPolarity { drawPolarity(symbol, current: current, camera: camera, in: &context) }
         }
         if style.focus.animateCurrents, let phase = style.flowPhase {
             drawFlow(layout, camera: camera, style: style, phase: phase, focusedElements: focusedElements, in: &context)
@@ -338,7 +354,7 @@ enum SchematicRenderer {
             anchor = side.y > 0 ? .top : .bottom
             p.y += side.y > 0 ? 4 : -4
         }
-        let idText = Text(symbol.id).font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundStyle(color)
+        let idText = Text(subscripted(symbol.id)).font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundStyle(color)
         let valueString = style.pendingValueIds.contains(symbol.id) ? "?" : symbol.kind.valueText(symbol.value, formatter: style.formatter)
         let valueText = Text(valueString).font(.system(size: 11, design: .rounded)).foregroundStyle(style.pendingValueIds.contains(symbol.id) ? PMTheme.whyOrange : color.opacity(0.85))
         let asked = style.askedIds.contains(symbol.id) ? Text("  ?").font(.system(size: 11, weight: .bold)).foregroundStyle(PMTheme.whyOrange) : nil
@@ -393,6 +409,32 @@ enum SchematicRenderer {
         }
         let label = style.formatter.format(abs(current), "A")
         context.draw(Text("I = \(label)").font(.system(size: 10.5, weight: .semibold, design: .rounded)).foregroundStyle(PMTheme.accent), at: p, anchor: anchor)
+    }
+
+    /// "R1" → "R₁", "n2" → "n₂": the way every textbook labels parts and nodes.
+    static func subscripted(_ id: String) -> String {
+        let digits = id.reversed().prefix { $0.isNumber }
+        guard !digits.isEmpty, digits.count < id.count else { return id }
+        let head = id.dropLast(digits.count)
+        return head + QuantityFormatter.subscriptDigits(String(digits.reversed()))
+    }
+
+    /// + at the terminal the current enters, − where it leaves: the passive sign convention, drawn
+    /// on the side away from the value labels.
+    private static func drawPolarity(_ symbol: SchematicLayout.Symbol, current: Double, camera: SchematicCamera, in context: inout GraphicsContext) {
+        guard abs(current) > 1e-12, symbol.kind.dcRole == .resistor || symbol.kind.dcRole == .open else { return }
+        let length = max(symbol.length, 1)
+        let u = SPoint(x: (symbol.b.x - symbol.a.x) / length, y: (symbol.b.y - symbol.a.y) / length)
+        let side = symbol.labelSide
+        let offset = symbol.kind == .lamp ? sourceRadius(symbol) + 6 : 14.0
+        let plusEnd = current >= 0 ? symbol.a : symbol.b
+        let minusEnd = current >= 0 ? symbol.b : symbol.a
+        let inward = current >= 0 ? u : u * -1
+        let plus = camera.convert(plusEnd + inward * (length * 0.18) + side * offset)
+        let minus = camera.convert(minusEnd - inward * (length * 0.18) + side * offset)
+        let fontSize = min(max(11 * camera.scale, 8), 13)
+        context.draw(Text("+").font(.system(size: fontSize, weight: .bold, design: .rounded)).foregroundStyle(PMTheme.accent), at: plus, anchor: .center)
+        context.draw(Text("−").font(.system(size: fontSize, weight: .bold, design: .rounded)).foregroundStyle(PMTheme.accent), at: minus, anchor: .center)
     }
 
     // MARK: Moving current

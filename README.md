@@ -90,6 +90,20 @@ every element in the true direction, faster where the current is larger (the cur
 wire segment is derived from the element currents by conserving charge along each node's wire
 tree), and mesh steps show dots circulating around each window, reversed for a negative mesh
 current. The animation runs only while such a step is open and respects Reduce Motion.
+
+**Drawing conventions.** The schematic follows what a student sees in a textbook or lecture
+figure (checked against a dozen Wikipedia / Commons figures on nodal analysis, mesh analysis,
+Kirchhoff's laws, current dividers, Thévenin and Wheatstone bridges): parts and nodes are
+labelled with subscripts (R₁, V₁, n₂), every place where three or more conductors meet gets a
+filled junction dot, the reference node carries a ground symbol, current arrows sit beside the
+wire, and a voltage step marks + and − on each element (the passive sign convention, + where
+the current enters). Textbook figures leave plain corners bare, but many people read a dot at
+every connection point as "these are joined", so by default the schematic also draws a smaller
+dot at every corner where two wires turn (`SchematicLayout.corners`, never on a terminal or a
+junction). Settings → *Node dots* switches to the strict textbook style (junctions only). A
+step that talks about nodes ("Identify the nodes", "Choose the reference") additionally marks
+each analysed node with an accent dot at its label, the way an analysis figure marks node 1,
+node 2 even between two series parts.
 The expand button (or a tap) opens `CircuitExplorerView`: free pinch/pan, double‑tap to fit, tap
 a component or wire to read about it in the floating card at the bottom.
 

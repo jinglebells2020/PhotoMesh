@@ -6,6 +6,7 @@ enum SettingsKeys {
     static let decimalSign = "settings.decimalSign"
     static let unitNotation = "settings.unitNotation"
     static let resistorStyle = "settings.resistorStyle"
+    static let nodeDots = "settings.nodeDots"
     static let currentConvention = "settings.currentConvention"
     static let calculatorHistory = "calculator.history"
     static let hasSeenHelp = "onboarding.hasSeenHelp"
@@ -61,6 +62,29 @@ enum UnitNotation: String, SettingsOption {
         case .scientific: return "4.7 × 10³ Ω"
         case .plain: return "4700 Ω"
         }
+    }
+}
+
+/// Where the schematic draws connection dots.
+enum NodeDotStyle: String, SettingsOption {
+    case all, junctions
+
+    var title: String {
+        switch self {
+        case .all: return "Junctions and corners"
+        case .junctions: return "Junctions only"
+        }
+    }
+
+    var subtitle: String? {
+        switch self {
+        case .all: return "A dot wherever wires meet or turn"
+        case .junctions: return "Textbook style: only where three or more conductors meet"
+        }
+    }
+
+    static var current: NodeDotStyle {
+        NodeDotStyle(rawValue: UserDefaults.standard.string(forKey: SettingsKeys.nodeDots) ?? "") ?? .all
     }
 }
 

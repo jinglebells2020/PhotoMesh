@@ -138,6 +138,36 @@ struct SchematicLayout: Hashable {
 
     func symbol(_ id: String) -> Symbol? { symbols.first { $0.id == id } }
 
+    /// Points where exactly two wires of a node meet at an angle (a corner), with no terminal there.
+    /// Textbooks leave these bare; some readers like a dot at every connection, so they are drawn on request.
+    var corners: [Junction] {
+        func key(_ p: SPoint) -> String { "\(Int((p.x * 4).rounded())),\(Int((p.y * 4).rounded()))" }
+        var result: [Junction] = []
+        let nodes = Set(wires.map(\.node))
+        for node in nodes {
+            var touching: [String: (point: SPoint, wires: [Int], terminals: Int)] = [:]
+            for (index, w) in wires.enumerated() where w.node == node {
+                for p in [w.from, w.to] {
+                    var entry = touching[key(p)] ?? (p, [], 0)
+                    entry.wires.append(index)
+                    touching[key(p)] = entry
+                }
+            }
+            for s in symbols {
+                if s.nodeA == node, var entry = touching[key(s.a)] { entry.terminals += 1; touching[key(s.a)] = entry }
+                if s.nodeB == node, var entry = touching[key(s.b)] { entry.terminals += 1; touching[key(s.b)] = entry }
+            }
+            for (_, entry) in touching where entry.wires.count == 2 && entry.terminals == 0 {
+                let a = wires[entry.wires[0]], b = wires[entry.wires[1]]
+                let da = a.to - a.from, db = b.to - b.from
+                let la = max(a.from.distance(to: a.to), 1e-9), lb = max(b.from.distance(to: b.to), 1e-9)
+                let cosine = abs((da.x * db.x + da.y * db.y) / (la * lb))
+                if cosine < 0.98 { result.append(Junction(node: node, point: entry.point)) }
+            }
+        }
+        return result
+    }
+
     /// Signed current along every wire (keyed by index into `wires`, positive from `from` to `to`),
     /// derived from the element currents: within a node the wires form a tree, so peeling leaves
     /// and conserving charge at each junction fixes the flow in every segment. Wires on a cycle

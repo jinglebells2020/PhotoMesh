@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage(SettingsKeys.resistorStyle) private var resistorStyle: ResistorStyle = .ansi
+    @AppStorage(SettingsKeys.nodeDots) private var nodeDots: NodeDotStyle = .all
     @AppStorage(SettingsKeys.decimalSign) private var decimalSign: DecimalSign = .point
     @AppStorage(SettingsKeys.unitNotation) private var unitNotation: UnitNotation = .engineering
     @AppStorage(SettingsKeys.currentConvention) private var currentConvention: CurrentConvention = .conventional
@@ -19,6 +20,9 @@ struct SettingsSheet: View {
                 Section {
                     SettingsRow(title: "Resistor symbol", value: resistorStyle.title) {
                         OptionPickerView(title: "Resistor symbol", selection: $resistorStyle)
+                    }
+                    SettingsRow(title: "Node dots", value: nodeDots.title) {
+                        OptionPickerView(title: "Node dots", selection: $nodeDots)
                     }
                     SettingsRow(title: "Decimal sign", value: decimalSign.title) {
                         OptionPickerView(title: "Decimal sign", selection: $decimalSign)

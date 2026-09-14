@@ -401,7 +401,7 @@ enum SharedSteps {
             equations: lines,
             explanation: "For a resistor the voltage is R·I, positive at the terminal the current enters. A voltage source keeps its given voltage; a current source takes whatever voltage the rest of the circuit imposes, which is the difference of its node voltages.",
             result: lines.count == 1 ? lines[0] : "\(lines.count) voltages found",
-            focus: StepFocus(nodeVoltages: voltages, elementCurrents: Dictionary(uniqueKeysWithValues: elements.map { ($0.id, $0.current) }), animateCurrents: true)
+            focus: StepFocus(nodeVoltages: voltages, elementCurrents: Dictionary(uniqueKeysWithValues: elements.map { ($0.id, $0.current) }), animateCurrents: true, showPolarity: true)
         )
     }
 
