@@ -2,7 +2,7 @@ import SwiftUI
 
 /// One thing drawn on the canvas. Points are canvas coordinates snapped to the dot grid.
 struct SketchElement: Identifiable, Equatable {
-    enum Kind: Hashable, CaseIterable {
+    enum Kind: String, Hashable, CaseIterable {
         case wire, resistor, capacitor, inductor, lamp, voltageSource, currentSource, battery, switchOpen, switchClosed, ground
 
         var componentKind: ComponentKind? {
@@ -53,6 +53,7 @@ struct SketchElement: Identifiable, Equatable {
         /// A value the user must enter (switches have a state instead).
         var needsValue: Bool { componentKind?.hasValue ?? false }
         var isSwitch: Bool { self == .switchOpen || self == .switchClosed }
+        var isComponent: Bool { componentKind != nil }
         /// Flip swaps polarity or direction; for a switch it toggles open/closed.
         var canFlip: Bool { isSwitch || (componentKind.map { $0.hasPolarity || $0 == .currentSource } ?? false) }
     }

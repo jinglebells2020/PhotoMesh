@@ -304,13 +304,94 @@ extension SketchDocument {
             setAcross(horizontal ? near.y : near.x)
         }
 
-        let lo = span?.lo ?? (along(center) - half)
-        let hi = span?.hi ?? (along(center) + half)
+        var lo = span?.lo ?? (along(center) - half)
+        var hi = span?.hi ?? (along(center) + half)
         let line = horizontal ? center.y : center.x
+        resolveCrossings(horizontal: horizontal, line: line, lo: &lo, hi: &hi)
+        reachRails(horizontal: horizontal, line: line, lo: &lo, hi: &hi)
         element.a = horizontal ? CGPoint(x: lo, y: line) : CGPoint(x: line, y: lo)
         element.b = horizontal ? CGPoint(x: hi, y: line) : CGPoint(x: line, y: hi)
         cutWires(horizontal: horizontal, line: line, from: lo, to: hi)
         attachWires(to: element)
+    }
+
+    /// Shortest a part may be squeezed to (in canvas points) when it has to end on a wire.
+    private var minimumPartLength: CGFloat { step * 2 - 0.5 }
+    /// Farthest a terminal reaches out to land on a wire just beyond it.
+    private var reach: CGFloat { step * 1.5 + 0.5 }
+
+    /// Positions along the part's axis (strictly inside `lo…hi`) where a wire running the other way
+    /// crosses the part's line or ends on it: those look like connections but are none.
+    private func bodyCrossings(horizontal: Bool, line: CGFloat, lo: CGFloat, hi: CGFloat) -> [CGFloat] {
+        var result: [CGFloat] = []
+        for wire in elements where wire.kind == .wire && wire.isHorizontal != horizontal {
+            let t = wire.line
+            guard t > lo + 0.5, t < hi - 0.5 else { continue }
+            guard wire.lowerEnd - 0.5 <= line, line <= wire.upperEnd + 0.5 else { continue }
+            if !result.contains(where: { abs($0 - t) < 0.5 }) { result.append(t) }
+        }
+        return result.sorted()
+    }
+
+    /// Something else touches the point `t` along the axis on `line` (a wire end, a wire running
+    /// through, another terminal).
+    private func attached(horizontal: Bool, line: CGFloat, at t: CGFloat) -> Bool {
+        let point = horizontal ? CGPoint(x: t, y: line) : CGPoint(x: line, y: t)
+        for element in elements {
+            if near(element.a, point) || (element.kind != .ground && near(element.b, point)) { return true }
+            if element.kind == .wire, SketchDocument.point(point, liesOn: element) { return true }
+        }
+        return false
+    }
+
+    /// What the drawing shows must be what the circuit is: a wire through the part's body is not a
+    /// connection. The part is squeezed to end on such a wire (down to two grid steps) or, when
+    /// nothing holds it, slid so a terminal lands on the wire it was drawn across.
+    private func resolveCrossings(horizontal: Bool, line: CGFloat, lo: inout CGFloat, hi: inout CGFloat) {
+        for _ in 0..<2 {
+            let crossings = bodyCrossings(horizontal: horizontal, line: line, lo: lo, hi: hi)
+            guard let first = crossings.first, let last = crossings.last else { return }
+            let lowerHeld = attached(horizontal: horizontal, line: line, at: lo)
+            let upperHeld = attached(horizontal: horizontal, line: line, at: hi)
+            let length = hi - lo
+            switch (lowerHeld, upperHeld) {
+            case (true, false):
+                if first - lo >= minimumPartLength { hi = first } else { let d = first - lo; lo += d; hi += d }
+            case (false, true):
+                if hi - last >= minimumPartLength { lo = last } else { let d = hi - last; lo -= d; hi -= d }
+            case (false, false):
+                if crossings.count >= 2, last - first >= minimumPartLength {
+                    lo = first; hi = last          // drawn between two wires: span exactly those
+                } else if first - lo <= hi - last {
+                    let d = first - lo; lo += d; hi += d   // hang off the wire nearest the lower end
+                } else {
+                    let d = hi - last; lo -= d; hi -= d
+                }
+            case (true, true):
+                // Bridging two wires with a third through the middle: keep the longer clean part.
+                if first - lo >= minimumPartLength, first - lo >= hi - last { hi = first }
+                else if hi - last >= minimumPartLength { lo = last }
+                else { return }
+            }
+            if hi - lo < minimumPartLength { hi = lo + length }
+        }
+    }
+
+    /// A terminal that stops just short of a wire running across its path (up to a step and a
+    /// half) is stretched onto it, the way `attachWires` pulls wire ends onto terminals.
+    private func reachRails(horizontal: Bool, line: CGFloat, lo: inout CGFloat, hi: inout CGFloat) {
+        func rail(from t: CGFloat, direction: CGFloat) -> CGFloat? {
+            var best: CGFloat?
+            for wire in elements where wire.kind == .wire && wire.isHorizontal != horizontal {
+                let gap = (wire.line - t) * direction
+                guard gap > 0.5, gap <= reach else { continue }
+                guard wire.lowerEnd - 0.5 <= line, line <= wire.upperEnd + 0.5 else { continue }
+                if best == nil || gap < (best! - t) * direction { best = wire.line }
+            }
+            return best
+        }
+        if !attached(horizontal: horizontal, line: line, at: hi), let t = rail(from: hi, direction: 1) { hi = t }
+        if !attached(horizontal: horizontal, line: line, at: lo), let t = rail(from: lo, direction: -1) { lo = t }
     }
 
     /// The wire a component was drawn on: same direction, on its line, overlapping along it.
@@ -382,6 +463,20 @@ extension SketchDocument {
                     && (near(wire.a, terminal) || near(wire.b, terminal))
             }
         }
+    }
+
+    // MARK: Loose ends
+
+    /// Terminals of parts that nothing else touches. They look like loose ends and will fail
+    /// validation, so the canvas marks them as the user draws.
+    var openTerminals: [CGPoint] {
+        var result: [CGPoint] = []
+        for element in elements where element.isComponent {
+            for terminal in [element.a, element.b] where !isAttached(terminal, excluding: element.id) {
+                result.append(terminal)
+            }
+        }
+        return result
     }
 
     // MARK: Eraser and hit testing

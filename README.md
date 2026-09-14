@@ -85,11 +85,22 @@ Every solving step carries a `StepFocus`: the nodes, elements or meshes it talks
 to zoom onto them, and which node voltages / currents / mesh currents are known at that point.
 `SchematicWindow` (top of the Solving Steps screen) animates its camera to that focus, dims
 everything else, draws current arrows with values, node voltages, and circulating mesh arrows.
-Steps that know the currents also show them moving: dots travel along every wire and through
-every element in the true direction, faster where the current is larger (the current in each
-wire segment is derived from the element currents by conserving charge along each node's wire
-tree), and mesh steps show dots circulating around each window, reversed for a negative mesh
-current. The animation runs only while such a step is open and respects Reduce Motion.
+Steps that know the currents also show them moving. `FlowField` (Engine) is built once per
+step: one track per conductor, following what is drawn (the current zigzags through an ANSI
+resistor and rides the humps of a coil, goes straight through boxes, sources, lamps, batteries
+and closed switches), oriented the way the current really flows, with a speed proportional to
+the current and the potential at either end. `SchematicView` draws two layers under one
+animated camera: the schematic, redrawn only when the camera or the step changes, and a light
+canvas above it that places dots along the tracks ~30 times a second, so pinching and zooming
+never stall the motion. What the picture teaches is deliberately the physics: dots move at the
+same speed before and after a resistor in series (current is not used up) and split at a
+junction in proportion to the branch currents; their colour follows the potential, cool blue at
+the lowest node and warm orange at the highest, so they fade across every resistor (energy given
+up) and brighten again through a source. A capacitor at DC carries no current, so no dots pass
+it and the plates show the charge they hold (+ and − marks, more for a larger voltage across
+it); an inductor at DC is a wire and the dots ride through its coil. Mesh steps show dots
+circulating around each window, reversed for a negative mesh current. The animation runs only
+while such a step is open and respects Reduce Motion.
 
 **Drawing conventions.** The schematic follows what a student sees in a textbook or lecture
 figure (checked against a dozen Wikipedia / Commons figures on nodal analysis, mesh analysis,
@@ -118,35 +129,67 @@ again once rated); a thumbs‑down opens a short feedback form stored on the dev
 
 The *Draw* button on the home screen opens a dot‑grid canvas (the keyboard calculator is the
 second tab). One finger draws, two fingers pan, pinch zooms, and every stroke is recognized on
-the spot by `StrokeClassifier`, judged in finger coordinates so it behaves the same at any zoom:
+the spot, judged in finger coordinates so it behaves the same at any zoom:
 
 | You draw | You get |
 |---|---|
 | A straight stroke, or one with corners | Axis‑aligned wire(s); ends magnet onto terminals, wire ends and wire interiors (T‑junctions) |
 | A big closed outline | A rectangular loop of four wires |
 | A zigzag, or a small box/square | A resistor (a square faces the way the nearby wires run) |
-| A row of humps on one side | An inductor |
-| A circle | A bubble asks: voltage source, current source, lamp or battery |
-| A short mark / anything unreadable | A bubble with the possible parts (capacitor, switch, ground, wire, …) |
-| The Parts button | Any part (capacitor, inductor, lamp, battery, open/closed switch, …) dropped in the middle, ready to drag |
+| A row of humps on one side, or cursive loops | An inductor |
+| A circle or oval, closed or not | A bubble asks: voltage source, current source, lamp or battery |
+| Two short parallel marks side by side | A capacitor |
+| A short mark / anything the recognizer is unsure about | A bubble with the possible parts, likeliest first |
+| The Parts button | Any part dropped in the middle, ready to drag |
 
-A part drawn **on** a wire slots into it: the wire is cut at the terminals, a short wire is taken
-over entirely, a part drawn at the end of a wire is pulled inside it, and the part slides a step
-if it would otherwise swallow a junction. A part drawn **across** a wire lands one terminal on it
-(a part drawn straddling a rail hangs off it toward the rest of the drawing). Overlapping
-collinear wires merge into one. Removing or rotating a part that sits in a straight wire heals
-the wire first (rotation then re‑seats the part). All of this lives in `SketchEditing.swift` and
-is exercised on Linux by the sketch harness.
+**How recognition works.** `StrokeRecognizer` is a point‑cloud template matcher (the "$P"
+family: the stroke is resampled to 32 points, stood upright if it is taller than wide, stretched
+to the unit square and centred, then matched greedily against every template, so drawing
+direction, start point and speed do not matter). The built‑in templates are synthesized
+(`StrokeTemplateFactory`): zigzags with 3–7 peaks, sharp and rounded, with and without lead
+lines; coils as humps or loops; boxes of several aspects with rounded corners; circles and
+ovals, left open or overshooting. On top of the template distances, `StrokeClassifier` applies a
+few scale‑free shape facts that settle the classic confusions: self‑crossings (loops), the
+sharpness of the extremes on each side of the axis and the bow of the stroke between them
+(humps are arcs standing on a baseline, a zigzag's diagonals are straight), and the fill of the
+outline (a box fills ≈95% of its tightest rectangle, a circle ≈79%). The closest family wins
+only when it is clearly ahead; otherwise the canvas *asks*, with the likely answers first. The
+whole thing runs in ~3 ms per stroke.
 
-Right after a part appears, a small sheet asks for its value (skip with *Later*; *Solve* comes
-back to anything still missing; switches have a state instead of a value). Tap a part for its
+**It learns your hand.** Every correction is a lesson: picking a part from the bubble, changing
+the type in the value sheet or from the part's menu adds that stroke to a per‑user library
+(`StrokeLibrary`, up to 16 examples per kind, kept in Application Support), and those templates
+take part in every later match. Settings → *Forget taught strokes* clears it. The Linux
+harness `recogtest` scores the recognizer on thousands of synthetic hand‑style strokes
+(different generators from the templates, with tremor, tilt, uneven speed, overshoot): boxes,
+circles, loops and wire paths ≥96% committed correctly, humps ≈98%, zigzags ≈89% committed plus
+≈9% asked with the right answer first, and wrong commits ≤2–3% per class. Real fingers are the
+test that matters, which is why the correction loop is one tap and teaches as it goes. When
+enough corrected strokes have been collected (they are the ideal labelled dataset), the same
+architecture can carry a small Core ML model trained on them; the template library is the
+bridge until then.
+
+**The value sheet** opens right after a part is recognized. It shows what the part was read as
+and a row of alternatives (the recognizer's other candidates first): tap one to change the type
+on the spot (units follow), *Done* saves, *Later* skips, and a red *Not a part, remove it* takes
+the placement back together with everything it did to the wires. Tap a part any time for its
 actions: value, rotate, flip (or toggle a switch), mark as the unknown, change type, delete;
-double‑tap rotates about the connected terminal, so a part hanging off a rail turns back into
-the rail. Hold a part, wire or ground and drag to move it: on release it snaps to the grid, slots
-into the wire it lands on and heals the wire it left. The toolbar has explicit Draw, Erase and
-Ground modes; the eraser rubs parts out and cuts wires only where it touched them. The “?”
-button replays the first‑run tips. `SketchDocument` derives the nodes with union‑find (T‑junctions included), builds
-the `Circuit` with exact geometry, and the same engine and screens take it from there.
+double‑tap rotates about the connected terminal. Hold a part, wire or ground and drag to move
+it. The toolbar has Draw, Erase and Ground modes, Parts, Undo, Redo and Clear. The “?” button
+replays the tips. Bubbles measure themselves and stay inside the canvas; long lists scroll.
+
+**What the drawing shows is what the circuit is.** A part drawn on a wire slots into it (the
+wire is cut at the terminals, a short wire is taken over, a part at the end of a wire is pulled
+inside it, and it slides a step to avoid swallowing a junction). A part drawn across a wire
+lands one terminal on it. Beyond that, `seat` now enforces that no wire may pass through a
+part's body or end inside it: the part is squeezed to end on such a wire (down to two grid
+steps), slid so a terminal lands on the wire it was drawn across, or, drawn between two rails,
+made to span exactly those rails; a terminal that stops a step short of a rail is stretched onto
+it. So a resistor dropped between the rails of a loop is connected, not merely touching. Any
+terminal that still hangs free is ringed in red on the canvas as you draw, so a loose end is
+seen before *Solve* reports it. `SketchDocument` derives the nodes with union‑find (T‑junctions
+included), builds the `Circuit` with exact geometry, and the same engine and screens take it
+from there. All of this is exercised on Linux by the sketch harness.
 
 ### Typeset steps
 

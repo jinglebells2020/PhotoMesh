@@ -4,6 +4,7 @@ struct SettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage(SettingsKeys.resistorStyle) private var resistorStyle: ResistorStyle = .ansi
     @AppStorage(SettingsKeys.nodeDots) private var nodeDots: NodeDotStyle = .all
+    @State private var taughtCount = 0
     @AppStorage(SettingsKeys.decimalSign) private var decimalSign: DecimalSign = .point
     @AppStorage(SettingsKeys.unitNotation) private var unitNotation: UnitNotation = .engineering
     @AppStorage(SettingsKeys.currentConvention) private var currentConvention: CurrentConvention = .conventional
@@ -24,6 +25,24 @@ struct SettingsSheet: View {
                     SettingsRow(title: "Node dots", value: nodeDots.title) {
                         OptionPickerView(title: "Node dots", selection: $nodeDots)
                     }
+                    Button {
+                        StrokeLibrary.shared.forgetAll()
+                        taughtCount = 0
+                        Haptics.selection()
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Forget taught strokes")
+                                    .foregroundStyle(taughtCount == 0 ? PMTheme.tertiaryText : PMTheme.ink)
+                                Text(taughtCount == 0 ? "The drawing recognizer learns from every correction you make" : "\(taughtCount) of your shapes are remembered")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(PMTheme.secondaryText)
+                            }
+                            Spacer()
+                        }
+                    }
+                    .disabled(taughtCount == 0)
+                    .onAppear { taughtCount = StrokeLibrary.shared.taughtCount }
                     SettingsRow(title: "Decimal sign", value: decimalSign.title) {
                         OptionPickerView(title: "Decimal sign", selection: $decimalSign)
                     }

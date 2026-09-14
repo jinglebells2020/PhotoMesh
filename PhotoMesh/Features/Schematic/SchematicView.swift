@@ -1,12 +1,14 @@
 import SwiftUI
 
-/// Canvas wrapper whose camera animates (scale + offset are interpolated by SwiftUI). When the
-/// focus asks for moving currents, a timeline redraws the canvas ~30 times a second with a phase.
+/// Two layers under one animated camera: the schematic itself, redrawn only when the camera or
+/// the step changes, and above it (when the step shows moving currents) a light canvas that
+/// places dots along a precomputed `FlowField` ~30 times a second. Keeping the labels and symbols
+/// out of the per-frame work is what keeps the motion smooth while zooming.
 private struct AnimatedSchematic: ViewModifier, Animatable {
     var camera: SchematicCamera
     let layout: SchematicLayout
     let style: SchematicStyle
-    let animates: Bool
+    let field: FlowField?
 
     var animatableData: SchematicCamera.AnimatableData {
         get { camera.animatableData }
@@ -14,11 +16,17 @@ private struct AnimatedSchematic: ViewModifier, Animatable {
     }
 
     func body(content: Content) -> some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !animates)) { timeline in
+        ZStack {
             Canvas(rendersAsynchronously: false) { context, size in
-                var frameStyle = style
-                frameStyle.flowPhase = animates ? timeline.date.timeIntervalSinceReferenceDate : nil
-                SchematicRenderer.draw(layout, camera: camera, style: frameStyle, in: &context, size: size)
+                SchematicRenderer.draw(layout, camera: camera, style: style, in: &context, size: size)
+            }
+            if let field, !field.isEmpty {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+                    Canvas(rendersAsynchronously: false) { context, _ in
+                        SchematicRenderer.drawFlow(field, camera: camera, phase: timeline.date.timeIntervalSinceReferenceDate, in: &context)
+                    }
+                }
+                .allowsHitTesting(false)
             }
         }
     }
@@ -30,9 +38,28 @@ struct SchematicView: View {
     var camera = SchematicCamera()
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var field: FlowField?
+
+    /// What the flow field depends on; it is rebuilt only when this changes, never per frame or per pinch.
+    private struct FieldKey: Hashable {
+        var layout: SchematicLayout
+        var focus: StepFocus
+        var loops: [LoopPath]
+    }
+
+    private var fieldKey: FieldKey { FieldKey(layout: layout, focus: style.focus, loops: style.loops) }
+    private var animates: Bool { style.focus.animateCurrents && !reduceMotion }
 
     var body: some View {
-        Color.clear.modifier(AnimatedSchematic(camera: camera, layout: layout, style: style, animates: style.focus.animateCurrents && !reduceMotion))
+        Color.clear
+            .modifier(AnimatedSchematic(camera: camera, layout: layout, style: style, field: animates ? field : nil))
+            .onAppear { rebuildField() }
+            .onChange(of: fieldKey) { _, _ in rebuildField() }
+    }
+
+    private func rebuildField() {
+        guard style.focus.animateCurrents else { field = nil; return }
+        field = FlowField.build(layout: layout, focus: style.focus, loops: style.loops, focusedElements: SchematicRenderer.focusedElementIds(style))
     }
 }
 

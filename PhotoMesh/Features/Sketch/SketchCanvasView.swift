@@ -13,6 +13,22 @@ struct SketchCanvasView: View {
         /// Canvas-space bounds of the stroke, so the bubble follows pans and zooms.
         var bounds: CGRect
         var guess: StrokeGuess
+        /// The finger stroke (view points): picking a part teaches the recognizer this shape.
+        var points: [CGPoint]
+    }
+
+    /// The stroke behind the newest part: correcting its type teaches the recognizer what it should have been.
+    private struct LastStroke {
+        var id: UUID
+        var points: [CGPoint]
+        var ranked: [SketchElement.Kind]
+    }
+
+    /// A short mark just drawn: a second one beside it makes a capacitor.
+    private struct RecentMark {
+        var center: CGPoint
+        var vertical: Bool
+        var time: Date
     }
 
     private struct TransformSession {
@@ -40,6 +56,11 @@ struct SketchCanvasView: View {
 
     @State private var document = SketchDocument()
     @State private var history: [[SketchElement]] = []
+    @State private var future: [[SketchElement]] = []
+    @State private var lastStroke: LastStroke?
+    @State private var recentMark: RecentMark?
+    @State private var chooserSize: CGSize = .zero
+    @State private var actionSize: CGSize = .zero
     @State private var stroke: [CGPoint] = []
     @State private var zoom: CGFloat = 1
     @State private var pan: CGSize = .zero
@@ -115,15 +136,16 @@ struct SketchCanvasView: View {
                     }
 
                     if let pending {
-                        ChooserBubble(options: pending.options, onPick: { kind in choose(kind, for: pending) }, onCancel: { self.pending = nil })
-                            .position(bubblePosition(for: screenRect(pending.bounds), in: geo.size))
+                        ChooserBubble(options: pending.options, maxWidth: geo.size.width - 24, onPick: { kind in choose(kind, for: pending) }, onCancel: { self.pending = nil })
+                            .onGeometryChange(for: CGSize.self) { $0.size } action: { chooserSize = $0 }
+                            .position(bubblePosition(for: screenRect(pending.bounds), bubble: chooserSize, in: geo.size))
                             .transition(.scale(scale: 0.9).combined(with: .opacity))
                     }
 
                     if let element = selectedElement {
                         Group {
                             if bubbleMode == .kind {
-                                ChooserBubble(options: SketchElement.Kind.parts.filter { $0 != element.kind && !($0.isSwitch && element.kind.isSwitch) }, onPick: { kind in changeKind(of: element, to: kind) }, onCancel: { bubbleMode = .actions })
+                                ChooserBubble(options: alternatives(for: element).filter { $0 != element.kind }, maxWidth: geo.size.width - 24, onPick: { kind in changeKind(of: element, to: kind) }, onCancel: { bubbleMode = .actions })
                             } else {
                                 ActionBubble(
                                     element: element,
@@ -136,7 +158,8 @@ struct SketchCanvasView: View {
                                 )
                             }
                         }
-                        .position(bubblePosition(for: screenRect(elementBounds(element)), in: geo.size))
+                        .onGeometryChange(for: CGSize.self) { $0.size } action: { actionSize = $0 }
+                        .position(bubblePosition(for: screenRect(elementBounds(element)), bubble: actionSize, in: geo.size))
                         .transition(.scale(scale: 0.9).combined(with: .opacity))
                     }
 
@@ -165,10 +188,14 @@ struct SketchCanvasView: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: pending)
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: selectedId)
         .sheet(item: $editing) { element in
-            ValueEntrySheet(element: element) { value in
-                update(element.id) { $0.value = value }
-            }
-            .presentationDetents([.height(320)])
+            ValueEntrySheet(
+                element: element,
+                alternatives: alternatives(for: element),
+                justPlaced: lastStroke?.id == element.id,
+                onSave: { kind, value in applyEdit(element.id, kind: kind, value: value) },
+                onRemove: { removeMisrecognized(element) }
+            )
+            .presentationDetents([.height(460), .large])
         }
         .sheet(isPresented: $showParts) {
             PartsPaletteSheet { kind in
@@ -194,7 +221,7 @@ struct SketchCanvasView: View {
             Text("Draw your circuit")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(PMTheme.secondaryText)
-            Text("Lines are wires, a zigzag or a box is a resistor, a circle is a source. Draw a part on a wire to slot it in.")
+            Text("Lines are wires, a zigzag or a box is a resistor, humps are a coil, a circle is a source. Draw a part on a wire to slot it in.")
                 .font(.system(size: 13))
                 .foregroundStyle(PMTheme.tertiaryText)
                 .multilineTextAlignment(.center)
@@ -237,7 +264,7 @@ struct SketchCanvasView: View {
     }
 
     private var toolbar: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 0) {
             toolButton("pencil.tip", label: "Draw", disabled: false, active: tool == .draw) { setTool(.draw) }
             toolButton("eraser", label: "Erase", disabled: document.elements.isEmpty && tool != .erase, active: tool == .erase) { setTool(tool == .erase ? .draw : .erase) }
             toolButton("arrowtriangle.down", label: "Ground", disabled: document.elements.isEmpty && tool != .ground, active: tool == .ground) { setTool(tool == .ground ? .draw : .ground) }
@@ -247,6 +274,7 @@ struct SketchCanvasView: View {
             }
             Divider().frame(height: 26).padding(.horizontal, 3)
             toolButton("arrow.uturn.backward", label: "Undo", disabled: history.isEmpty) { undo() }
+            toolButton("arrow.uturn.forward", label: "Redo", disabled: future.isEmpty) { redo() }
             toolButton("trash", label: "Clear", disabled: document.elements.isEmpty) { clear() }
 
             Spacer(minLength: 4)
@@ -261,7 +289,7 @@ struct SketchCanvasView: View {
             .disabled(!document.isSolvable)
             .opacity(document.isSolvable ? 1 : 0.5)
         }
-        .padding(.horizontal, 6)
+        .padding(.horizontal, 4)
         .padding(.vertical, 8)
         .background(Color.white)
         .overlay(alignment: .top) { Divider() }
@@ -282,7 +310,7 @@ struct SketchCanvasView: View {
                     .font(.system(size: 9.5))
             }
             .foregroundStyle(active ? PMTheme.accent : PMTheme.ink)
-            .frame(width: 40, height: 40)
+            .frame(width: 37, height: 40)
             .background(RoundedRectangle(cornerRadius: 9).fill(active ? PMTheme.accentSoft : Color.clear))
         }
         .buttonStyle(.plain)
@@ -295,6 +323,7 @@ struct SketchCanvasView: View {
         var style = SchematicStyle(formatter: FormattingPreferences.formatter())
         style.pendingValueIds = Set(document.missingValues.map(\.label))
         style.askedIds = Set(document.elements.filter(\.asked).map(\.label))
+        style.showsOpenTerminals = true
         if let element = selectedElement, element.isComponent {
             style.selection = .element(element.label)
         }
@@ -331,12 +360,25 @@ struct SketchCanvasView: View {
             .insetBy(dx: -pad, dy: -pad)
     }
 
-    /// Puts a bubble just above what it refers to, or below when there is no room, inside the view.
-    private func bubblePosition(for rect: CGRect, in size: CGSize) -> CGPoint {
-        let x = min(max(rect.midX, 120), max(size.width - 120, 120))
-        let above = rect.minY - 40
-        let y = above > 70 ? above : min(rect.maxY + 40, size.height - 40)
+    /// Puts a bubble just above what it refers to, or below when there is no room, and always fully
+    /// inside the view whatever its measured size.
+    private func bubblePosition(for rect: CGRect, bubble: CGSize, in size: CGSize) -> CGPoint {
+        let halfWidth = max(bubble.width, 120) / 2, halfHeight = max(bubble.height, 56) / 2
+        let x = min(max(rect.midX, halfWidth + 8), max(size.width - halfWidth - 8, halfWidth + 8))
+        let above = rect.minY - halfHeight - 14
+        let y = above >= halfHeight + 52 ? above : min(rect.maxY + halfHeight + 14, size.height - halfHeight - 8)
         return CGPoint(x: x, y: y)
+    }
+
+    /// Kinds offered when a part is questioned: what it is now, then what the recognizer thought
+    /// it could be, then everything else.
+    private func alternatives(for element: SketchElement) -> [SketchElement.Kind] {
+        var result: [SketchElement.Kind] = [element.kind]
+        func add(_ kind: SketchElement.Kind) { if !result.contains(kind) { result.append(kind) } }
+        if let last = lastStroke, last.id == element.id { last.ranked.forEach(add) }
+        SketchElement.Kind.parts.forEach(add)
+        if element.kind.isSwitch { result.removeAll { $0.isSwitch && $0 != element.kind } }
+        return result
     }
 
     /// Recognized in view points (finger geometry), placed in canvas points.
@@ -353,6 +395,7 @@ struct SketchCanvasView: View {
         case .inductor(let center, let horizontal): return .inductor(center: canvasPoint(center), horizontal: horizontal)
         case .roundShape(let center, let size): return .roundShape(center: canvasPoint(center), size: CGSize(width: size.width / zoom, height: size.height / zoom))
         case .rectangle(let center, let horizontal): return .rectangle(center: canvasPoint(center), horizontal: horizontal)
+        case .part(let kind, let center, let horizontal): return .part(kind: kind, center: canvasPoint(center), horizontal: horizontal)
         case .loop(let r): return .loop(rect(r))
         case .shortMark(let center): return .shortMark(center: canvasPoint(center))
         case .unknown(let bounds): return .unknown(bounds: rect(bounds))
@@ -441,8 +484,8 @@ struct SketchCanvasView: View {
         stroke = []
         guard !cancelled, points.count > 1 else { return }
         // Shapes are judged by finger geometry; the loop threshold lives on the grid.
-        let guess = StrokeClassifier.classify(points, loopExtent: SketchGrid.step * 5.5 * zoom)
-        handle(toCanvas(guess))
+        let recognition = StrokeClassifier.recognize(points, loopExtent: SketchGrid.step * 5.5 * zoom)
+        handle(toCanvas(recognition.guess), recognition: recognition, points: points)
     }
 
     /// Erases everything under the eraser between two view points, dense enough that a fast swipe
@@ -459,7 +502,8 @@ struct SketchCanvasView: View {
         if !removed.isEmpty || document.elements.count != before { Haptics.selection() }
     }
 
-    private func handle(_ guess: StrokeGuess) {
+    private func handle(_ guess: StrokeGuess, recognition: StrokeRecognition, points: [CGPoint]) {
+        let ranked = recognition.ranked
         switch guess {
         case .tap(let point):
             tapped(at: point)
@@ -479,26 +523,50 @@ struct SketchCanvasView: View {
             document.addLoop(rect)
             Haptics.impact(.light)
         case .resistor(let center, let horizontal):
-            place(.resistor, center: center, horizontal: horizontal)
+            place(.resistor, center: center, horizontal: horizontal, stroke: points, ranked: ranked)
         case .inductor(let center, let horizontal):
-            place(.inductor, center: center, horizontal: horizontal)
+            place(.inductor, center: center, horizontal: horizontal, stroke: points, ranked: ranked)
         case .rectangle(let center, let horizontal):
-            place(.resistor, center: center, horizontal: horizontal ?? document.inferHorizontal(around: center))
+            place(.resistor, center: center, horizontal: horizontal ?? document.inferHorizontal(around: center), stroke: points, ranked: ranked)
+        case .part(let kind, let center, let horizontal):
+            place(kind, center: center, horizontal: horizontal, stroke: points, ranked: ranked)
         case .roundShape(let center, let size):
             Haptics.impact(.light)
-            pending = PendingStroke(options: [.voltageSource, .currentSource, .lamp, .battery],
+            // Sure it is round: offer the round parts (the ones this hand tends to draw first).
+            // Not sure: offer everything, likeliest first.
+            let roundOnes = ranked.filter { StrokeClassifier.roundKinds.contains($0) }
+            let options = recognition.confident ? (roundOnes.isEmpty ? StrokeClassifier.roundKinds : roundOnes) : ranked
+            pending = PendingStroke(options: options,
                                     bounds: CGRect(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height),
-                                    guess: guess)
+                                    guess: guess, points: points)
         case .shortMark(let center):
-            pending = PendingStroke(options: [.ground, .wire, .capacitor, .switchOpen], bounds: CGRect(x: center.x - 12, y: center.y - 12, width: 24, height: 24), guess: guess)
+            let bounds = StrokeClassifier.boundingBox(points)
+            let vertical = bounds.height > bounds.width
+            if let mark = recentMark, Date().timeIntervalSince(mark.time) < 2.5, mark.vertical == vertical,
+               abs(vertical ? center.y - mark.center.y : center.x - mark.center.x) <= SketchGrid.step,
+               abs(vertical ? center.x - mark.center.x : center.y - mark.center.y) <= SketchGrid.step * 2.2 {
+                // Two short parallel marks side by side: the plates of a capacitor.
+                recentMark = nil
+                pending = nil
+                let middle = CGPoint(x: (center.x + mark.center.x) / 2, y: (center.y + mark.center.y) / 2)
+                place(.capacitor, center: middle, horizontal: vertical)
+                return
+            }
+            recentMark = RecentMark(center: center, vertical: vertical, time: Date())
+            var options: [SketchElement.Kind] = [.ground, .wire, .capacitor, .switchOpen]
+            for kind in ranked where !options.contains(kind) { options.append(kind) }
+            pending = PendingStroke(options: options, bounds: CGRect(x: center.x - 12, y: center.y - 12, width: 24, height: 24), guess: guess, points: points)
         case .unknown(let bounds):
             Haptics.notify(.warning)
-            pending = PendingStroke(options: [.wire, .ground] + SketchElement.Kind.parts, bounds: bounds, guess: guess)
+            var options = ranked.isEmpty ? SketchElement.Kind.parts : ranked
+            for kind in [SketchElement.Kind.wire, .ground] where !options.contains(kind) { options.append(kind) }
+            pending = PendingStroke(options: options, bounds: bounds, guess: guess, points: points)
         }
     }
 
     private func choose(_ kind: SketchElement.Kind, for pending: PendingStroke) {
         self.pending = nil
+        recentMark = nil
         let bounds = pending.bounds
         let center = CGPoint(x: bounds.midX, y: bounds.midY)
         switch kind {
@@ -528,17 +596,54 @@ struct SketchCanvasView: View {
                 let aspect = bounds.width / max(bounds.height, 1)
                 horizontal = aspect > 1.25 ? true : (aspect < 0.8 ? false : document.inferHorizontal(around: center))
             }
-            place(kind, center: center, horizontal: horizontal)
+            // The user has just said what this shape is: remember it for next time.
+            StrokeLibrary.shared.learn(pending.points, as: kind)
+            place(kind, center: center, horizontal: horizontal, stroke: pending.points, ranked: pending.options)
         }
     }
 
-    /// Adds a part and asks for its value straight away (switches have none).
-    private func place(_ kind: SketchElement.Kind, center: CGPoint, horizontal: Bool) {
+    /// Adds a part and asks for its value straight away (switches have none). `stroke` is the
+    /// finger stroke that produced it, kept so a correction can teach the recognizer.
+    private func place(_ kind: SketchElement.Kind, center: CGPoint, horizontal: Bool, stroke: [CGPoint]? = nil, ranked: [SketchElement.Kind] = []) {
         commit()
         let element = document.addComponent(kind, center: center, horizontal: horizontal)
         Haptics.impact(.medium)
         selectedId = nil
+        lastStroke = stroke.map { LastStroke(id: element.id, points: $0, ranked: ranked) }
         if kind.needsValue { editing = element } else { selectedId = element.id }
+    }
+
+    /// The value sheet's result: a new type (the recognizer learns the stroke), a value, or both.
+    private func applyEdit(_ id: UUID, kind: SketchElement.Kind, value: Double?) {
+        guard let current = document.elements.first(where: { $0.id == id }) else { return }
+        commit()
+        if kind != current.kind {
+            document.setKind(id, kind)
+            teach(id, kind)
+        }
+        if let value, let index = document.elements.firstIndex(where: { $0.id == id }) {
+            document.elements[index].value = value
+        }
+    }
+
+    /// "That is not what I drew": a part recognized a moment ago is taken back together with
+    /// everything its placement did to the wires; any other part is simply removed.
+    private func removeMisrecognized(_ element: SketchElement) {
+        if lastStroke?.id == element.id {
+            undo()
+            lastStroke = nil
+        } else {
+            delete(element)
+        }
+        showToast("Removed \(element.label)")
+    }
+
+    /// Adds the stroke behind `id` to the recognizer's library as an example of `kind`.
+    private func teach(_ id: UUID, _ kind: SketchElement.Kind) {
+        guard let last = lastStroke, last.id == id else { return }
+        if StrokeLibrary.shared.learn(last.points, as: kind) {
+            showToast("Learned: that shape is a \(kind.title.lowercased())")
+        }
     }
 
     /// From the parts palette: drop the part in the middle of the view, ready to be dragged.
@@ -662,6 +767,7 @@ struct SketchCanvasView: View {
     private func changeKind(of element: SketchElement, to kind: SketchElement.Kind) {
         commit()
         document.setKind(element.id, kind)
+        teach(element.id, kind)
         bubbleMode = .actions
         Haptics.selection()
         if kind.needsValue, let updated = document.elements.first(where: { $0.id == element.id }) { editing = updated }
@@ -678,11 +784,21 @@ struct SketchCanvasView: View {
     private func commit() {
         history.append(document.elements)
         if history.count > 60 { history.removeFirst() }
+        future.removeAll()
     }
 
     private func undo() {
         guard let previous = history.popLast() else { return }
+        future.append(document.elements)
         document.elements = previous
+        dismissPopups()
+        Haptics.impact(.light)
+    }
+
+    private func redo() {
+        guard let next = future.popLast() else { return }
+        history.append(document.elements)
+        document.elements = next
         dismissPopups()
         Haptics.impact(.light)
     }
@@ -749,22 +865,20 @@ private struct StrokeOverlay: View {
 }
 
 /// Icon + label buttons in a floating pill, shared by "what did you draw?" and "change type".
-/// Long lists wrap onto a second row.
+/// Long lists scroll sideways inside the pill, which never grows wider than the canvas.
 private struct ChooserBubble: View {
     let options: [SketchElement.Kind]
+    var maxWidth: CGFloat = .infinity
     let onPick: (SketchElement.Kind) -> Void
     let onCancel: () -> Void
 
-    private var rows: [[SketchElement.Kind]] {
-        let perRow = options.count > 5 ? Int((Double(options.count) / 2).rounded(.up)) : options.count
-        return stride(from: 0, to: options.count, by: max(perRow, 1)).map { Array(options[$0..<min($0 + perRow, options.count)]) }
-    }
+    private let cell: CGFloat = 54
 
     var body: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+        HStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 2) {
-                    ForEach(row, id: \.self) { kind in
+                    ForEach(options, id: \.self) { kind in
                         Button {
                             onPick(kind)
                         } label: {
@@ -775,27 +889,27 @@ private struct ChooserBubble: View {
                                     .font(.system(size: 9.5, weight: .medium))
                             }
                             .foregroundStyle(PMTheme.ink)
-                            .frame(width: 54, height: 50)
+                            .frame(width: cell, height: 50)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel(kind.title)
                     }
-                    if index == rows.count - 1 {
-                        Button(action: onCancel) {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(PMTheme.secondaryText)
-                                .frame(width: 30, height: 50)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Dismiss")
-                    }
                 }
+                .padding(.leading, 4)
             }
+            .frame(width: min(CGFloat(options.count) * (cell + 2) + 4, max(maxWidth - 42, cell)))
+            Button(action: onCancel) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(PMTheme.secondaryText)
+                    .frame(width: 30, height: 50)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
         }
-        .padding(.horizontal, 6)
+        .padding(.horizontal, 4)
         .background(BubbleBackground())
     }
 
@@ -967,11 +1081,11 @@ private struct SketchTipsOverlay: View {
 
     private let tips: [Tip] = [
         Tip(glyph: .line, title: "Draw a line", detail: "It becomes a wire. Corners and big loops work too."),
-        Tip(glyph: .zigzag, title: "Zigzag or box", detail: "A resistor. Draw it on a wire and it slots in."),
-        Tip(glyph: .circle, title: "Circle", detail: "A source: you pick voltage or current."),
+        Tip(glyph: .zigzag, title: "Zigzag or box", detail: "A resistor. Humps are a coil, two short marks a capacitor. Draw a part on a wire and it slots in."),
+        Tip(glyph: .circle, title: "Circle", detail: "A source: you pick voltage, current, lamp or battery."),
         Tip(glyph: .symbol("hand.tap"), title: "Tap, double-tap, hold", detail: "Tap a part for value, rotate, flip, type, delete. Double-tap rotates. Hold and drag to move it."),
-        Tip(glyph: .symbol("hand.draw"), title: "Two fingers", detail: "Move and zoom the canvas; double-tap empty space to fit. Erase rubs things out, Ground marks the reference."),
-        Tip(glyph: .symbol("plus.square"), title: "Parts", detail: "Capacitors, inductors, lamps, batteries and switches: draw humps for a coil, or pick any part from the palette and drag it into place."),
+        Tip(glyph: .symbol("hand.draw"), title: "Two fingers", detail: "Move and zoom the canvas; double-tap empty space to fit. Erase rubs things out, Ground marks the reference, Undo and Redo step through your changes."),
+        Tip(glyph: .symbol("sparkles"), title: "Wrong guess?", detail: "Change the type or remove the part right in the value sheet. Every correction teaches the recognizer your way of drawing. Red rings mark ends that are not connected yet."),
     ]
 
     var body: some View {
@@ -1065,11 +1179,18 @@ private struct TipGlyphView: View {
 // MARK: - Value entry
 
 /// Value + SI prefix entry, shown right after a part is drawn and from the part's "Value" action.
+/// The type can be changed here too (a zigzag read as a coil, say) and a wrong guess removed.
 private struct ValueEntrySheet: View {
     let element: SketchElement
-    let onSave: (Double) -> Void
+    /// Kinds to offer, the current one first.
+    let alternatives: [SketchElement.Kind]
+    /// Just recognized from a stroke: removing it undoes the whole placement.
+    let justPlaced: Bool
+    let onSave: (SketchElement.Kind, Double?) -> Void
+    let onRemove: () -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @State private var kind: SketchElement.Kind = .resistor
     @State private var text = ""
     @State private var multiplier: Double = 1
     @FocusState private var focused: Bool
@@ -1080,8 +1201,8 @@ private struct ValueEntrySheet: View {
         var id: String { symbol }
     }
 
-    private var prefixes: [Prefix] {
-        switch element.kind {
+    private static func prefixes(for kind: SketchElement.Kind) -> [Prefix] {
+        switch kind {
         case .resistor, .lamp: return [Prefix(symbol: "Ω", multiplier: 1), Prefix(symbol: "kΩ", multiplier: 1e3), Prefix(symbol: "MΩ", multiplier: 1e6)]
         case .voltageSource, .battery: return [Prefix(symbol: "mV", multiplier: 1e-3), Prefix(symbol: "V", multiplier: 1), Prefix(symbol: "kV", multiplier: 1e3)]
         case .currentSource: return [Prefix(symbol: "µA", multiplier: 1e-6), Prefix(symbol: "mA", multiplier: 1e-3), Prefix(symbol: "A", multiplier: 1)]
@@ -1091,41 +1212,89 @@ private struct ValueEntrySheet: View {
         }
     }
 
+    private var prefixes: [Prefix] { ValueEntrySheet.prefixes(for: kind) }
+
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    HStack {
-                        TextField("Value", text: $text)
-                            .keyboardType(.decimalPad)
-                            .font(.system(size: 28, weight: .semibold, design: .rounded))
-                            .focused($focused)
-                            .submitLabel(.done)
-                        Picker("Unit", selection: $multiplier) {
-                            ForEach(prefixes) { prefix in
-                                Text(prefix.symbol).tag(prefix.multiplier)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(alternatives, id: \.self) { option in
+                                Button {
+                                    select(option)
+                                } label: {
+                                    VStack(spacing: 4) {
+                                        PartGlyph(kind: option, color: option == kind ? .white : PMTheme.ink)
+                                            .frame(width: 40, height: 18)
+                                        Text(option.title)
+                                            .font(.system(size: 10.5, weight: .medium))
+                                            .lineLimit(1)
+                                    }
+                                    .foregroundStyle(option == kind ? .white : PMTheme.ink)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 8)
+                                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(option == kind ? PMTheme.accent : PMTheme.groupedBackground))
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel(option.title)
+                                .accessibilityAddTraits(option == kind ? .isSelected : [])
                             }
                         }
-                        .pickerStyle(.segmented)
-                        .frame(width: 160)
+                        .padding(.vertical, 2)
                     }
-                } footer: {
-                    Text(footer)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
+                } header: {
+                    Text(justPlaced ? "Recognized as \(element.kind.title.lowercased()) · tap to change" : "Type")
+                }
+                if kind.needsValue {
+                    Section {
+                        HStack {
+                            TextField("Value", text: $text)
+                                .keyboardType(.decimalPad)
+                                .font(.system(size: 28, weight: .semibold, design: .rounded))
+                                .focused($focused)
+                                .submitLabel(.done)
+                            Picker("Unit", selection: $multiplier) {
+                                ForEach(prefixes) { prefix in
+                                    Text(prefix.symbol).tag(prefix.multiplier)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .frame(width: 160)
+                        }
+                    } footer: {
+                        Text(footer)
+                    }
+                } else {
+                    Section { Text("A switch has no value: use Toggle from its menu to open or close it.").font(.system(size: 13)).foregroundStyle(PMTheme.secondaryText) }
+                }
+                Section {
+                    Button(role: .destructive) {
+                        onRemove()
+                        dismiss()
+                    } label: {
+                        Label(justPlaced ? "Not a part, remove it" : "Remove \(element.label)", systemImage: "trash")
+                    }
                 }
             }
-            .navigationTitle("\(element.label) · \(element.kind.title)")
+            .navigationTitle("\(element.label) · \(kind.title)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("Later") { dismiss() }
+                    Button("Later") {
+                        if kind != element.kind { onSave(kind, nil) }
+                        dismiss()
+                    }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { save() }
                         .font(.system(size: 17, weight: .semibold))
-                        .disabled(parsedValue == nil)
+                        .disabled(kind.needsValue && parsedValue == nil)
                 }
             }
             .onAppear {
+                kind = element.kind
                 if let value = element.value {
                     let best = prefixes.min { abs(log10(value / $0.multiplier)) < abs(log10(value / $1.multiplier)) } ?? prefixes[0]
                     multiplier = best.multiplier
@@ -1133,14 +1302,24 @@ private struct ValueEntrySheet: View {
                 } else if let defaultPrefix = prefixes.first(where: { $0.multiplier == 1 }) ?? prefixes.last {
                     multiplier = defaultPrefix.multiplier
                 }
-                focused = true
+                focused = kind.needsValue
             }
         }
         .tint(PMTheme.accent)
     }
 
+    private func select(_ option: SketchElement.Kind) {
+        guard option != kind else { return }
+        Haptics.selection()
+        kind = option
+        text = ""
+        let defaults = ValueEntrySheet.prefixes(for: option)
+        multiplier = (defaults.first { $0.multiplier == 1 } ?? defaults.last)?.multiplier ?? 1
+        focused = option.needsValue
+    }
+
     private var footer: String {
-        switch element.kind {
+        switch kind {
         case .voltageSource, .battery: return "The + terminal is at the top (or left). Use Flip from the part's menu to turn it around."
         case .currentSource: return "The arrow points down (or right). Use Flip from the part's menu to turn it around."
         case .capacitor: return "At DC a capacitor blocks current; the value is kept for the drawing."
@@ -1155,8 +1334,12 @@ private struct ValueEntrySheet: View {
     }
 
     private func save() {
-        guard let value = parsedValue else { return }
-        onSave(value)
+        if kind.needsValue {
+            guard let value = parsedValue else { return }
+            onSave(kind, value)
+        } else {
+            onSave(kind, nil)
+        }
         dismiss()
     }
 }

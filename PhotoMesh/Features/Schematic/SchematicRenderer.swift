@@ -55,10 +55,10 @@ struct SchematicStyle {
     /// Sketch mode: unfinished elements (no value yet) are drawn hollow.
     var pendingValueIds: Set<String> = []
     var askedIds: Set<String> = []
-    /// Time in seconds driving the moving current dots; nil draws them still (or not at all).
-    var flowPhase: Double?
     /// Dots at wire corners as well as junctions (Settings → Node dots).
     var showsCornerDots = NodeDotStyle.current == .all
+    /// Ring every part terminal that nothing else touches (the live drawing canvas).
+    var showsOpenTerminals = false
 }
 
 /// Draws a `SchematicLayout` into a `GraphicsContext`. Geometry is built in layout units and
@@ -105,6 +105,25 @@ enum SchematicRenderer {
             }
         }
 
+        // Loose ends: a terminal whose node holds nothing else. Drawn as the drawing is made so a
+        // part that merely looks attached is caught before Solve does.
+        if style.showsOpenTerminals {
+            var uses: [String: Int] = [:]
+            for wire in layout.wires { uses[wire.node, default: 0] += 2 }
+            for symbol in layout.symbols {
+                uses[symbol.nodeA, default: 0] += 1
+                uses[symbol.nodeB, default: 0] += 1
+            }
+            let alert = Color(red: 0.86, green: 0.22, blue: 0.2)
+            for symbol in layout.symbols {
+                for (node, point) in [(symbol.nodeA, symbol.a), (symbol.nodeB, symbol.b)] where uses[node] == 1 && node != layout.groundNode {
+                    let p = camera.convert(point)
+                    let r: CGFloat = 6
+                    context.stroke(Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r)), with: .color(alert), lineWidth: 1.8)
+                }
+            }
+        }
+
         // Ground
         if let ground = layout.groundPoint {
             let focused = focusedNodes.contains(layout.groundNode)
@@ -130,6 +149,7 @@ enum SchematicRenderer {
             }
             context.stroke(body.applying(t), with: .color(color), style: StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round))
             drawSymbolDecorations(symbol, camera: camera, color: color, in: &context)
+            drawCapacitorCharge(symbol, camera: camera, style: style, in: &context)
             drawSymbolLabel(symbol, camera: camera, color: color, style: style, in: &context)
         }
 
@@ -161,9 +181,6 @@ enum SchematicRenderer {
             guard let symbol = layout.symbol(id) else { continue }
             drawCurrentArrow(symbol, current: current, camera: camera, style: style, in: &context)
             if style.focus.showPolarity { drawPolarity(symbol, current: current, camera: camera, in: &context) }
-        }
-        if style.focus.animateCurrents, let phase = style.flowPhase {
-            drawFlow(layout, camera: camera, style: style, phase: phase, focusedElements: focusedElements, in: &context)
         }
 
         // Mesh arrows
@@ -313,6 +330,38 @@ enum SchematicRenderer {
         return path
     }
 
+    /// The charge a capacitor holds at DC: + marks beside the plate at the higher potential, −
+    /// beside the other, more of them the larger the voltage across it relative to the picture.
+    private static func drawCapacitorCharge(_ symbol: SchematicLayout.Symbol, camera: SchematicCamera, style: SchematicStyle, in context: inout GraphicsContext) {
+        let voltages = style.focus.nodeVoltages
+        guard symbol.kind == .capacitor, let va = voltages[symbol.nodeA], let vb = voltages[symbol.nodeB] else { return }
+        let drop = va - vb
+        guard abs(drop) > 1e-9 else { return }
+        let range = (voltages.values.max() ?? 0) - (voltages.values.min() ?? 0)
+        let marks = range > 0 ? min(4, max(1, Int((abs(drop) / range * 4).rounded(.up)))) : 2
+        let length = max(symbol.length, 1)
+        let u = SPoint(x: (symbol.b.x - symbol.a.x) / length, y: (symbol.b.y - symbol.a.y) / length)
+        let n = SPoint(x: -u.y, y: u.x)
+        let c = symbol.center
+        let gap = 5.0, plate = min(max(length * 0.16, 10), 18)
+        let fontSize = min(max(9 * camera.scale, 7), 12)
+        let plusSide = drop > 0 ? -1.0 : 1.0   // the plate nearer nodeA sits at c − u·gap
+        for k in 0..<marks {
+            let offset = marks == 1 ? 0 : (Double(k) / Double(marks - 1) - 0.5) * plate * 1.5
+            let plus = camera.convert(c + u * (plusSide * (gap + 7)) + n * offset)
+            let minus = camera.convert(c - u * (plusSide * (gap + 7)) + n * offset)
+            context.draw(Text("+").font(.system(size: fontSize, weight: .bold, design: .rounded)).foregroundStyle(potentialColor(max(va, vb), field: chargeField(voltages))), at: plus, anchor: .center)
+            context.draw(Text("−").font(.system(size: fontSize, weight: .bold, design: .rounded)).foregroundStyle(potentialColor(min(va, vb), field: chargeField(voltages))), at: minus, anchor: .center)
+        }
+    }
+
+    private static func chargeField(_ voltages: [String: Double]) -> FlowField {
+        var field = FlowField()
+        field.lowestPotential = voltages.values.min()
+        field.highestPotential = voltages.values.max()
+        return field
+    }
+
     private static func drawSymbolDecorations(_ symbol: SchematicLayout.Symbol, camera: SchematicCamera, color: Color, in context: inout GraphicsContext) {
         guard symbol.kind == .voltageSource || symbol.kind == .battery else { return }
         if symbol.kind == .battery {
@@ -439,78 +488,32 @@ enum SchematicRenderer {
 
     // MARK: Moving current
 
-    /// Dots travelling along wires and through elements the way the current really flows, faster
-    /// where the current is larger. With only mesh currents known, the dots circulate around each mesh.
-    private static func drawFlow(_ layout: SchematicLayout, camera: SchematicCamera, style: SchematicStyle, phase: Double, focusedElements: Set<String>, in context: inout GraphicsContext) {
-        let spacing = 30.0   // layout units between dots
-        let dotRadius: CGFloat = 3
-        func speed(_ current: Double, max largest: Double) -> Double {
-            36 + 60 * min(1, abs(current) / max(largest, 1e-12))
+    /// Colour of a dot at a given potential: cool blue at the lowest potential in the picture,
+    /// warm orange at the highest, so dots fade across every resistor and brighten across a source.
+    static func potentialColor(_ potential: Double?, field: FlowField) -> Color {
+        guard let potential, let low = field.lowestPotential, let high = field.highestPotential, high - low > 1e-9 else {
+            return PMTheme.accent
         }
-        func dots(from a: SPoint, to b: SPoint, current: Double, largest: Double, color: Color) {
-            guard abs(current) > 1e-9 * max(largest, 1e-12) else { return }
-            let (start, end) = current >= 0 ? (a, b) : (b, a)
-            let length = start.distance(to: end)
-            guard length > 4 else { return }
-            let unit = (end - start) * (1 / length)
-            let offset = (phase * speed(current, max: largest)).truncatingRemainder(dividingBy: spacing)
-            var d = offset
-            var path = Path()
-            while d < length {
-                let p = camera.convert(start + unit * d)
-                path.addEllipse(in: CGRect(x: p.x - dotRadius, y: p.y - dotRadius, width: dotRadius * 2, height: dotRadius * 2))
-                d += spacing
-            }
-            context.fill(path, with: .color(color))
-        }
-        func polylineDots(_ points: [SPoint], current: Double, largest: Double, color: Color) {
-            guard points.count >= 2, abs(current) > 1e-12 else { return }
-            let ordered = current >= 0 ? points : points.reversed()
-            let closed = ordered + [ordered[0]]
-            let total = zip(closed, closed.dropFirst()).reduce(0.0) { $0 + $1.0.distance(to: $1.1) }
-            guard total > 4 else { return }
-            var d = (phase * speed(current, max: largest)).truncatingRemainder(dividingBy: spacing)
-            var path = Path()
-            while d < total {
-                var remaining = d
-                for (a, b) in zip(closed, closed.dropFirst()) {
-                    let segment = a.distance(to: b)
-                    if remaining <= segment {
-                        let p = camera.convert(a + (b - a) * (segment > 0 ? remaining / segment : 0))
-                        path.addEllipse(in: CGRect(x: p.x - dotRadius, y: p.y - dotRadius, width: dotRadius * 2, height: dotRadius * 2))
-                        break
-                    }
-                    remaining -= segment
-                }
-                d += spacing
-            }
-            context.fill(path, with: .color(color))
-        }
+        let t = min(max((potential - low) / (high - low), 0), 1)
+        let cold = (r: 0.18, g: 0.46, b: 0.92), hot = (r: 0.96, g: 0.42, b: 0.16)
+        return Color(red: cold.r + (hot.r - cold.r) * t, green: cold.g + (hot.g - cold.g) * t, blue: cold.b + (hot.b - cold.b) * t)
+    }
 
-        let elementCurrents = style.focus.elementCurrents
-        if !elementCurrents.isEmpty {
-            let largest = elementCurrents.values.map(abs).max() ?? 1
-            let wireCurrents = layout.wireCurrents(elementCurrents: elementCurrents)
-            let dimmed = !focusedElements.isEmpty
-            for (index, current) in wireCurrents {
-                let wire = layout.wires[index]
-                dots(from: wire.from, to: wire.to, current: current, largest: largest, color: PMTheme.accent.opacity(dimmed ? 0.55 : 0.9))
+    /// One frame of the moving current: dots spaced evenly along every track, advanced by the
+    /// track's own speed, coloured by the potential where they are.
+    static func drawFlow(_ field: FlowField, camera: SchematicCamera, phase: Double, in context: inout GraphicsContext) {
+        let spacing = FlowField.spacing
+        let dotRadius: CGFloat = min(max(3 * camera.scale / 0.8, 2.2), 4.5)
+        for track in field.tracks {
+            guard track.length > 4 else { continue }
+            var d = (phase * track.speed).truncatingRemainder(dividingBy: spacing)
+            while d < track.length {
+                let (point, potential) = track.sample(at: d)
+                let p = camera.convert(point)
+                let color = potentialColor(potential, field: field).opacity(track.dim ? 0.4 : 0.92)
+                context.fill(Path(ellipseIn: CGRect(x: p.x - dotRadius, y: p.y - dotRadius, width: dotRadius * 2, height: dotRadius * 2)), with: .color(color))
+                d += spacing
             }
-            for symbol in layout.symbols {
-                guard let current = elementCurrents[symbol.id] else { continue }
-                let bright = focusedElements.isEmpty || focusedElements.contains(symbol.id)
-                dots(from: symbol.a, to: symbol.b, current: current, largest: largest, color: PMTheme.accent.opacity(bright ? 0.9 : 0.5))
-            }
-            return
-        }
-        // Mesh currents only: circulate around each loop's polygon.
-        let meshCurrents = style.focus.meshCurrents
-        guard !meshCurrents.isEmpty else { return }
-        let largest = meshCurrents.values.map(abs).max() ?? 1
-        for (index, current) in meshCurrents where index < style.loops.count {
-            let polygon = layout.polygon(forLoopElements: style.loops[index].elementIds)
-            let bright = style.focus.loops.isEmpty || style.focus.loops.contains(index)
-            polylineDots(polygon, current: current, largest: largest, color: PMTheme.accent.opacity(bright ? 0.9 : 0.4))
         }
     }
 

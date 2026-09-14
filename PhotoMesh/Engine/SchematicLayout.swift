@@ -189,13 +189,21 @@ struct SchematicLayout: Hashable {
                     incident[k, default: []].append(i)
                 }
             }
+            // A point holding a terminal whose current the step does not know cannot be peeled
+            // from (its injection is not zero, it is unknown); such wires are reached from the
+            // other end when that end is known, or left out.
+            var blocked = Set<String>()
             for symbol in symbols {
-                guard let current = elementCurrents[symbol.id] else { continue }
+                guard let current = elementCurrents[symbol.id] else {
+                    if symbol.nodeA == node { blocked.insert(key(symbol.a)) }
+                    if symbol.nodeB == node { blocked.insert(key(symbol.b)) }
+                    continue
+                }
                 if symbol.nodeA == node { injection[key(symbol.a), default: 0] -= current }   // leaves the node into the element
                 if symbol.nodeB == node { injection[key(symbol.b), default: 0] += current }   // arrives from the element
             }
             var remaining = Set(wireIndices)
-            var queue = degree.filter { $0.value == 1 }.map(\.key)
+            var queue = degree.filter { $0.value == 1 && !blocked.contains($0.key) }.map(\.key).sorted()
             while let leaf = queue.popLast() {
                 guard let wireIndex = incident[leaf]?.first(where: { remaining.contains($0) }) else { continue }
                 let wire = wires[wireIndex]
@@ -207,7 +215,7 @@ struct SchematicLayout: Hashable {
                 injection[other, default: 0] += flow
                 degree[other, default: 0] -= 1
                 degree[leaf] = 0
-                if degree[other] == 1 { queue.append(other) }
+                if degree[other] == 1, !blocked.contains(other) { queue.append(other) }
             }
         }
         return result
