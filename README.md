@@ -26,7 +26,8 @@ method to follow.
 | DC solver: nodal (MNA, supernodes) + mesh (auto loop detection, supermeshes), cross‑checked | Done, unit‑tested |
 | Schematic redrawn from the photo, fixed window above the steps that zooms to what each step talks about | Done |
 | Full‑screen circuit explorer (pinch, pan, tap a node or part for details in a floating card) | Done |
-| Hand‑drawn circuit entry on a dot grid (Calculator → Draw circuit): continuous recognition, cornered wires, pan/zoom, double‑tap rotate, guided review before solving | Done |
+| Hand‑drawn circuit entry on a dot grid (Draw button on the home screen): lines, cornered wires and loops, zigzag/box resistors, circle sources, parts slot into wires, tap actions, eraser, pan/zoom | Done |
+| Step equations typeset as LaTeX (fractions, subscripts, units) | Done |
 | "Check the circuit" step after a scan with an editor for parts, values, nodes, ground and the question | Done |
 | History of solved circuits (button right of the shutter) | Done |
 | AC / dependent sources, more methods | Next |
@@ -81,15 +82,42 @@ again once rated); a thumbs‑down opens a short feedback form stored on the dev
 
 ### Drawing a circuit by hand
 
-Calculator → *Draw circuit* opens a dot‑grid canvas that never interrupts you: one finger
-draws, two fingers pan, pinch zooms. `StrokeClassifier` turns each stroke into an axis‑aligned
-wire (a stroke with corners becomes a chain of wires that meet exactly), a resistor (zigzag or
-rectangle), or a source (a circle, provisionally a voltage source), and parts snap to the grid
-and to nearby wire ends. *Review & solve* then walks through every part that still needs a type
-or a value, one at a time, with the part highlighted on the canvas. Tap a part to edit it, flip
-it, mark it as the unknown, or delete it; double‑tap rotates it; the Ground tool places the
-reference. `SketchDocument` derives the nodes with union‑find (T‑junctions included), builds the
-`Circuit` with exact geometry, and the same engine and screens take it from there.
+The *Draw* button on the home screen opens a dot‑grid canvas (the keyboard calculator is the
+second tab). One finger draws, two fingers pan, pinch zooms, and every stroke is recognized on
+the spot by `StrokeClassifier`, judged in finger coordinates so it behaves the same at any zoom:
+
+| You draw | You get |
+|---|---|
+| A straight stroke, or one with corners | Axis‑aligned wire(s); ends magnet onto terminals, wire ends and wire interiors (T‑junctions) |
+| A big closed outline | A rectangular loop of four wires |
+| A zigzag, or a small box/square | A resistor (a square faces the way the nearby wires run) |
+| A circle | A bubble asks: voltage source, current source or resistor |
+| A short mark / anything unreadable | A bubble with the possible parts |
+
+A part drawn **on** a wire slots into it: the wire is cut at the terminals, a short wire is taken
+over entirely, a part drawn at the end of a wire is pulled inside it, and the part slides a step
+if it would otherwise swallow a junction. A part drawn **across** a wire lands one terminal on it
+(a part drawn straddling a rail hangs off it toward the rest of the drawing). Overlapping
+collinear wires merge into one. Removing or rotating a part that sits in a straight wire heals
+the wire first (rotation then re‑seats the part). All of this lives in `SketchEditing.swift` and
+is exercised on Linux by the sketch harness.
+
+Right after a part appears, a small sheet asks for its value (skip with *Later*; *Solve* comes
+back to anything still missing). Tap a part for its actions: value, rotate, flip, mark as the
+unknown, change type, delete; double‑tap rotates. The eraser rubs parts out and cuts wires only
+where it touched them. The Ground tool places the reference; the “?” button replays the
+first‑run tips. `SketchDocument` derives the nodes with union‑find (T‑junctions included), builds
+the `Circuit` with exact geometry, and the same engine and screens take it from there.
+
+### Typeset steps
+
+Every equation line in the solving steps is typeset. The engine still produces plain text
+(`(V₂ − 12)/100 + V₂/220 = 0`); `Engine/EquationLaTeX.swift` converts it to LaTeX
+(`\frac{V_{2} - 12}{100} + \frac{V_{2}}{220} = 0`: fractions, subscripts, upright units, prose
+in `\text{}`), and `MathText` renders it natively with the
+[SwiftMath](https://github.com/mgriebling/SwiftMath) package (no web view). If a line ever fails
+to parse it falls back to the plain text, and the plain text stays the accessibility label. The
+converter is checked against the full corpus of lines the engine emits for the test circuits.
 
 ### Checking a scan
 
@@ -169,6 +197,7 @@ PhotoMesh/
     SchematicLayout.swift     geometry → schematic drawing primitives
     CircuitPayload.swift      tolerant JSON decoding of the model output
     Units.swift               engineering-notation formatter / parser
+    EquationLaTeX.swift       plain equation lines → LaTeX
   Services/
     OpenRouterClient.swift    chat completions with image input
     RecognitionPrompt.swift   the system prompt
@@ -181,14 +210,15 @@ PhotoMesh/
     Calculator/               keyboard model + view, expression evaluator, calculator sheet
     Help/                     How‑to‑use sheet with illustrations
     Settings/                 Settings (incl. Recognition + Diagnostics), Language, About, Plus
-    Solutions/                Solutions sheet, Solving Steps, Circuit detail
+    Solutions/                Solutions sheet, Solving Steps (MathText), Circuit detail, editor
     Schematic/                Canvas renderer, animated step window, full-screen explorer
-    Sketch/                   Hand-drawn canvas, UIKit gesture host, stroke classifier, sketch → netlist
+    Sketch/                   Hand-drawn canvas, UIKit gesture host, stroke classifier, editing rules, sketch → netlist
     History/                  Saved circuits sheet (store in Support/HistoryStore.swift)
 .github/workflows/testflight.yml        archive + upload to TestFlight
 ```
 
-Requirements: Xcode 16 or newer, iOS 17 deployment target.
+Requirements: Xcode 16 or newer, iOS 17 deployment target. The one package dependency
+(SwiftMath, for typeset equations) resolves automatically when the project opens.
 
 ## Run it
 
@@ -243,4 +273,3 @@ same lines under *Show diagnostics*. Copy and paste them into an issue.
 - Polish the step ↔ schematic choreography (per‑step annotations, KCL current arrows at the node).
 - More methods (series/parallel reduction, superposition, Thévenin) and more elements
   (dependent sources, AC phasors).
-- Pinch‑zoom on the drawing canvas for large circuits.

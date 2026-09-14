@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Manual entry. Mirrors Photomath's calculator sheet: title bar, dotted input line,
-/// live result with a green bar, "Show Solution" pill, custom keyboard.
+/// Manual entry. Opens on the drawing canvas; the second tab is the Photomath-style calculator
+/// (title bar, dotted input line, live result with a green bar, "Show Solution" pill, custom keyboard).
 struct CalculatorSheet: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage(SettingsKeys.decimalSign) private var decimalSign: DecimalSign = .point
@@ -13,7 +13,7 @@ struct CalculatorSheet: View {
     @State private var isAlpha = false
     @State private var showHistory = false
     @State private var solutionRequest: SolutionRequest?
-    @State private var mode: EntryMode = .keyboard
+    @State private var mode: EntryMode = .draw
 
     private enum EntryMode: Hashable {
         case keyboard, draw
@@ -82,8 +82,8 @@ struct CalculatorSheet: View {
 
     private var modePicker: some View {
         Picker("Entry mode", selection: $mode) {
-            Text("Keyboard").tag(EntryMode.keyboard)
             Text("Draw circuit").tag(EntryMode.draw)
+            Text("Keyboard").tag(EntryMode.keyboard)
         }
         .pickerStyle(.segmented)
         .padding(.horizontal, 16)
@@ -93,7 +93,7 @@ struct CalculatorSheet: View {
 
     private var header: some View {
         ZStack {
-            Text("Calculator")
+            Text(mode == .draw ? "Draw" : "Calculator")
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(PMTheme.ink)
             HStack {

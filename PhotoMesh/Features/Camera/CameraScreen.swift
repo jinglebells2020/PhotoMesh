@@ -150,7 +150,7 @@ struct CameraScreen: View {
                 ShutterButton(isBusy: isAnalyzing, action: capture)
 
                 HStack {
-                    CalculatorButton { router.present(.calculator) }
+                    DrawButton { router.present(.calculator) }
                         .frame(width: 84)
                         .padding(.leading, 38)
                     Spacer()
@@ -303,14 +303,16 @@ private struct ShutterButtonStyle: ButtonStyle {
     }
 }
 
-struct CalculatorButton: View {
+struct DrawButton: View {
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             VStack(spacing: 7) {
-                CalculatorGlyph()
-                Text("Calculator")
+                Image(systemName: "pencil.and.outline")
+                    .font(.system(size: 21, weight: .regular))
+                    .frame(height: 25)
+                Text("Draw")
                     .font(.system(size: 11, weight: .regular))
             }
             .foregroundStyle(.white)
@@ -320,7 +322,7 @@ struct CalculatorButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Calculator")
+        .accessibilityLabel("Draw a circuit")
     }
 }
 
@@ -347,26 +349,6 @@ struct HistoryButton: View {
     }
 }
 
-/// Small calculator outline, drawn with shapes so it matches the white line icons around it.
-struct CalculatorGlyph: View {
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 3.5, style: .continuous)
-                .stroke(lineWidth: 1.6)
-            VStack(spacing: 3.2) {
-                RoundedRectangle(cornerRadius: 1)
-                    .frame(width: 11, height: 4.2)
-                HStack(spacing: 2.6) { dot; dot; dot }
-                HStack(spacing: 2.6) { dot; dot; dot }
-            }
-        }
-        .frame(width: 19, height: 25)
-    }
-
-    private var dot: some View {
-        Circle().frame(width: 2.2, height: 2.2)
-    }
-}
 
 /// Green line sweeping the scan area while a capture is being analysed.
 struct ScanLine: View {

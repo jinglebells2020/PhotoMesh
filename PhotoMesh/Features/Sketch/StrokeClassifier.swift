@@ -8,13 +8,17 @@ enum StrokeGuess: Equatable {
     case wirePath([CGPoint])
     case resistor(center: CGPoint, horizontal: Bool)
     case roundShape(center: CGPoint, size: CGSize)
-    case rectangle(center: CGPoint, horizontal: Bool)
+    /// A box (IEC resistor). `horizontal` is nil for a square: the surroundings decide.
+    case rectangle(center: CGPoint, horizontal: Bool?)
+    /// A closed outline big enough to be a loop of wires rather than a part.
+    case loop(CGRect)
     case shortMark(center: CGPoint)
     case unknown(bounds: CGRect)
 }
 
 enum StrokeClassifier {
-    static func classify(_ raw: [CGPoint]) -> StrokeGuess {
+    /// `loopExtent`: closed strokes at least this big (same units as the points) are wire loops, not parts.
+    static func classify(_ raw: [CGPoint], loopExtent: CGFloat = .infinity) -> StrokeGuess {
         let points = resample(raw, spacing: 3)
         guard let first = points.first, let last = points.last else { return .tap(raw.first ?? .zero) }
         let bounds = boundingBox(points)
@@ -34,20 +38,35 @@ enum StrokeClassifier {
 
         let closed = chord < max(0.32 * extent, 14)
         if closed, extent > 18 {
-            let area = abs(shoelace(points))
-            let circularity = pathLength > 0 ? 4 * .pi * area / (pathLength * pathLength) : 0
+            let center = CGPoint(x: bounds.midX, y: bounds.midY)
+            if extent >= loopExtent { return .loop(bounds) }
+            let smooth = smoothed(points, window: 5)
+            let area = abs(shoelace(smooth))
+            let smoothLength = zip(smooth, smooth.dropFirst()).reduce(0) { $0 + hypot($1.1.x - $1.0.x, $1.1.y - $1.0.y) }
+            let circularity = smoothLength > 0 ? 4 * .pi * area / (smoothLength * smoothLength) : 0
+            let smoothBounds = boundingBox(smooth)
+            let fill = area / max(smoothBounds.width * smoothBounds.height, 1)
             let aspect = bounds.width / max(bounds.height, 1)
-            if circularity > 0.68, aspect > 0.6, aspect < 1.65 {
-                return .roundShape(center: CGPoint(x: bounds.midX, y: bounds.midY), size: bounds.size)
+            let corners = sharpCorners(simplifyClosed(smooth, epsilon: max(4, 0.09 * extent)), minimumTurn: 68 * .pi / 180)
+            // A box fills its bounding rectangle (a circle fills ~78% of it) and has corners.
+            let isBox = fill >= 0.83
+                || (fill >= 0.79 && (corners >= 2 || circularity < 0.8))
+                || (corners >= 3 && fill >= 0.74 && circularity < 0.85)
+            if isBox {
+                let horizontal: Bool? = aspect > 1.25 ? true : (aspect < 0.8 ? false : nil)
+                return .rectangle(center: center, horizontal: horizontal)
+            }
+            if circularity > 0.55, aspect > 0.55, aspect < 1.8 {
+                return .roundShape(center: center, size: bounds.size)
             }
             if aspect > 1.5 || aspect < 0.66 {
-                return .rectangle(center: CGPoint(x: bounds.midX, y: bounds.midY), horizontal: bounds.width >= bounds.height)
+                return .rectangle(center: center, horizontal: bounds.width >= bounds.height)
             }
             return .unknown(bounds: bounds)
         }
 
         // A wire that turns: a few long, axis-aligned segments.
-        let corners = simplify(points, epsilon: max(7, 0.05 * extent))
+        let corners = withoutShortSegments(simplify(points, epsilon: max(7, 0.05 * extent)), minimum: 16)
         if corners.count >= 3, corners.count <= 7, isOrthogonalPolyline(corners, minimumSegment: 16) {
             return .wirePath(corners)
         }
@@ -136,6 +155,66 @@ enum StrokeClassifier {
             }
         }
         return points.indices.filter { keep[$0] }.map { points[$0] }
+    }
+
+    /// Moving average that takes the finger jitter out before measuring a shape.
+    static func smoothed(_ points: [CGPoint], window: Int) -> [CGPoint] {
+        guard points.count > window, window > 1 else { return points }
+        let half = window / 2
+        return points.indices.map { i in
+            let lo = max(0, i - half), hi = min(points.count - 1, i + half)
+            var sum = CGPoint.zero
+            for j in lo...hi { sum.x += points[j].x; sum.y += points[j].y }
+            let n = CGFloat(hi - lo + 1)
+            return CGPoint(x: sum.x / n, y: sum.y / n)
+        }
+    }
+
+    /// RDP for a closed outline: split at the point farthest from the start so both halves have a real chord.
+    static func simplifyClosed(_ points: [CGPoint], epsilon: CGFloat) -> [CGPoint] {
+        guard points.count > 3, let first = points.first else { return points }
+        var farthest = 0
+        var largest: CGFloat = 0
+        for (i, p) in points.enumerated() {
+            let d = hypot(p.x - first.x, p.y - first.y)
+            if d > largest { largest = d; farthest = i }
+        }
+        guard farthest > 0, farthest < points.count - 1 else { return simplify(points, epsilon: epsilon) }
+        let head = simplify(Array(points[0...farthest]), epsilon: epsilon)
+        let tail = simplify(Array(points[farthest...]), epsilon: epsilon)
+        return head + tail.dropFirst()
+    }
+
+    /// Corners of a closed outline where the direction turns by at least `minimumTurn`.
+    static func sharpCorners(_ corners: [CGPoint], minimumTurn: CGFloat) -> Int {
+        var ring = corners
+        if let first = ring.first, let last = ring.last, ring.count > 2, hypot(last.x - first.x, last.y - first.y) < 1 { ring.removeLast() }
+        guard ring.count >= 3 else { return 0 }
+        var count = 0
+        for i in ring.indices {
+            let p = ring[(i + ring.count - 1) % ring.count], q = ring[i], r = ring[(i + 1) % ring.count]
+            let inbound = atan2(q.y - p.y, q.x - p.x), outbound = atan2(r.y - q.y, r.x - q.x)
+            var turn = abs(outbound - inbound)
+            if turn > .pi { turn = 2 * .pi - turn }
+            if turn >= minimumTurn { count += 1 }
+        }
+        return count
+    }
+
+    /// Drops corners that sit right next to another one (a wobble at a real corner), keeping both ends.
+    static func withoutShortSegments(_ corners: [CGPoint], minimum: CGFloat) -> [CGPoint] {
+        guard corners.count > 2 else { return corners }
+        var result = [corners[0]]
+        for (index, corner) in corners.enumerated().dropFirst() {
+            let previous = result[result.count - 1]
+            if hypot(corner.x - previous.x, corner.y - previous.y) >= minimum {
+                result.append(corner)
+            } else if index == corners.count - 1 {
+                // Keep the true end of the stroke rather than the wobble before it.
+                if result.count > 1 { result[result.count - 1] = corner } else { result.append(corner) }
+            }
+        }
+        return result
     }
 
     /// Every segment long enough and within ~35° of horizontal or vertical.

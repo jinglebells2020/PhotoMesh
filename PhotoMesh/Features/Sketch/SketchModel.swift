@@ -45,8 +45,6 @@ struct SketchElement: Identifiable, Equatable {
     var flipped = false
     /// Marked as the quantity the user wants to find.
     var asked = false
-    /// The stroke was ambiguous (a circle): confirm what it is during review.
-    var needsKind = false
 
     init(kind: Kind, a: CGPoint, b: CGPoint, label: String, value: Double? = nil) {
         id = UUID()
@@ -60,13 +58,20 @@ struct SketchElement: Identifiable, Equatable {
     var isComponent: Bool { kind.componentKind != nil }
     var isHorizontal: Bool { abs(b.x - a.x) >= abs(b.y - a.y) }
     var center: CGPoint { CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2) }
-    var needsAttention: Bool { isComponent && (value == nil || needsKind) }
+    var length: CGFloat { hypot(b.x - a.x, b.y - a.y) }
+    /// Coordinate along the element's own axis (x for horizontal, y for vertical).
+    func along(_ p: CGPoint) -> CGFloat { isHorizontal ? p.x : p.y }
+    /// Coordinate across the element's axis: the line it lies on.
+    var line: CGFloat { isHorizontal ? a.y : a.x }
+    var lowerEnd: CGFloat { min(along(a), along(b)) }
+    var upperEnd: CGFloat { max(along(a), along(b)) }
 
     /// Terminal that acts as `nodeA` of the component (positive terminal / current entry).
     var terminalA: CGPoint { flipped ? b : a }
     var terminalB: CGPoint { flipped ? a : b }
 
-    /// Turns a component a quarter turn around its centre.
+    /// Turns a component a quarter turn around its centre (geometry only; `SketchDocument.rotate`
+    /// also re-seats it in the surrounding wires).
     mutating func rotate() {
         guard isComponent else { return }
         let c = SketchGrid.snap(center)
@@ -87,7 +92,11 @@ enum SketchGrid {
     static let componentSteps: CGFloat = 4
 
     static func snap(_ p: CGPoint) -> CGPoint {
-        CGPoint(x: (p.x / step).rounded() * step, y: (p.y / step).rounded() * step)
+        CGPoint(x: snap(p.x), y: snap(p.y))
+    }
+
+    static func snap(_ v: CGFloat) -> CGFloat {
+        (v / step).rounded() * step
     }
 
     static func key(_ p: CGPoint) -> String {
@@ -124,7 +133,7 @@ struct SketchDocument: Equatable {
     var hasSource: Bool { elements.contains { $0.kind == .voltageSource || $0.kind == .currentSource } }
     var hasResistor: Bool { elements.contains { $0.kind == .resistor } }
     var missingValues: [SketchElement] { elements.filter { $0.isComponent && $0.value == nil } }
-    var needingAttention: [SketchElement] { elements.filter(\.needsAttention) }
+    var isSolvable: Bool { hasSource && hasResistor }
 
     /// Area the drawing occupies (canvas points), padded; used to normalise geometry and to fit the view.
     var contentFrame: CGRect {

@@ -9,6 +9,7 @@ enum SettingsKeys {
     static let currentConvention = "settings.currentConvention"
     static let calculatorHistory = "calculator.history"
     static let hasSeenHelp = "onboarding.hasSeenHelp"
+    static let hasSeenSketchTips = "onboarding.hasSeenSketchTips"
     static let openRouterModel = "recognition.model"
     static let useSampleCircuit = "recognition.useSample"
     static let confirmRecognized = "recognition.confirm"

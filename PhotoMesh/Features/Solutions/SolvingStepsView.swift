@@ -185,17 +185,21 @@ struct SolvingStepsView: View {
 
 // MARK: - Rows
 
+/// The equations of a step, typeset. Long lines scroll sideways rather than wrap mid-fraction.
 private struct EquationLines: View {
     let lines: [String]
     var emphasizeLast = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
             ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
-                Text(line)
-                    .font(.system(size: 15, weight: emphasizeLast && index == lines.count - 1 ? .semibold : .regular, design: .rounded))
-                    .foregroundStyle(PMTheme.ink)
-                    .fixedSize(horizontal: false, vertical: true)
+                let isLast = emphasizeLast && index == lines.count - 1
+                ScrollView(.horizontal, showsIndicators: false) {
+                    MathText(latex: EquationLaTeX.latex(for: line), fallback: line, fontSize: isLast ? 17 : 15.5, color: isLast ? PMTheme.accent : PMTheme.ink)
+                        .padding(.vertical, 2)
+                        .padding(.trailing, 12)
+                }
+                .scrollBounceBehavior(.basedOnSize)
             }
         }
     }
