@@ -8,7 +8,10 @@ struct SettingsSheet: View {
     @AppStorage(SettingsKeys.currentConvention) private var currentConvention: CurrentConvention = .conventional
     @AppStorage(SettingsKeys.useSampleCircuit) private var useSampleCircuit = false
     @AppStorage(SettingsKeys.confirmRecognized) private var confirmRecognized = true
-    @AppStorage(SettingsKeys.fastRecognition) private var fastRecognition = false
+    @AppStorage(SettingsKeys.fastRecognition) private var fastRecognition = true
+    @AppStorage(SettingsKeys.escalate) private var escalate = true
+    @AppStorage("analytics.usage") private var shareUsage = false
+    @AppStorage("analytics.scans") private var shareScans = false
 
     var body: some View {
         NavigationStack {
@@ -48,9 +51,9 @@ struct SettingsSheet: View {
                         ModelView()
                     } label: {
                         HStack {
-                            Text("Model").foregroundStyle(PMTheme.ink)
+                            Text("Models").foregroundStyle(PMTheme.ink)
                             Spacer()
-                            Text(APIConfiguration.model)
+                            Text(APIConfiguration.model.split(separator: "/").last.map(String.init) ?? APIConfiguration.model)
                                 .font(.system(size: 15))
                                 .foregroundStyle(PMTheme.secondaryText)
                                 .lineLimit(1)
@@ -63,8 +66,17 @@ struct SettingsSheet: View {
                     .tint(PMTheme.accent)
                     Toggle(isOn: $fastRecognition) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Fast recognition").foregroundStyle(PMTheme.ink)
-                            Text("Less thinking: about 3× quicker, a bit less careful on messy photos")
+                            Text("Fast first pass").foregroundStyle(PMTheme.ink)
+                            Text("Low reasoning effort on the first read; about 3× quicker")
+                                .font(.system(size: 12))
+                                .foregroundStyle(PMTheme.secondaryText)
+                        }
+                    }
+                    .tint(PMTheme.accent)
+                    Toggle(isOn: $escalate) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Escalate when unsure").foregroundStyle(PMTheme.ink)
+                            Text("Re-read with the stronger model if the first result does not validate")
                                 .font(.system(size: 12))
                                 .foregroundStyle(PMTheme.secondaryText)
                         }
@@ -83,6 +95,37 @@ struct SettingsSheet: View {
                     Text("RECOGNITION")
                 } footer: {
                     Text("Photos are sent to the selected model through OpenRouter to read the schematic. The key is stored in this device's Keychain. Sample mode skips the camera reader and solves a built-in circuit.")
+                }
+
+                Section {
+                    Toggle(isOn: $shareUsage) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Share anonymous usage").foregroundStyle(PMTheme.ink)
+                            Text("Which features are used, how long recognition takes, when it fails")
+                                .font(.system(size: 12))
+                                .foregroundStyle(PMTheme.secondaryText)
+                        }
+                    }
+                    .tint(PMTheme.accent)
+                    Toggle(isOn: $shareScans) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Share scans to improve recognition").foregroundStyle(PMTheme.ink)
+                            Text("Your circuit pictures with the recognized and corrected netlists")
+                                .font(.system(size: 12))
+                                .foregroundStyle(PMTheme.secondaryText)
+                        }
+                    }
+                    .tint(PMTheme.accent)
+                    .onChange(of: shareScans) { _, on in if on { shareUsage = true } }
+                    NavigationLink {
+                        DataView()
+                    } label: {
+                        Text("Collected data").foregroundStyle(PMTheme.ink)
+                    }
+                } header: {
+                    Text("PRIVACY & DATA")
+                } footer: {
+                    Text("Nothing is shared until you turn these on. There is no account; a random install id groups your data. Feedback you send from a walkthrough is kept with it.")
                 }
             }
             .listStyle(.insetGrouped)
@@ -215,10 +258,12 @@ private struct APIKeyView: View {
 
 private struct ModelView: View {
     @AppStorage(SettingsKeys.openRouterModel) private var model = ""
+    @AppStorage(SettingsKeys.fallbackModel) private var fallbackModel = ""
 
     private let suggestions = [
-        "google/gemini-3.6-flash",
         "google/gemini-3.5-flash-lite",
+        "google/gemini-3.6-flash",
+        "openai/gpt-5-nano",
         "google/gemini-2.5-flash",
     ]
 
@@ -230,29 +275,130 @@ private struct ModelView: View {
                     .autocorrectionDisabled()
                     .font(.system(size: 15, design: .monospaced))
             } header: {
-                Text("MODEL ID")
+                Text("FIRST PASS")
             } footer: {
-                Text("Any OpenRouter model with image input works. Leave empty for the default.")
+                Text("Reads every scan. Measured on the test set: gemini-3.5-flash-lite with the fast first pass is as accurate as gemini-3.6-flash at a quarter of the cost and 2–3 s per scan. Leave empty for the default.")
+            }
+            Section {
+                TextField(APIConfiguration.defaultFallbackModel, text: $fallbackModel)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .font(.system(size: 15, design: .monospaced))
+            } header: {
+                Text("SECOND PASS")
+            } footer: {
+                Text("Used only when the first read fails validation, finds no circuit, or the two solving methods disagree.")
             }
             Section("SUGGESTIONS") {
                 ForEach(suggestions, id: \.self) { candidate in
-                    Button {
-                        model = candidate == APIConfiguration.defaultModel ? "" : candidate
-                    } label: {
-                        HStack {
-                            Text(candidate).font(.system(size: 15, design: .monospaced)).foregroundStyle(PMTheme.ink)
-                            Spacer()
-                            if APIConfiguration.model == candidate {
-                                Image(systemName: "checkmark").foregroundStyle(PMTheme.accent)
-                            }
-                        }
+                    HStack {
+                        Text(candidate).font(.system(size: 14, design: .monospaced)).foregroundStyle(PMTheme.ink)
+                        Spacer()
+                        Button("1st") { model = candidate == APIConfiguration.defaultModel ? "" : candidate }
+                            .buttonStyle(.bordered)
+                            .tint(APIConfiguration.model == candidate ? PMTheme.accent : .gray)
+                        Button("2nd") { fallbackModel = candidate == APIConfiguration.defaultFallbackModel ? "" : candidate }
+                            .buttonStyle(.bordered)
+                            .tint(APIConfiguration.fallbackModel == candidate ? PMTheme.accent : .gray)
                     }
                 }
             }
         }
         .listStyle(.insetGrouped)
-        .navigationTitle("Model")
+        .navigationTitle("Models")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// What has been collected on this device, with export, upload settings and deletion.
+private struct DataView: View {
+    @AppStorage(SettingsKeys.analyticsEndpoint) private var endpoint = ""
+    @AppStorage(SettingsKeys.analyticsEndpointKey) private var endpointKey = ""
+    @State private var summary = Analytics.shared.summary()
+    @State private var exportURL: URL?
+    @State private var confirmDelete = false
+
+    var body: some View {
+        List {
+            Section {
+                row("Usage events", "\(summary.events)")
+                row("Scan samples", "\(summary.samples)")
+                row("Size", ByteCountFormatter.string(fromByteCount: summary.bytes, countStyle: .file))
+                row("Install id", String(Analytics.installId.prefix(8)) + "…")
+            } header: {
+                Text("ON THIS DEVICE")
+            }
+
+            Section {
+                if let exportURL {
+                    ShareLink(item: exportURL) {
+                        Label("Share export file", systemImage: "square.and.arrow.up")
+                    }
+                } else {
+                    Button {
+                        exportURL = Analytics.shared.exportFile()
+                    } label: {
+                        Label("Prepare export", systemImage: "doc.badge.arrow.up")
+                    }
+                    .disabled(summary.events == 0 && summary.samples == 0)
+                }
+                Button(role: .destructive) {
+                    confirmDelete = true
+                } label: {
+                    Label("Delete collected data", systemImage: "trash")
+                }
+                .disabled(summary.events == 0 && summary.samples == 0)
+            } header: {
+                Text("EXPORT")
+            } footer: {
+                Text("One JSON file with every event and sample (pictures included as base64).")
+            }
+
+            Section {
+                TextField("https://…workers.dev", text: $endpoint)
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .font(.system(size: 14, design: .monospaced))
+                SecureField("Ingest key", text: $endpointKey)
+                    .font(.system(size: 14, design: .monospaced))
+                Button("Upload now") {
+                    Analytics.shared.flush()
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(2))
+                        summary = Analytics.shared.summary()
+                    }
+                }
+                .disabled(Analytics.endpoint == nil || (summary.events == 0 && summary.samples == 0))
+            } header: {
+                Text("UPLOAD ENDPOINT (DEVELOPER)")
+            } footer: {
+                Text("HTTPS URL that accepts a JSON POST; see tools/telemetry-worker in the repository for a ready-made collector. Pending data uploads on launch and after each solve.")
+            }
+        }
+        .listStyle(.insetGrouped)
+        .navigationTitle("Collected data")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear { summary = Analytics.shared.summary() }
+        .confirmationDialog("Delete all collected data on this device?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                Analytics.shared.deleteAll()
+                exportURL = nil
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(300))
+                    summary = Analytics.shared.summary()
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    private func row(_ title: String, _ value: String) -> some View {
+        HStack {
+            Text(title).foregroundStyle(PMTheme.ink)
+            Spacer()
+            Text(value).foregroundStyle(PMTheme.secondaryText).font(.system(size: 15, design: .rounded))
+        }
     }
 }
 

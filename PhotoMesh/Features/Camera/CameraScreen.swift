@@ -195,6 +195,7 @@ struct CameraScreen: View {
     private func capture() {
         guard !isAnalyzing else { return }
         Haptics.impact(.medium)
+        Analytics.shared.track("capture", ["camera": .init(camera.hasCamera)])
         let currentRegion = region ?? ScanRegion.standard(in: canvasSize)
         withAnimation(.easeOut(duration: 0.15)) { isAnalyzing = true }
 
@@ -217,6 +218,7 @@ struct CameraScreen: View {
         defer { pickerItem = nil }
         guard let data = try? await item.loadTransferable(type: Data.self),
               let image = UIImage(data: data) else { return }
+        Analytics.shared.track("album_pick")
         withAnimation(.easeOut(duration: 0.15)) { isAnalyzing = true }
         beginAnalysis(fullImage: image, cropTo: nil)
     }

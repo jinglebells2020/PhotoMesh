@@ -22,6 +22,11 @@ struct SolutionsSheet: View {
     @State private var phase = "Reading the circuit…"
     @State private var editing: Circuit?
     @State private var showEditor = false
+    /// What the reader produced and which model did it, for samples.
+    @State private var reviewed: Circuit?
+    @State private var reviewedModel = "none"
+    @State private var startedAt = Date()
+    @State private var showConsent = false
 
     var body: some View {
         NavigationStack {
@@ -42,12 +47,14 @@ struct SolutionsSheet: View {
                             FailedCard(message: message) { Task { await load() } }
                         case .review(let circuit, let notes):
                             ReviewCard(circuit: circuit, notes: notes, image: sourceImage) {
-                                solve(.circuit(circuit, notes: notes, needsReview: false))
+                                Analytics.shared.recordSample(image: sourceImage, model: reviewedModel, recognized: circuit, corrected: nil, accepted: true)
+                                solve(.circuit(circuit, notes: notes, needsReview: false, model: reviewedModel))
                             } onEdit: {
                                 editing = circuit
                                 showEditor = true
                             }
                             .transition(.move(edge: .bottom).combined(with: .opacity))
+                            if showConsent { ConsentCard { showConsent = false } }
                         case .loaded(let analysis):
                             ForEach(Array(analysis.methods.enumerated()), id: \.element.id) { index, method in
                                 MethodCard(method: method, methodIndex: index, analysis: analysis, request: request)
@@ -57,6 +64,7 @@ struct SolutionsSheet: View {
                                 RecognizedCircuitCard(analysis: analysis, image: sourceImage, isDrawn: isDrawn)
                                     .transition(.move(edge: .bottom).combined(with: .opacity))
                             }
+                            if showConsent { ConsentCard { showConsent = false } }
                         }
                     }
                     .padding(.horizontal, 16)
@@ -72,7 +80,10 @@ struct SolutionsSheet: View {
             .navigationDestination(isPresented: $showEditor) {
                 if let editing {
                     CircuitEditorView(circuit: editing) { corrected in
-                        solve(.circuit(corrected, notes: "Corrected by you.", needsReview: false))
+                        if let original = reviewed {
+                            Analytics.shared.recordSample(image: sourceImage, model: reviewedModel, recognized: original, corrected: corrected, accepted: false)
+                        }
+                        solve(.circuit(corrected, notes: "Corrected by you.", needsReview: false, model: reviewedModel))
                     }
                 }
             }
@@ -98,24 +109,39 @@ struct SolutionsSheet: View {
         return false
     }
 
+    private var sourceName: String {
+        switch request.source {
+        case .image: return "scan"
+        case .expression: return "expression"
+        case .circuit: return "drawn"
+        }
+    }
+
     private func load() async {
         state = .loading
         phase = "Reading the circuit…"
+        startedAt = Date()
         let solver = SolverProvider.make()
         do {
             let input = try await solver.prepare(request) { text in
                 Task { @MainActor in phase = text }
             }
-            if case .circuit(let circuit, let notes, let needsReview) = input, needsReview {
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                    state = .review(circuit, notes: notes)
+            if case .circuit(let circuit, let notes, let needsReview, let model) = input {
+                reviewed = circuit
+                reviewedModel = model
+                if needsReview {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                        state = .review(circuit, notes: notes)
+                    }
+                    Haptics.impact(.light)
+                    offerConsentIfNeeded()
+                    return
                 }
-                Haptics.impact(.light)
-            } else {
-                solve(input)
             }
+            solve(input)
         } catch {
             Haptics.notify(.error)
+            Analytics.shared.track("solve_failed", ["source": .string(sourceName), "reason": .string(String(error.localizedDescription.prefix(120)))])
             state = .failed(error.localizedDescription)
         }
     }
@@ -131,10 +157,23 @@ struct SolutionsSheet: View {
             if let circuit = analysis.circuit {
                 HistoryStore.shared.remember(circuit: circuit, analysis: analysis, origin: isDrawn ? .drawn : .scan)
             }
+            Analytics.shared.track("solve", [
+                "source": .string(sourceName), "model": .string(reviewedModel),
+                "components": .init(analysis.circuit?.components.count ?? 0), "methods": .init(analysis.methods.count),
+                "agree": .init(analysis.methodsAgree), "ms": .init(Int(Date().timeIntervalSince(startedAt) * 1000)),
+            ])
+            offerConsentIfNeeded()
+            Analytics.shared.flush()
         } catch {
             Haptics.notify(.error)
+            Analytics.shared.track("solve_failed", ["source": .string(sourceName), "reason": .string(String(error.localizedDescription.prefix(120)))])
             state = .failed(error.localizedDescription)
         }
+    }
+
+    private func offerConsentIfNeeded() {
+        guard !AnalyticsConsent.asked, sourceName != "expression" else { return }
+        withAnimation { showConsent = true }
     }
 }
 
@@ -549,5 +588,42 @@ private struct ReviewCard: View {
         case .voltageSource: return "+\(component.nodeA)  −\(component.nodeB)"
         case .currentSource: return "\(component.nodeA) → \(component.nodeB)"
         }
+    }
+}
+
+/// One-time ask to share scans and usage; both stay off unless the user says yes.
+private struct ConsentCard: View {
+    let onDone: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Help PhotoMesh read circuits better?")
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(PMTheme.ink)
+            Text("Share your scans and the corrections you make, plus anonymous usage statistics. No account, no names; the pictures are used only to improve recognition. You can change this any time in Settings → Privacy & data.")
+                .font(.system(size: 13))
+                .foregroundStyle(PMTheme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 12) {
+                Button("Not now") {
+                    AnalyticsConsent.asked = true
+                    onDone()
+                }
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(PMTheme.secondaryText)
+                Spacer()
+                Button("Share") {
+                    AnalyticsConsent.usage = true
+                    AnalyticsConsent.scans = true
+                    AnalyticsConsent.asked = true
+                    Analytics.shared.track("consent_granted")
+                    onDone()
+                }
+                .buttonStyle(PMPrimaryButtonStyle())
+            }
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: PMTheme.cardRadius, style: .continuous).fill(Color.white))
+        .transition(.move(edge: .bottom).combined(with: .opacity))
     }
 }

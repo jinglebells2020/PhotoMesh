@@ -1,8 +1,9 @@
 import UIKit
 
 /// What a request turns into before solving: a circuit to (optionally) confirm, or a typed expression.
+/// `model` names what produced the circuit ("sample", "user", or a model id) for samples and events.
 enum SolveInput {
-    case circuit(Circuit, notes: String?, needsReview: Bool)
+    case circuit(Circuit, notes: String?, needsReview: Bool, model: String)
     case expression(String)
 }
 
@@ -15,7 +16,7 @@ enum SolveRunner {
     /// Deterministic part of the pipeline, shared by every solver.
     static func analyze(_ input: SolveInput) throws -> CircuitAnalysis {
         switch input {
-        case .circuit(let circuit, let notes, _):
+        case .circuit(let circuit, let notes, _, _):
             return try CircuitAnalyzer.analyze(circuit, formatter: FormattingPreferences.formatter(), recognitionNotes: notes)
         case .expression(let text):
             return try ExpressionSolver.solve(text)
@@ -28,33 +29,108 @@ enum SolverProvider {
     static func make() -> any CircuitSolverService {
         if APIConfiguration.useSampleCircuit { return SampleCircuitSolver() }
         if let key = APIConfiguration.apiKey, !key.isEmpty {
-            return VLMCircuitSolver(configuration: OpenRouterClient.Configuration(apiKey: key, model: APIConfiguration.model, fastReasoning: APIConfiguration.fastRecognition))
+            let primary = OpenRouterClient.Configuration(apiKey: key, model: APIConfiguration.model, fastReasoning: APIConfiguration.fastRecognition)
+            let fallback = APIConfiguration.fallbackModel.map { OpenRouterClient.Configuration(apiKey: key, model: $0, fastReasoning: false) }
+            return VLMCircuitSolver(primary: primary, fallback: fallback)
         }
         return SampleCircuitSolver(reason: "No API key is set, so this is the built-in sample circuit. Add your OpenRouter key in Settings → Recognition to analyze your own photos.")
     }
 }
 
-// MARK: - Live solver
+// MARK: - Live solver with escalation
 
+/// Cheap model first; a stronger one only when the first answer does not hold up.
 struct VLMCircuitSolver: CircuitSolverService {
-    let configuration: OpenRouterClient.Configuration
+    let primary: OpenRouterClient.Configuration
+    let fallback: OpenRouterClient.Configuration?
 
     func prepare(_ request: SolutionRequest, progress: @escaping (String) -> Void) async throws -> SolveInput {
         switch request.source {
         case .image(let image):
-            progress("Reading the circuit…")
-            let recognizer = CircuitRecognizer(client: OpenRouterClient(configuration: configuration))
-            let recognized = try await recognizer.recognize(image)
-            var notes = recognized.notes
-            if let confidence = recognized.confidence, confidence < 0.7 {
-                notes = ["The reader was not fully confident (\(Int(confidence * 100))%). Double-check the values below.", notes].compactMap { $0 }.joined(separator: " ")
-            }
-            return .circuit(recognized.circuit, notes: notes, needsReview: APIConfiguration.confirmRecognizedCircuits)
+            return try await recognizeWithEscalation(image, progress: progress)
         case .expression(let text):
             return .expression(text)
         case .circuit(let circuit):
-            return .circuit(circuit, notes: circuit.notes, needsReview: false)
+            return .circuit(circuit, notes: circuit.notes, needsReview: false, model: "user")
         }
+    }
+
+    private func recognizeWithEscalation(_ image: UIImage, progress: @escaping (String) -> Void) async throws -> SolveInput {
+        progress("Reading the circuit…")
+        let started = Date()
+        var firstResult: CircuitRecognizer.Result?
+        var firstProblem: String?
+        var firstError: Error?
+
+        do {
+            let result = try await CircuitRecognizer(client: OpenRouterClient(configuration: primary)).recognize(image)
+            firstResult = result
+            firstProblem = VLMCircuitSolver.problem(with: result)
+            track(result, tier: "primary", problem: firstProblem)
+        } catch {
+            firstError = error
+            firstProblem = error.localizedDescription
+            trackFailure(model: primary.model, tier: "primary", error: error, since: started)
+        }
+
+        if firstProblem == nil, let result = firstResult {
+            return input(from: result)
+        }
+
+        guard let fallback else {
+            if let result = firstResult { return input(from: result) }
+            throw firstError ?? CircuitPayload.PayloadError.noCircuit
+        }
+
+        progress("Taking a closer look…")
+        RecognitionLog.shared.record("escalating to \(fallback.model): \(firstProblem ?? "?")")
+        do {
+            let result = try await CircuitRecognizer(client: OpenRouterClient(configuration: fallback)).recognize(image)
+            track(result, tier: "fallback", problem: VLMCircuitSolver.problem(with: result))
+            return input(from: result)
+        } catch {
+            trackFailure(model: fallback.model, tier: "fallback", error: error, since: started)
+            if let result = firstResult { return input(from: result) }
+            throw error
+        }
+    }
+
+    /// Nil when the circuit validates and both methods agree; otherwise why the read is doubtful.
+    static func problem(with result: CircuitRecognizer.Result) -> String? {
+        if let confidence = result.confidence, confidence < 0.6 { return "low confidence \(confidence)" }
+        do {
+            let analysis = try CircuitAnalyzer.analyze(result.circuit, formatter: FormattingPreferences.formatter())
+            return analysis.methodsAgree ? nil : "methods disagree"
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    private func input(from result: CircuitRecognizer.Result) -> SolveInput {
+        var notes = result.notes
+        if let confidence = result.confidence, confidence < 0.7 {
+            notes = ["The reader was not fully confident (\(Int(confidence * 100))%). Double-check the values below.", notes].compactMap { $0 }.joined(separator: " ")
+        }
+        return .circuit(result.circuit, notes: notes, needsReview: APIConfiguration.confirmRecognizedCircuits, model: result.completion.model)
+    }
+
+    private func track(_ result: CircuitRecognizer.Result, tier: String, problem: String?) {
+        let c = result.completion
+        Analytics.shared.track("recognition", [
+            "model": .string(c.model), "tier": .string(tier),
+            "ms": .init(Int(c.latency * 1000)),
+            "prompt_tokens": .init(c.promptTokens ?? -1), "completion_tokens": .init(c.completionTokens ?? -1), "reasoning_tokens": .init(c.reasoningTokens ?? -1),
+            "outcome": .string(problem == nil ? "ok" : "doubtful"), "problem": .string(problem ?? ""),
+            "components": .init(result.circuit.components.count), "confidence": .init(result.confidence ?? -1),
+        ])
+    }
+
+    private func trackFailure(model: String, tier: String, error: Error, since started: Date) {
+        Analytics.shared.track("recognition", [
+            "model": .string(model), "tier": .string(tier),
+            "ms": .init(Int(Date().timeIntervalSince(started) * 1000)),
+            "outcome": .string("failed"), "problem": .string(String(describing: type(of: error)) + ": " + error.localizedDescription.prefix(120)),
+        ])
     }
 }
 
@@ -94,11 +170,11 @@ struct SampleCircuitSolver: CircuitSolverService {
         case .image:
             progress("Reading the circuit…")
             try await Task.sleep(for: .milliseconds(900))
-            return .circuit(Self.sample, notes: reason ?? "Sample circuit (offline mode).", needsReview: APIConfiguration.confirmRecognizedCircuits)
+            return .circuit(Self.sample, notes: reason ?? "Sample circuit (offline mode).", needsReview: APIConfiguration.confirmRecognizedCircuits, model: "sample")
         case .expression(let text):
             return .expression(text)
         case .circuit(let circuit):
-            return .circuit(circuit, notes: circuit.notes, needsReview: false)
+            return .circuit(circuit, notes: circuit.notes, needsReview: false, model: "user")
         }
     }
 }

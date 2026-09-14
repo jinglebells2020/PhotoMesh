@@ -1,0 +1,7 @@
+name = "photomesh-telemetry"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+[[r2_buckets]]
+binding = "DATA"
+bucket_name = "photomesh-data"

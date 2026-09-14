@@ -33,6 +33,7 @@ struct CalculatorSheet: View {
 
             if mode == .draw {
                 SketchCanvasView { circuit in
+                    Analytics.shared.track("sketch_solve", ["components": .init(circuit.components.count), "nodes": .init(circuit.nodes.count)])
                     solutionRequest = SolutionRequest(source: .circuit(circuit))
                 }
             } else {
@@ -245,6 +246,7 @@ struct CalculatorSheet: View {
 
     private func showSolution() {
         Haptics.impact(.medium)
+        Analytics.shared.track("expression_solve")
         remember(text)
         solutionRequest = SolutionRequest(source: .expression(text))
     }

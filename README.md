@@ -104,6 +104,42 @@ Recognition if you prefer straight‑to‑answer.
 Every solved circuit (scanned or drawn) is kept on the device; the History button right of the
 shutter lists them with a thumbnail, and tapping one re‑runs the engine and opens its solutions.
 
+### Cost and routing
+
+Every scan goes to a cheap first pass (`google/gemini-3.5-flash-lite`, low reasoning effort,
+about 2–3 s and $0.002 per scan on the test set). The result is validated and solved with both
+methods immediately; if it does not validate, finds no circuit, or the methods disagree, the scan
+is re-read once by the stronger `google/gemini-3.6-flash`. Both models, the fast first pass and
+the escalation are configurable under Settings → Recognition. A benchmark over the test
+schematics (`scratchpad` script, seven images, answers checked by solving the netlists) gave:
+
+| Model | Correct | Avg time | Cost / scan |
+| --- | --- | --- | --- |
+| gemini-3.6-flash | 7/7 | 10 s | $0.0088 |
+| gemini-3.6-flash, low reasoning | 7/7 | 6 s | $0.0058 |
+| gemini-3.5-flash-lite, low reasoning | 7/7 (21/21 on repeats) | 2.4 s | $0.0022 |
+| gpt-5-nano, low reasoning | 7/7 | 11 s | $0.0009 |
+| gemini-2.5-flash-lite | 5/7 | 2.5 s | $0.0006 |
+
+The image costs a flat ~1,090 input tokens at any resolution; the prompt is ~1,200. Reasoning
+tokens (billed as output) dominate, which is why the fast first pass matters.
+
+### Data collection
+
+Off until the user opts in (a one-time card after the first solve, or Settings → Privacy & data):
+
+- **Anonymous usage**: events such as `app_open`, `capture`, `recognition` (model, tier, latency,
+  tokens, outcome), `solve`, `solve_failed`, `sketch_solve`, `feedback`, tagged with a random
+  install id, app version, OS version, device model and locale. No images.
+- **Scans**: the picture (JPEG, ≤1280 px) with the recognized netlist and, when the user used
+  *Fix something*, the corrected netlist. These are the evaluation and training set.
+
+Everything is stored locally (`Analytics`, Application Support/PhotoMesh/analytics), can be
+exported as one JSON file from Settings → Privacy & data → Collected data, and is uploaded when
+an HTTPS endpoint is configured there. `tools/telemetry-worker` is a ready-to-deploy Cloudflare
+Worker that stores each upload in an R2 bucket. `PrivacyInfo.xcprivacy` declares the collected
+data types and required-reason APIs for App Store review.
+
 ### Recognition setup
 
 Settings → Recognition → *OpenRouter API key*. The key is kept in the device Keychain and only

@@ -40,6 +40,7 @@ enum FeedbackStore {
         try? FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: fileURL, options: .atomic)
         RecognitionLog.shared.record("feedback: \(entry.helpful ? "helpful" : "not helpful") \(entry.reasons.joined(separator: ", ")) \(entry.comment)")
+        Analytics.shared.track("feedback", ["helpful": .init(entry.helpful), "reasons": .string(entry.reasons.joined(separator: "|")), "comment": .string(entry.comment), "method": .string(entry.method)])
     }
 
     /// Opens Mail with the feedback pre-filled (no backend yet).

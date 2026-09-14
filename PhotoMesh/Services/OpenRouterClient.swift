@@ -47,6 +47,17 @@ struct OpenRouterClient {
         }
     }
 
+    /// Assistant text plus what it cost.
+    struct Completion {
+        var text: String
+        var model: String
+        var promptTokens: Int?
+        var completionTokens: Int?
+        var reasoningTokens: Int?
+        var finishReason: String?
+        var latency: TimeInterval
+    }
+
     let configuration: Configuration
     var session: URLSession = OpenRouterClient.makeSession()
 
@@ -65,6 +76,11 @@ struct OpenRouterClient {
 
     /// Sends a system prompt, a user text and an optional JPEG; returns the assistant's text.
     func chatJSON(system: String, userText: String, imageJPEG: Data?) async throws -> String {
+        try await complete(system: system, userText: userText, imageJPEG: imageJPEG).text
+    }
+
+    /// Same as `chatJSON`, with token usage and timing.
+    func complete(system: String, userText: String, imageJPEG: Data?) async throws -> Completion {
         guard !configuration.apiKey.isEmpty else { throw ClientError.missingAPIKey }
 
         var userContent: [[String: Any]] = [["type": "text", "text": userText]]
@@ -141,7 +157,11 @@ struct OpenRouterClient {
                     throw ClientError.emptyResponse("The answer was cut short twice. Try a tighter crop of the circuit.")
                 }
                 RecognitionLog.shared.record("content \(content.count) chars")
-                return content
+                return Completion(
+                    text: content, model: configuration.model,
+                    promptTokens: usage?.promptTokens, completionTokens: usage?.completionTokens, reasoningTokens: usage?.reasoningTokens,
+                    finishReason: finish, latency: Date().timeIntervalSince(started)
+                )
             } catch let error as ClientError {
                 throw error
             } catch is CancellationError {
@@ -197,10 +217,14 @@ struct OpenRouterClient {
                 enum CodingKeys: String, CodingKey { case reasoningTokens = "reasoning_tokens" }
             }
             let totalTokens: Int?
+            let promptTokens: Int?
+            let completionTokens: Int?
             let completionDetails: Details?
             var reasoningTokens: Int? { completionDetails?.reasoningTokens }
             enum CodingKeys: String, CodingKey {
                 case totalTokens = "total_tokens"
+                case promptTokens = "prompt_tokens"
+                case completionTokens = "completion_tokens"
                 case completionDetails = "completion_tokens_details"
             }
         }

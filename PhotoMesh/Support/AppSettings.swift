@@ -13,6 +13,10 @@ enum SettingsKeys {
     static let useSampleCircuit = "recognition.useSample"
     static let confirmRecognized = "recognition.confirm"
     static let fastRecognition = "recognition.fast"
+    static let fallbackModel = "recognition.fallbackModel"
+    static let escalate = "recognition.escalate"
+    static let analyticsEndpoint = "analytics.endpoint"
+    static let analyticsEndpointKey = "analytics.endpointKey"
 }
 
 /// Something a settings picker can show: a fixed list of titled cases.

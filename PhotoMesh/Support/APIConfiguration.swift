@@ -4,7 +4,10 @@ import Security
 /// Where the recognizer's credentials and model come from.
 /// Priority for the key: `OPENROUTER_API_KEY` environment variable (Xcode scheme) → Keychain (entered in Settings).
 enum APIConfiguration {
-    static let defaultModel = "google/gemini-3.6-flash"
+    /// Cheap and fast first pass (measured: same accuracy as the big model on the test set at a quarter of the cost).
+    static let defaultModel = "google/gemini-3.5-flash-lite"
+    /// Stronger model used only when the first pass fails validation or the two methods disagree.
+    static let defaultFallbackModel = "google/gemini-3.6-flash"
     static let keychainAccount = "openrouter.apiKey"
 
     static var apiKey: String? {
@@ -39,9 +42,16 @@ enum APIConfiguration {
         UserDefaults.standard.object(forKey: SettingsKeys.confirmRecognized) as? Bool ?? true
     }
 
-    /// Low reasoning effort: faster answers, slightly less careful on messy pictures (default off).
+    /// Low reasoning effort on the first pass (default on; the fallback always thinks fully).
     static var fastRecognition: Bool {
-        UserDefaults.standard.bool(forKey: SettingsKeys.fastRecognition)
+        UserDefaults.standard.object(forKey: SettingsKeys.fastRecognition) as? Bool ?? true
+    }
+
+    /// Model for the second pass, or nil when escalation is switched off.
+    static var fallbackModel: String? {
+        guard UserDefaults.standard.object(forKey: SettingsKeys.escalate) as? Bool ?? true else { return nil }
+        let stored = UserDefaults.standard.string(forKey: SettingsKeys.fallbackModel) ?? ""
+        return stored.isEmpty ? defaultFallbackModel : stored
     }
 }
 
