@@ -410,7 +410,7 @@ enum StrokeClassifier {
     static func arcBulge(_ points: [CGPoint], first: CGPoint, last: CGPoint) -> CGFloat? {
         guard points.count >= 12 else { return nil }
         let dx = last.x - first.x, dy = last.y - first.y
-        let length = max(hypot(dx, dy), 0.001)
+        let length = max(CGFloat(hypot(dx, dy)), 0.001)
         let n = CGFloat(points.count)
         let cx = points.map(\.x).reduce(0, +) / n, cy = points.map(\.y).reduce(0, +) / n
         let o = points.map { (($0.x - cx) * dy - ($0.y - cy) * dx) / length }
@@ -422,7 +422,7 @@ enum StrokeClassifier {
         for k in 0..<(extremes.count - 1) {
             let a = points[extremes[k]], b = points[extremes[k + 1]]
             let m = points[(extremes[k] + extremes[k + 1]) / 2]
-            let chord = max(hypot(b.x - a.x, b.y - a.y), 0.001)
+            let chord = max(CGFloat(hypot(b.x - a.x, b.y - a.y)), 0.001)
             let ux = (b.x - a.x) / chord, uy = (b.y - a.y) / chord
             // Signed distance of the midpoint from the chord, sign taken along `normal`.
             let deviation = (m.x - a.x) * uy - (m.y - a.y) * ux
