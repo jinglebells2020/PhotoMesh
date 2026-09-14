@@ -98,6 +98,13 @@ struct SettingsSheet: View {
                     } label: {
                         Text("Diagnostics").foregroundStyle(PMTheme.ink)
                     }
+                    if DeveloperOptions.enabled {
+                        NavigationLink {
+                            MathPreviewView()
+                        } label: {
+                            Text("Typesetting preview").foregroundStyle(PMTheme.ink)
+                        }
+                    }
                 } header: {
                     Text("RECOGNITION")
                 } footer: {
