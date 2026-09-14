@@ -33,10 +33,16 @@ private struct MathLabel: UIViewRepresentable {
     let color: UIColor
     let display: Bool
 
+    /// Room around the typeset line so tall fractions and descenders are never clipped by the
+    /// scroll view that hosts the label.
+    private static let insets = UIEdgeInsets(top: 4, left: 2, bottom: 4, right: 4)
+
     func makeUIView(context: Context) -> MTMathUILabel {
         let label = MTMathUILabel()
         label.textAlignment = .left
         label.backgroundColor = .clear
+        label.clipsToBounds = false
+        label.contentInsets = MathLabel.insets
         label.setContentHuggingPriority(.required, for: .horizontal)
         label.setContentHuggingPriority(.required, for: .vertical)
         label.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -45,15 +51,21 @@ private struct MathLabel: UIViewRepresentable {
     }
 
     func updateUIView(_ label: MTMathUILabel, context: Context) {
-        label.latex = latex
+        label.labelMode = display ? .display : .text
         label.fontSize = fontSize
         label.textColor = color
-        label.labelMode = display ? .display : .text
+        label.latex = latex
         label.invalidateIntrinsicContentSize()
+        label.setNeedsLayout()
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: MTMathUILabel, context: Context) -> CGSize? {
-        let size = uiView.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude))
-        return CGSize(width: ceil(size.width), height: ceil(size.height))
+        // The label measures its typeset line itself (insets included); never let the container
+        // squeeze it, or the fraction bars and numerators get cut.
+        let measured = uiView.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude))
+        let intrinsic = uiView.intrinsicContentSize
+        let width = max(measured.width, intrinsic.width, 1)
+        let height = max(measured.height, intrinsic.height, fontSize * 1.4)
+        return CGSize(width: ceil(width), height: ceil(height))
     }
 }

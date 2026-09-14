@@ -188,8 +188,9 @@ enum EquationLaTeX {
         case "‖": return .op("\\parallel")
         case "—": return .op("\\rightarrow")
         case "′": return .punct("'")
-        case "✓": return .punct("\\checkmark")
-        case "✗": return .punct("\\times")
+        // SwiftMath has no check-mark glyph; a word keeps the line typeset instead of falling back.
+        case "✓": return .punct("\\;(\\text{OK})")
+        case "✗": return .punct("\\;(\\text{no})")
         default: return .text(String(c))
         }
     }
@@ -321,7 +322,10 @@ enum EquationLaTeX {
             if out.hasSuffix("\\;") || out.hasSuffix("\\quad ") { return }   // punctuation already spaced
             if let last = out.last, last == " " { return }
             if out.isEmpty { return }
-            out += "\\ "
+            // A thick space: the TeX-in-math way to separate words and symbols. (Never emit "\\ ",
+            // the backslash-space control: SwiftMath's parser rejects it and the whole line would
+            // fall back to plain text.)
+            out += "\\;"
         }
         for node in nodes {
             if case .space(let n) = node {
