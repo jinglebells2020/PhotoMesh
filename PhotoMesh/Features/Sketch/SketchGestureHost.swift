@@ -3,7 +3,7 @@ import UIKit
 import UIKit.UIGestureRecognizerSubclass
 
 /// UIKit gesture layer for the drawing canvas: one finger draws immediately, two fingers pan,
-/// pinch zooms, single tap selects, double tap rotates.
+/// pinch zooms, single tap selects, double tap rotates, and holding a part then dragging moves it.
 struct SketchGestureHost: UIViewRepresentable {
     var onStrokeBegan: (CGPoint) -> Void
     var onStrokeMoved: (CGPoint) -> Void
@@ -12,6 +12,11 @@ struct SketchGestureHost: UIViewRepresentable {
     var onDoubleTap: (CGPoint) -> Void
     var onPan: (_ translation: CGSize, _ state: UIGestureRecognizer.State) -> Void
     var onPinch: (_ scale: CGFloat, _ location: CGPoint, _ state: UIGestureRecognizer.State) -> Void
+    /// Is there something under this point that can be picked up and moved?
+    var canHold: (CGPoint) -> Bool
+    var onHoldBegan: (CGPoint) -> Void
+    var onHoldMoved: (CGPoint) -> Void
+    var onHoldEnded: (_ cancelled: Bool) -> Void
 
     func makeUIView(context: Context) -> UIView {
         let view = UIView()
@@ -38,7 +43,14 @@ struct SketchGestureHost: UIViewRepresentable {
         singleTap.require(toFail: doubleTap)
         singleTap.delegate = context.coordinator
 
-        for recognizer in [draw, pan, pinch, doubleTap, singleTap] { view.addGestureRecognizer(recognizer) }
+        let hold = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleHold(_:)))
+        hold.minimumPressDuration = 0.32
+        hold.allowableMovement = 14
+        hold.delegate = context.coordinator
+        context.coordinator.hold = hold
+        context.coordinator.draw = draw
+
+        for recognizer in [draw, pan, pinch, doubleTap, singleTap, hold] { view.addGestureRecognizer(recognizer) }
         return view
     }
 
@@ -50,8 +62,29 @@ struct SketchGestureHost: UIViewRepresentable {
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         var parent: SketchGestureHost
+        weak var hold: UILongPressGestureRecognizer?
+        weak var draw: DrawGestureRecognizer?
 
         init(parent: SketchGestureHost) { self.parent = parent }
+
+        @objc func handleHold(_ recognizer: UILongPressGestureRecognizer) {
+            let point = recognizer.location(in: recognizer.view)
+            switch recognizer.state {
+            case .began: parent.onHoldBegan(point)
+            case .changed: parent.onHoldMoved(point)
+            case .ended: parent.onHoldEnded(false)
+            case .cancelled, .failed: parent.onHoldEnded(true)
+            default: break
+            }
+        }
+
+        /// A hold only starts on top of something movable; elsewhere it fails at once so drawing is never delayed.
+        func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+            if gestureRecognizer === hold {
+                return parent.canHold(gestureRecognizer.location(in: gestureRecognizer.view))
+            }
+            return true
+        }
 
         @objc func handleDraw(_ recognizer: DrawGestureRecognizer) {
             let point = recognizer.location(in: recognizer.view)
@@ -92,7 +125,9 @@ struct SketchGestureHost: UIViewRepresentable {
         /// pinch run together). Anything attached elsewhere, above all the sheet's swipe-to-dismiss
         /// pan, must not run alongside a drawing stroke.
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-            otherGestureRecognizer.view === gestureRecognizer.view
+            // A hold and a stroke are alternatives, never simultaneous.
+            if (gestureRecognizer === hold && otherGestureRecognizer === draw) || (gestureRecognizer === draw && otherGestureRecognizer === hold) { return false }
+            return otherGestureRecognizer.view === gestureRecognizer.view
         }
 
         /// Outside pans (the sheet dismissal, ancestor scroll views) wait until our drawing, panning
@@ -103,8 +138,13 @@ struct SketchGestureHost: UIViewRepresentable {
             return otherGestureRecognizer is UIPanGestureRecognizer || otherGestureRecognizer is UIScreenEdgePanGestureRecognizer
         }
 
+        /// Drawing waits for the hold to fail only when the touch starts on a part, so a stroke that
+        /// begins on empty canvas is never delayed.
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRequireFailureOf otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-            false
+            if gestureRecognizer === draw, otherGestureRecognizer === hold {
+                return parent.canHold(otherGestureRecognizer.location(in: otherGestureRecognizer.view))
+            }
+            return false
         }
     }
 }

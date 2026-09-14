@@ -26,6 +26,16 @@ struct SketchCanvasView: View {
 
     private enum BubbleMode { case actions, kind }
 
+    /// What one finger does: draw strokes, rub things out, or place the ground tap.
+    private enum Tool { case draw, erase, ground }
+
+    private struct DragSession {
+        var id: UUID
+        var start: CGPoint          // canvas point where the hold began
+        var originalA: CGPoint
+        var originalB: CGPoint
+    }
+
     @AppStorage(SettingsKeys.hasSeenSketchTips) private var hasSeenTips = false
 
     @State private var document = SketchDocument()
@@ -38,10 +48,10 @@ struct SketchCanvasView: View {
     @State private var selectedId: UUID?
     @State private var bubbleMode: BubbleMode = .actions
     @State private var editing: SketchElement?
-    @State private var erasing = false
+    @State private var tool: Tool = .draw
     @State private var eraserPoint: CGPoint?
     @State private var eraseStrokeStarted = false
-    @State private var placingGround = false
+    @State private var drag: DragSession?
     @State private var showTips = false
     @State private var toast: String?
     @State private var toastTask: Task<Void, Never>?
@@ -81,7 +91,11 @@ struct SketchCanvasView: View {
                         },
                         onPinch: { scale, location, state in
                             updateTransform(gesture: "pinch", state: state, anchor: location) { session in session.scale = scale }
-                        }
+                        },
+                        canHold: { point in tool == .draw && hit(at: canvasPoint(point)) != nil },
+                        onHoldBegan: { point in holdBegan(at: point) },
+                        onHoldMoved: { point in holdMoved(to: point) },
+                        onHoldEnded: { cancelled in holdEnded(cancelled: cancelled) }
                     )
 
                     if document.elements.isEmpty, stroke.isEmpty, pending == nil {
@@ -89,9 +103,11 @@ struct SketchCanvasView: View {
                             .frame(width: geo.size.width, height: geo.size.height)
                     }
 
-                    if placingGround {
+                    if drag != nil {
+                        banner("Drag to move · release to drop", systemImage: "hand.draw")
+                    } else if tool == .ground {
                         banner("Tap the wire or terminal the ground connects to", systemImage: "arrowtriangle.down")
-                    } else if erasing {
+                    } else if tool == .erase {
                         banner("Rub over parts and wires to erase", systemImage: "eraser")
                     } else if let toast {
                         banner(toast, systemImage: "info.circle")
@@ -213,31 +229,19 @@ struct SketchCanvasView: View {
     }
 
     private var toolbar: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 2) {
+            toolButton("pencil.tip", label: "Draw", disabled: false, active: tool == .draw) { setTool(.draw) }
+            toolButton("eraser", label: "Erase", disabled: document.elements.isEmpty && tool != .erase, active: tool == .erase) { setTool(tool == .erase ? .draw : .erase) }
+            toolButton("arrowtriangle.down", label: "Ground", disabled: document.elements.isEmpty && tool != .ground, active: tool == .ground) { setTool(tool == .ground ? .draw : .ground) }
+            Divider().frame(height: 26).padding(.horizontal, 3)
             toolButton("arrow.uturn.backward", label: "Undo", disabled: history.isEmpty) { undo() }
             toolButton("trash", label: "Clear", disabled: document.elements.isEmpty) { clear() }
-            toolButton("eraser", label: "Erase", disabled: document.elements.isEmpty && !erasing, active: erasing) {
-                withAnimation {
-                    erasing.toggle()
-                    placingGround = false
-                }
-                dismissPopups()
-            }
-            toolButton("arrowtriangle.down", label: "Ground", disabled: document.elements.isEmpty, active: placingGround) {
-                withAnimation {
-                    placingGround.toggle()
-                    erasing = false
-                }
-                dismissPopups()
-            }
-            toolButton("arrow.up.left.and.down.right.magnifyingglass", label: "Fit", disabled: document.elements.isEmpty) {
-                fitToContent()
-            }
+            toolButton("arrow.up.left.and.down.right.magnifyingglass", label: "Fit", disabled: document.elements.isEmpty) { fitToContent() }
 
             Spacer(minLength: 4)
 
             Button(action: solve) {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     Text("Solve")
                     Image(systemName: "arrow.right").font(.system(size: 15, weight: .semibold))
                 }
@@ -246,10 +250,16 @@ struct SketchCanvasView: View {
             .disabled(!document.isSolvable)
             .opacity(document.isSolvable ? 1 : 0.5)
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, 6)
         .padding(.vertical, 8)
         .background(Color.white)
         .overlay(alignment: .top) { Divider() }
+    }
+
+    private func setTool(_ newTool: Tool) {
+        withAnimation { tool = newTool }
+        dismissPopups()
+        Haptics.selection()
     }
 
     private func toolButton(_ systemImage: String, label: String, disabled: Bool, active: Bool = false, action: @escaping () -> Void) -> some View {
@@ -261,7 +271,7 @@ struct SketchCanvasView: View {
                     .font(.system(size: 9.5))
             }
             .foregroundStyle(active ? PMTheme.accent : PMTheme.ink)
-            .frame(width: 44, height: 40)
+            .frame(width: 40, height: 40)
             .background(RoundedRectangle(cornerRadius: 9).fill(active ? PMTheme.accentSoft : Color.clear))
         }
         .buttonStyle(.plain)
@@ -387,7 +397,7 @@ struct SketchCanvasView: View {
 
     private func strokeBegan(at point: CGPoint) {
         dismissPopups()
-        if erasing {
+        if tool == .erase {
             if !eraseStrokeStarted {
                 commit()
                 eraseStrokeStarted = true
@@ -400,7 +410,7 @@ struct SketchCanvasView: View {
     }
 
     private func strokeMoved(to point: CGPoint) {
-        if erasing {
+        if tool == .erase {
             let previous = eraserPoint ?? point
             eraserPoint = point
             erase(from: previous, to: point)
@@ -410,7 +420,7 @@ struct SketchCanvasView: View {
     }
 
     private func strokeEnded(cancelled: Bool) {
-        if erasing {
+        if tool == .erase {
             eraserPoint = nil
             eraseStrokeStarted = false
             return
@@ -519,16 +529,20 @@ struct SketchCanvasView: View {
 
     // MARK: Taps and part actions
 
+    private func hit(at point: CGPoint) -> SketchElement? {
+        document.element(at: point, wireTolerance: 14 / max(zoom, 0.5), partTolerance: 22 / max(zoom, 0.5))
+    }
+
     private func tapped(at point: CGPoint) {
-        let hit = document.element(at: point, wireTolerance: 14 / max(zoom, 0.5), partTolerance: 22 / max(zoom, 0.5))
-        if placingGround {
+        let hit = hit(at: point)
+        if tool == .ground {
             commit()
             document.placeGround(at: point)
-            withAnimation { placingGround = false }
+            withAnimation { tool = .draw }
             Haptics.impact(.light)
             return
         }
-        if erasing {
+        if tool == .erase {
             if let hit {
                 commit()
                 document.remove(hit.id, heal: false)
@@ -556,6 +570,39 @@ struct SketchCanvasView: View {
         } else {
             fitToContent()
         }
+    }
+
+    // MARK: Hold to move
+
+    private func holdBegan(at viewPoint: CGPoint) {
+        let point = canvasPoint(viewPoint)
+        guard let element = hit(at: point) else { return }
+        dismissPopups()
+        commit()
+        drag = DragSession(id: element.id, start: point, originalA: element.a, originalB: element.b)
+        selectedId = nil
+        Haptics.impact(.medium)
+    }
+
+    private func holdMoved(to viewPoint: CGPoint) {
+        guard let drag else { return }
+        let point = canvasPoint(viewPoint)
+        let dx = point.x - drag.start.x, dy = point.y - drag.start.y
+        document.moveLive(drag.id, a: CGPoint(x: drag.originalA.x + dx, y: drag.originalA.y + dy), b: CGPoint(x: drag.originalB.x + dx, y: drag.originalB.y + dy))
+    }
+
+    private func holdEnded(cancelled: Bool) {
+        guard let session = drag else { return }
+        drag = nil
+        guard let current = document.elements.first(where: { $0.id == session.id }) else { return }
+        let translation = CGSize(width: current.a.x - session.originalA.x, height: current.a.y - session.originalA.y)
+        if cancelled {
+            document.moveLive(session.id, a: session.originalA, b: session.originalB)
+            history.removeLast()
+            return
+        }
+        document.finishMove(session.id, originalA: session.originalA, originalB: session.originalB, translation: translation)
+        Haptics.impact(.light)
     }
 
     private func rotate(_ element: SketchElement) {
@@ -603,10 +650,7 @@ struct SketchCanvasView: View {
         commit()
         document.elements.removeAll()
         dismissPopups()
-        withAnimation {
-            erasing = false
-            placingGround = false
-        }
+        withAnimation { tool = .draw }
     }
 
     private func update(_ id: UUID, _ change: (inout SketchElement) -> Void) {
@@ -791,8 +835,8 @@ private struct SketchTipsOverlay: View {
         Tip(glyph: .line, title: "Draw a line", detail: "It becomes a wire. Corners and big loops work too."),
         Tip(glyph: .zigzag, title: "Zigzag or box", detail: "A resistor. Draw it on a wire and it slots in."),
         Tip(glyph: .circle, title: "Circle", detail: "A source: you pick voltage or current."),
-        Tip(glyph: .symbol("hand.tap"), title: "Tap a part", detail: "Value, rotate, flip, type, delete. Double-tap rotates."),
-        Tip(glyph: .symbol("hand.draw"), title: "Two fingers", detail: "Move and zoom the canvas. Eraser rubs parts and wires out."),
+        Tip(glyph: .symbol("hand.tap"), title: "Tap, double-tap, hold", detail: "Tap a part for value, rotate, flip, type, delete. Double-tap rotates. Hold and drag to move it."),
+        Tip(glyph: .symbol("hand.draw"), title: "Two fingers", detail: "Move and zoom the canvas. Erase rubs parts and wires out; Ground marks the reference."),
     ]
 
     var body: some View {

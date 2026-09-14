@@ -187,15 +187,62 @@ extension SketchDocument {
         return element
     }
 
-    /// Quarter turn: the part is lifted out (healing the wire it sat in) and seated again the other way.
+    /// Quarter turn: the part is lifted out (healing the wire it sat in) and seated again the other
+    /// way. It turns about its centre, unless only one terminal is connected: then that terminal is
+    /// the pivot, so a part hanging off a rail turns back into the rail and vice versa.
     mutating func rotate(_ id: UUID) {
         guard let index = elements.firstIndex(where: { $0.id == id }), elements[index].isComponent else { return }
         var element = elements[index]
-        let center = element.center
         let horizontal = element.isHorizontal
+        let attachedA = isAttached(element.a, excluding: id)
+        let attachedB = isAttached(element.b, excluding: id)
+        let pivot = attachedA != attachedB ? (attachedA ? element.a : element.b) : element.center
         remove(id, heal: true)
-        seat(&element, center: center, horizontal: !horizontal)
+        seat(&element, center: pivot, horizontal: !horizontal)
         elements.append(element)
+    }
+
+    /// Something else touches this point: a terminal or wire end sits there, or a wire runs through it.
+    func isAttached(_ point: CGPoint, excluding id: UUID) -> Bool {
+        for element in elements where element.id != id {
+            if near(element.a, point) || (element.kind != .ground && near(element.b, point)) { return true }
+            if element.kind == .wire, SketchDocument.point(point, liesOn: element) { return true }
+        }
+        return false
+    }
+
+    /// Live drag: shifts an element without snapping or re-seating (call `finishMove` on release).
+    mutating func moveLive(_ id: UUID, a: CGPoint, b: CGPoint) {
+        guard let index = elements.firstIndex(where: { $0.id == id }) else { return }
+        elements[index].a = a
+        elements[index].b = b
+    }
+
+    /// End of a drag: the element is put back where it was, then placed properly at the new spot,
+    /// so a part slots into the wire it was dropped on and the wire it left heals.
+    mutating func finishMove(_ id: UUID, originalA: CGPoint, originalB: CGPoint, translation: CGSize) {
+        guard let index = elements.firstIndex(where: { $0.id == id }) else { return }
+        var element = elements[index]
+        element.a = originalA
+        element.b = originalB
+        elements[index] = element
+        let snappedA = SketchGrid.snap(CGPoint(x: originalA.x + translation.width, y: originalA.y + translation.height))
+        let delta = CGSize(width: snappedA.x - originalA.x, height: snappedA.y - originalA.y)
+        guard abs(delta.width) > 0.5 || abs(delta.height) > 0.5 else { return }
+        switch element.kind {
+        case .wire:
+            elements.remove(at: index)
+            insertWire(from: CGPoint(x: originalA.x + delta.width, y: originalA.y + delta.height),
+                       to: CGPoint(x: originalB.x + delta.width, y: originalB.y + delta.height))
+        case .ground:
+            placeGround(at: CGPoint(x: originalA.x + delta.width, y: originalA.y + delta.height))
+        default:
+            let center = CGPoint(x: element.center.x + delta.width, y: element.center.y + delta.height)
+            let horizontal = element.isHorizontal
+            remove(id, heal: true)
+            seat(&element, center: center, horizontal: horizontal)
+            elements.append(element)
+        }
     }
 
     /// Changes what a part is; the value no longer applies, so it is cleared.

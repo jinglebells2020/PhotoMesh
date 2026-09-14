@@ -47,11 +47,11 @@ enum StrokeClassifier {
             let smoothBounds = boundingBox(smooth)
             let fill = area / max(smoothBounds.width * smoothBounds.height, 1)
             let aspect = bounds.width / max(bounds.height, 1)
-            let corners = sharpCorners(simplifyClosed(smooth, epsilon: max(4, 0.09 * extent)), minimumTurn: 68 * .pi / 180)
-            // A box fills its bounding rectangle (a circle fills ~78% of it) and has corners.
-            let isBox = fill >= 0.83
-                || (fill >= 0.79 && (corners >= 2 || circularity < 0.8))
-                || (corners >= 3 && fill >= 0.74 && circularity < 0.85)
+            // A box turns sharply in a few places and runs straight elsewhere; a circle turns evenly all
+            // the way round. When in doubt call it round: a round shape asks what it is, a box would
+            // silently become a resistor.
+            let straight = straightFraction(smooth)
+            let isBox = fill > 0.84 || straight > 0.3
             if isBox {
                 let horizontal: Bool? = aspect > 1.25 ? true : (aspect < 0.8 ? false : nil)
                 return .rectangle(center: center, horizontal: horizontal)
@@ -155,6 +155,25 @@ enum StrokeClassifier {
             }
         }
         return points.indices.filter { keep[$0] }.map { points[$0] }
+    }
+
+    /// Share of a closed outline that runs straight: samples turning less than 40% of the average
+    /// turn. A circle turns evenly, so almost nothing counts as straight (≈0.05); a square is mostly
+    /// straight sides (≈0.6 even with rounded corners). Independent of size and sampling.
+    static func straightFraction(_ points: [CGPoint]) -> CGFloat {
+        guard points.count >= 8 else { return 0 }
+        let stride = 2
+        var turns: [CGFloat] = []
+        for i in stride..<(points.count - stride) {
+            let p = points[i - stride], q = points[i], r = points[i + stride]
+            let inbound = atan2(q.y - p.y, q.x - p.x), outbound = atan2(r.y - q.y, r.x - q.x)
+            var turn = abs(outbound - inbound)
+            if turn > .pi { turn = 2 * .pi - turn }
+            turns.append(turn)
+        }
+        let mean = turns.reduce(0, +) / CGFloat(max(turns.count, 1))
+        guard mean > 0 else { return 0 }
+        return CGFloat(turns.filter { $0 < 0.4 * mean }.count) / CGFloat(turns.count)
     }
 
     /// Moving average that takes the finger jitter out before measuring a shape.
