@@ -138,6 +138,51 @@ struct SchematicLayout: Hashable {
 
     func symbol(_ id: String) -> Symbol? { symbols.first { $0.id == id } }
 
+    /// Signed current along every wire (keyed by index into `wires`, positive from `from` to `to`),
+    /// derived from the element currents: within a node the wires form a tree, so peeling leaves
+    /// and conserving charge at each junction fixes the flow in every segment. Wires on a cycle
+    /// (rare) are left out.
+    func wireCurrents(elementCurrents: [String: Double]) -> [Int: Double] {
+        func key(_ p: SPoint) -> String { "\(Int((p.x * 2).rounded())),\(Int((p.y * 2).rounded()))" }
+        var result: [Int: Double] = [:]
+        let nodes = Set(wires.map(\.node))
+        for node in nodes {
+            let wireIndices = wires.indices.filter { wires[$0].node == node }
+            guard !wireIndices.isEmpty else { continue }
+            var injection: [String: Double] = [:]       // current entering the node at a point
+            var degree: [String: Int] = [:]
+            var incident: [String: [Int]] = [:]
+            for i in wireIndices {
+                for p in [wires[i].from, wires[i].to] {
+                    let k = key(p)
+                    degree[k, default: 0] += 1
+                    incident[k, default: []].append(i)
+                }
+            }
+            for symbol in symbols {
+                guard let current = elementCurrents[symbol.id] else { continue }
+                if symbol.nodeA == node { injection[key(symbol.a), default: 0] -= current }   // leaves the node into the element
+                if symbol.nodeB == node { injection[key(symbol.b), default: 0] += current }   // arrives from the element
+            }
+            var remaining = Set(wireIndices)
+            var queue = degree.filter { $0.value == 1 }.map(\.key)
+            while let leaf = queue.popLast() {
+                guard let wireIndex = incident[leaf]?.first(where: { remaining.contains($0) }) else { continue }
+                let wire = wires[wireIndex]
+                let flow = injection[leaf] ?? 0
+                let startsAtLeaf = key(wire.from) == leaf
+                let other = startsAtLeaf ? key(wire.to) : key(wire.from)
+                result[wireIndex] = startsAtLeaf ? flow : -flow
+                remaining.remove(wireIndex)
+                injection[other, default: 0] += flow
+                degree[other, default: 0] -= 1
+                degree[leaf] = 0
+                if degree[other] == 1 { queue.append(other) }
+            }
+        }
+        return result
+    }
+
     /// Where each node sits on the drawing: the average of the terminals that belong to it.
     var nodePositions: [String: SPoint] {
         var sums: [String: (SPoint, Int)] = [:]

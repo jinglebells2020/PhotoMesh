@@ -1,10 +1,12 @@
 import SwiftUI
 
-/// Canvas wrapper whose camera animates (scale + offset are interpolated by SwiftUI).
+/// Canvas wrapper whose camera animates (scale + offset are interpolated by SwiftUI). When the
+/// focus asks for moving currents, a timeline redraws the canvas ~30 times a second with a phase.
 private struct AnimatedSchematic: ViewModifier, Animatable {
     var camera: SchematicCamera
     let layout: SchematicLayout
     let style: SchematicStyle
+    let animates: Bool
 
     var animatableData: SchematicCamera.AnimatableData {
         get { camera.animatableData }
@@ -12,8 +14,12 @@ private struct AnimatedSchematic: ViewModifier, Animatable {
     }
 
     func body(content: Content) -> some View {
-        Canvas(rendersAsynchronously: false) { context, size in
-            SchematicRenderer.draw(layout, camera: camera, style: style, in: &context, size: size)
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !animates)) { timeline in
+            Canvas(rendersAsynchronously: false) { context, size in
+                var frameStyle = style
+                frameStyle.flowPhase = animates ? timeline.date.timeIntervalSinceReferenceDate : nil
+                SchematicRenderer.draw(layout, camera: camera, style: frameStyle, in: &context, size: size)
+            }
         }
     }
 }
@@ -23,8 +29,10 @@ struct SchematicView: View {
     var style = SchematicStyle()
     var camera = SchematicCamera()
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
-        Color.clear.modifier(AnimatedSchematic(camera: camera, layout: layout, style: style))
+        Color.clear.modifier(AnimatedSchematic(camera: camera, layout: layout, style: style, animates: style.focus.animateCurrents && !reduceMotion))
     }
 }
 

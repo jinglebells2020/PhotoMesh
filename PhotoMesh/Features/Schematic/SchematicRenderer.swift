@@ -55,6 +55,8 @@ struct SchematicStyle {
     /// Sketch mode: unfinished elements (no value yet) are drawn hollow.
     var pendingValueIds: Set<String> = []
     var askedIds: Set<String> = []
+    /// Time in seconds driving the moving current dots; nil draws them still (or not at all).
+    var flowPhase: Double?
 }
 
 /// Draws a `SchematicLayout` into a `GraphicsContext`. Geometry is built in layout units and
@@ -143,6 +145,9 @@ enum SchematicRenderer {
         for (id, current) in style.focus.elementCurrents {
             guard let symbol = layout.symbol(id) else { continue }
             drawCurrentArrow(symbol, current: current, camera: camera, style: style, in: &context)
+        }
+        if style.focus.animateCurrents, let phase = style.flowPhase {
+            drawFlow(layout, camera: camera, style: style, phase: phase, focusedElements: focusedElements, in: &context)
         }
 
         // Mesh arrows
@@ -321,6 +326,83 @@ enum SchematicRenderer {
         }
         let label = style.formatter.format(abs(current), "A")
         context.draw(Text("I = \(label)").font(.system(size: 10.5, weight: .semibold, design: .rounded)).foregroundStyle(PMTheme.accent), at: p, anchor: anchor)
+    }
+
+    // MARK: Moving current
+
+    /// Dots travelling along wires and through elements the way the current really flows, faster
+    /// where the current is larger. With only mesh currents known, the dots circulate around each mesh.
+    private static func drawFlow(_ layout: SchematicLayout, camera: SchematicCamera, style: SchematicStyle, phase: Double, focusedElements: Set<String>, in context: inout GraphicsContext) {
+        let spacing = 30.0   // layout units between dots
+        let dotRadius: CGFloat = 3
+        func speed(_ current: Double, max largest: Double) -> Double {
+            36 + 60 * min(1, abs(current) / max(largest, 1e-12))
+        }
+        func dots(from a: SPoint, to b: SPoint, current: Double, largest: Double, color: Color) {
+            guard abs(current) > 1e-9 * max(largest, 1e-12) else { return }
+            let (start, end) = current >= 0 ? (a, b) : (b, a)
+            let length = start.distance(to: end)
+            guard length > 4 else { return }
+            let unit = (end - start) * (1 / length)
+            let offset = (phase * speed(current, max: largest)).truncatingRemainder(dividingBy: spacing)
+            var d = offset
+            var path = Path()
+            while d < length {
+                let p = camera.convert(start + unit * d)
+                path.addEllipse(in: CGRect(x: p.x - dotRadius, y: p.y - dotRadius, width: dotRadius * 2, height: dotRadius * 2))
+                d += spacing
+            }
+            context.fill(path, with: .color(color))
+        }
+        func polylineDots(_ points: [SPoint], current: Double, largest: Double, color: Color) {
+            guard points.count >= 2, abs(current) > 1e-12 else { return }
+            let ordered = current >= 0 ? points : points.reversed()
+            let closed = ordered + [ordered[0]]
+            let total = zip(closed, closed.dropFirst()).reduce(0.0) { $0 + $1.0.distance(to: $1.1) }
+            guard total > 4 else { return }
+            var d = (phase * speed(current, max: largest)).truncatingRemainder(dividingBy: spacing)
+            var path = Path()
+            while d < total {
+                var remaining = d
+                for (a, b) in zip(closed, closed.dropFirst()) {
+                    let segment = a.distance(to: b)
+                    if remaining <= segment {
+                        let p = camera.convert(a + (b - a) * (segment > 0 ? remaining / segment : 0))
+                        path.addEllipse(in: CGRect(x: p.x - dotRadius, y: p.y - dotRadius, width: dotRadius * 2, height: dotRadius * 2))
+                        break
+                    }
+                    remaining -= segment
+                }
+                d += spacing
+            }
+            context.fill(path, with: .color(color))
+        }
+
+        let elementCurrents = style.focus.elementCurrents
+        if !elementCurrents.isEmpty {
+            let largest = elementCurrents.values.map(abs).max() ?? 1
+            let wireCurrents = layout.wireCurrents(elementCurrents: elementCurrents)
+            let dimmed = !focusedElements.isEmpty
+            for (index, current) in wireCurrents {
+                let wire = layout.wires[index]
+                dots(from: wire.from, to: wire.to, current: current, largest: largest, color: PMTheme.accent.opacity(dimmed ? 0.55 : 0.9))
+            }
+            for symbol in layout.symbols {
+                guard let current = elementCurrents[symbol.id] else { continue }
+                let bright = focusedElements.isEmpty || focusedElements.contains(symbol.id)
+                dots(from: symbol.a, to: symbol.b, current: current, largest: largest, color: PMTheme.accent.opacity(bright ? 0.9 : 0.5))
+            }
+            return
+        }
+        // Mesh currents only: circulate around each loop's polygon.
+        let meshCurrents = style.focus.meshCurrents
+        guard !meshCurrents.isEmpty else { return }
+        let largest = meshCurrents.values.map(abs).max() ?? 1
+        for (index, current) in meshCurrents where index < style.loops.count {
+            let polygon = layout.polygon(forLoopElements: style.loops[index].elementIds)
+            let bright = style.focus.loops.isEmpty || style.focus.loops.contains(index)
+            polylineDots(polygon, current: current, largest: largest, color: PMTheme.accent.opacity(bright ? 0.9 : 0.4))
+        }
     }
 
     private static func drawMeshArrow(index: Int, loop: LoopPath, layout: SchematicLayout, camera: SchematicCamera, style: SchematicStyle, in context: inout GraphicsContext) {
