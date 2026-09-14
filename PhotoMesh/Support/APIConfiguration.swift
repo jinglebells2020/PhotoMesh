@@ -1,9 +1,28 @@
 import Foundation
 import Security
 
+/// Developer-only surfaces (API key entry, model choice, allowance reset). On in Debug builds, and
+/// in any build once unlocked by tapping the version in About seven times.
+enum DeveloperOptions {
+    static let unlockedKey = "developer.unlocked"
+
+    static var enabled: Bool {
+        #if DEBUG
+        return true
+        #else
+        return UserDefaults.standard.bool(forKey: unlockedKey)
+        #endif
+    }
+}
+
 /// Where the recognizer's credentials and model come from.
-/// Priority for the key: `OPENROUTER_API_KEY` environment variable (Xcode scheme) → Keychain (entered in Settings).
+/// Priority for the key: `OPENROUTER_API_KEY` environment variable (Xcode scheme) → Keychain
+/// (entered in developer settings) → the key embedded in tester builds (`BuiltinKey`).
 enum APIConfiguration {
+    enum KeySource {
+        case environment, personal, builtIn, none
+    }
+
     /// Cheap and fast first pass (measured: same accuracy as the big model on the test set at a quarter of the cost).
     static let defaultModel = "google/gemini-3.5-flash-lite"
     /// Stronger model used only when the first pass fails validation or the two methods disagree.
@@ -12,12 +31,20 @@ enum APIConfiguration {
 
     static var apiKey: String? {
         if let env = ProcessInfo.processInfo.environment["OPENROUTER_API_KEY"], !env.isEmpty { return env }
-        return KeychainStore.read(account: keychainAccount)
+        if let personal = KeychainStore.read(account: keychainAccount), !personal.isEmpty { return personal }
+        return BuiltinKey.openRouter
     }
 
-    static var isEnvironmentKey: Bool {
-        !(ProcessInfo.processInfo.environment["OPENROUTER_API_KEY"] ?? "").isEmpty
+    static var keySource: KeySource {
+        if !(ProcessInfo.processInfo.environment["OPENROUTER_API_KEY"] ?? "").isEmpty { return .environment }
+        if let personal = KeychainStore.read(account: keychainAccount), !personal.isEmpty { return .personal }
+        return BuiltinKey.openRouter == nil ? .none : .builtIn
     }
+
+    static var isEnvironmentKey: Bool { keySource == .environment }
+
+    /// Calls on the shared tester key are metered by `UsageAllowance`; personal keys are not.
+    static var usesBuiltInKey: Bool { keySource == .builtIn }
 
     static func saveAPIKey(_ key: String) {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -28,7 +55,9 @@ enum APIConfiguration {
         }
     }
 
+    /// Testers always get the defaults; a developer can pick models in developer settings.
     static var model: String {
+        guard DeveloperOptions.enabled else { return defaultModel }
         let stored = UserDefaults.standard.string(forKey: SettingsKeys.openRouterModel) ?? ""
         return stored.isEmpty ? defaultModel : stored
     }
@@ -44,11 +73,13 @@ enum APIConfiguration {
 
     /// Low reasoning effort on the first pass (default on; the fallback always thinks fully).
     static var fastRecognition: Bool {
-        UserDefaults.standard.object(forKey: SettingsKeys.fastRecognition) as? Bool ?? true
+        guard DeveloperOptions.enabled else { return true }
+        return UserDefaults.standard.object(forKey: SettingsKeys.fastRecognition) as? Bool ?? true
     }
 
     /// Model for the second pass, or nil when escalation is switched off.
     static var fallbackModel: String? {
+        guard DeveloperOptions.enabled else { return defaultFallbackModel }
         guard UserDefaults.standard.object(forKey: SettingsKeys.escalate) as? Bool ?? true else { return nil }
         let stored = UserDefaults.standard.string(forKey: SettingsKeys.fallbackModel) ?? ""
         return stored.isEmpty ? defaultFallbackModel : stored

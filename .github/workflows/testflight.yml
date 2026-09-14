@@ -10,6 +10,9 @@ name: TestFlight
 #   DIST_CERT_P12_BASE64       base64 of an "Apple Distribution" certificate exported as .p12
 #   DIST_CERT_PASSWORD         password used when exporting the .p12
 #   KEYCHAIN_PASSWORD          any random string (temporary keychain on the runner)
+# Optional:
+#   OPENROUTER_TESTER_KEY      OpenRouter key baked into the build for testers (give it a credit
+#                              limit on openrouter.ai). Without it testers get the sample circuit.
 
 on:
   workflow_dispatch:
@@ -33,6 +36,19 @@ jobs:
     steps:
       - name: Check out
         uses: actions/checkout@v4
+
+      - name: Make sure no key is committed
+        run: tools/embed-key.sh --check
+
+      - name: Embed the tester key
+        env:
+          OPENROUTER_TESTER_KEY: ${{ secrets.OPENROUTER_TESTER_KEY }}
+        run: |
+          if [ -n "$OPENROUTER_TESTER_KEY" ]; then
+            tools/embed-key.sh "$OPENROUTER_TESTER_KEY"
+          else
+            echo "OPENROUTER_TESTER_KEY is not set; this build will have no built-in key."
+          fi
 
       - name: Select Xcode
         run: |
@@ -126,3 +142,4 @@ jobs:
         run: |
           security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
           rm -rf ~/private_keys
+          tools/embed-key.sh --clear || true

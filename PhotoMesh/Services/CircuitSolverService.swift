@@ -31,9 +31,12 @@ enum SolverProvider {
         if let key = APIConfiguration.apiKey, !key.isEmpty {
             let primary = OpenRouterClient.Configuration(apiKey: key, model: APIConfiguration.model, fastReasoning: APIConfiguration.fastRecognition)
             let fallback = APIConfiguration.fallbackModel.map { OpenRouterClient.Configuration(apiKey: key, model: $0, fastReasoning: false) }
-            return VLMCircuitSolver(primary: primary, fallback: fallback)
+            return VLMCircuitSolver(primary: primary, fallback: fallback, metered: APIConfiguration.usesBuiltInKey)
         }
-        return SampleCircuitSolver(reason: "No API key is set, so this is the built-in sample circuit. Add your OpenRouter key in Settings → Recognition to analyze your own photos.")
+        let reason = DeveloperOptions.enabled
+            ? "No API key is set, so this is the built-in sample circuit. Add your OpenRouter key in Settings → Recognition to analyze your own photos."
+            : "This build has no recognition key, so this is the built-in sample circuit. Drawn circuits still solve normally."
+        return SampleCircuitSolver(reason: reason)
     }
 }
 
@@ -43,6 +46,8 @@ enum SolverProvider {
 struct VLMCircuitSolver: CircuitSolverService {
     let primary: OpenRouterClient.Configuration
     let fallback: OpenRouterClient.Configuration?
+    /// Shared tester key: every call counts against `UsageAllowance`.
+    var metered = false
 
     func prepare(_ request: SolutionRequest, progress: @escaping (String) -> Void) async throws -> SolveInput {
         switch request.source {
@@ -56,6 +61,15 @@ struct VLMCircuitSolver: CircuitSolverService {
     }
 
     private func recognizeWithEscalation(_ image: UIImage, progress: @escaping (String) -> Void) async throws -> SolveInput {
+        if metered {
+            // Caps are checked before spending anything; the error text says when to try again.
+            do {
+                try UsageAllowance.shared.consume()
+            } catch {
+                Analytics.shared.track("recognition_limited", ["reason": .string(error.localizedDescription)])
+                throw error
+            }
+        }
         progress("Reading the circuit…")
         let started = Date()
         var firstResult: CircuitRecognizer.Result?
@@ -78,6 +92,12 @@ struct VLMCircuitSolver: CircuitSolverService {
         }
 
         guard let fallback else {
+            if let result = firstResult { return input(from: result) }
+            throw firstError ?? CircuitPayload.PayloadError.noCircuit
+        }
+        if metered, !UsageAllowance.shared.tryConsume() {
+            // Out of allowance for a second read: return the first result rather than fail.
+            RecognitionLog.shared.record("escalation skipped: beta allowance used up")
             if let result = firstResult { return input(from: result) }
             throw firstError ?? CircuitPayload.PayloadError.noCircuit
         }

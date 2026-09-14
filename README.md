@@ -22,7 +22,7 @@ method to follow.
 | Language bottom sheet | Done |
 | About us, PhotoMesh Plus | Done (layout only, no purchases) |
 | Solutions sheet (one card per method) → Solving Steps (Next Step, Why, feedback) → Circuit detail (netlist, node voltages, element results) | Done |
-| Photo → netlist recognition (OpenRouter, `google/gemini-3.6-flash` by default) | Done, key entered in Settings → Recognition |
+| Photo → netlist recognition (OpenRouter, `google/gemini-3.5-flash-lite` first, `gemini-3.6-flash` on doubt) | Done; testers use a built-in, rate-limited key |
 | DC solver: nodal (MNA, supernodes) + mesh (auto loop detection, supermeshes), cross‑checked | Done, unit‑tested |
 | Schematic redrawn from the photo, fixed window above the steps that zooms to what each step talks about | Done |
 | Full‑screen circuit explorer (pinch, pan, tap a node or part for details in a floating card) | Done |
@@ -226,6 +226,26 @@ Requirements: Xcode 16 or newer, iOS 17 deployment target. The one package depen
 2. Select the `PhotoMesh` target → Signing & Capabilities → pick your team.
    Change the bundle identifier if `com.photomesh.app` is taken in your account.
 3. Run on an iPhone for the camera, or on the Simulator for everything else.
+
+## Tester builds: built-in key and limits
+
+Testers never see an API key. A Release build reads photos with a key baked into the app:
+
+- `tools/embed-key.sh <key>` writes the key, XOR-obfuscated, into `Support/BuiltinKey.swift`;
+  the TestFlight workflow does this from the `OPENROUTER_TESTER_KEY` secret and a check step
+  fails the build if a key was ever committed. Locally: embed, archive, then
+  `tools/embed-key.sh --clear` (add `tools/embed-key.sh --check` to a pre-commit hook if you like).
+- Obfuscation only keeps the key out of `strings`; anyone determined can recover it from the
+  IPA. Create a dedicated key on openrouter.ai **with a credit limit** and rotate it when the beta
+  ends.
+- Per device, `UsageAllowance` caps calls on the built-in key to 12 an hour and 40 a day (rolling
+  windows; a second-pass read counts too and is skipped when out of allowance). Over the limit the
+  scan fails with a message saying when it resets; Settings → Recognition shows what is left.
+  Drawing circuits by hand and the sample circuit are unlimited.
+- Key entry, model choice and the fast/escalate switches only appear in Debug builds, or after
+  tapping the version in About seven times (a personal key entered there is not metered).
+
+With no key at all a Release build falls back to the sample circuit and says so.
 
 ## Ship to TestFlight
 

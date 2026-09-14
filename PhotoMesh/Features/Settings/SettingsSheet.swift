@@ -36,52 +36,59 @@ struct SettingsSheet: View {
                 }
 
                 Section {
-                    NavigationLink {
-                        APIKeyView()
-                    } label: {
-                        HStack {
-                            Text("OpenRouter API key").foregroundStyle(PMTheme.ink)
-                            Spacer()
-                            Text(APIConfiguration.apiKey == nil ? "Not set" : (APIConfiguration.isEnvironmentKey ? "From Xcode" : "Set"))
-                                .font(.system(size: 15))
-                                .foregroundStyle(APIConfiguration.apiKey == nil ? PMTheme.whyOrange : PMTheme.secondaryText)
-                        }
+                    if APIConfiguration.usesBuiltInKey {
+                        AllowanceRow()
                     }
-                    NavigationLink {
-                        ModelView()
-                    } label: {
-                        HStack {
-                            Text("Models").foregroundStyle(PMTheme.ink)
-                            Spacer()
-                            Text(APIConfiguration.model.split(separator: "/").last.map(String.init) ?? APIConfiguration.model)
-                                .font(.system(size: 15))
-                                .foregroundStyle(PMTheme.secondaryText)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.7)
+                    if DeveloperOptions.enabled {
+                        NavigationLink {
+                            APIKeyView()
+                        } label: {
+                            HStack {
+                                Text("OpenRouter API key").foregroundStyle(PMTheme.ink)
+                                Spacer()
+                                Text(keySourceText)
+                                    .font(.system(size: 15))
+                                    .foregroundStyle(APIConfiguration.apiKey == nil ? PMTheme.whyOrange : PMTheme.secondaryText)
+                            }
+                        }
+                        NavigationLink {
+                            ModelView()
+                        } label: {
+                            HStack {
+                                Text("Models").foregroundStyle(PMTheme.ink)
+                                Spacer()
+                                Text(APIConfiguration.model.split(separator: "/").last.map(String.init) ?? APIConfiguration.model)
+                                    .font(.system(size: 15))
+                                    .foregroundStyle(PMTheme.secondaryText)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.7)
+                            }
                         }
                     }
                     Toggle(isOn: $confirmRecognized) {
                         Text("Check circuit before solving").foregroundStyle(PMTheme.ink)
                     }
                     .tint(PMTheme.accent)
-                    Toggle(isOn: $fastRecognition) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Fast first pass").foregroundStyle(PMTheme.ink)
-                            Text("Low reasoning effort on the first read; about 3× quicker")
-                                .font(.system(size: 12))
-                                .foregroundStyle(PMTheme.secondaryText)
+                    if DeveloperOptions.enabled {
+                        Toggle(isOn: $fastRecognition) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Fast first pass").foregroundStyle(PMTheme.ink)
+                                Text("Low reasoning effort on the first read; about 3× quicker")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(PMTheme.secondaryText)
+                            }
                         }
-                    }
-                    .tint(PMTheme.accent)
-                    Toggle(isOn: $escalate) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Escalate when unsure").foregroundStyle(PMTheme.ink)
-                            Text("Re-read with the stronger model if the first result does not validate")
-                                .font(.system(size: 12))
-                                .foregroundStyle(PMTheme.secondaryText)
+                        .tint(PMTheme.accent)
+                        Toggle(isOn: $escalate) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Escalate when unsure").foregroundStyle(PMTheme.ink)
+                                Text("Re-read with the stronger model if the first result does not validate")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(PMTheme.secondaryText)
+                            }
                         }
+                        .tint(PMTheme.accent)
                     }
-                    .tint(PMTheme.accent)
                     Toggle(isOn: $useSampleCircuit) {
                         Text("Use sample circuit").foregroundStyle(PMTheme.ink)
                     }
@@ -94,7 +101,7 @@ struct SettingsSheet: View {
                 } header: {
                     Text("RECOGNITION")
                 } footer: {
-                    Text("Photos are sent to the selected model through OpenRouter to read the schematic. The key is stored in this device's Keychain. Sample mode skips the camera reader and solves a built-in circuit.")
+                    Text(recognitionFooter)
                 }
 
                 Section {
@@ -138,6 +145,65 @@ struct SettingsSheet: View {
                 }
             }
         }
+    }
+}
+
+
+private extension SettingsSheet {
+    var keySourceText: String {
+        switch APIConfiguration.keySource {
+        case .none: return "Not set"
+        case .environment: return "From Xcode"
+        case .personal: return "Set"
+        case .builtIn: return "Built-in"
+        }
+    }
+
+    var recognitionFooter: String {
+        if DeveloperOptions.enabled {
+            return "Photos are sent to the selected model through OpenRouter to read the schematic. A personal key is stored in this device's Keychain and is not metered. Sample mode skips the camera reader and solves a built-in circuit."
+        }
+        if APIConfiguration.usesBuiltInKey {
+            return "This beta build reads photos with PhotoMesh's own key, limited to \(UsageAllowance.hourlyLimit) scans an hour and \(UsageAllowance.dailyLimit) a day per device. Drawing circuits by hand is unlimited. Sample mode solves a built-in circuit without the camera."
+        }
+        return "Photos are read by a vision model. Sample mode skips the camera reader and solves a built-in circuit."
+    }
+}
+
+/// Scans left on the shared tester key.
+private struct AllowanceRow: View {
+    @State private var status = UsageAllowance.shared.status
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Beta scan allowance").foregroundStyle(PMTheme.ink)
+                Text(detail)
+                    .font(.system(size: 12))
+                    .foregroundStyle(status.isBlocked ? PMTheme.whyOrange : PMTheme.secondaryText)
+            }
+            Spacer()
+            Text("\(status.remainingToday) left")
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundStyle(status.remainingToday == 0 ? PMTheme.whyOrange : PMTheme.accent)
+            if DeveloperOptions.enabled {
+                Button("Reset") {
+                    UsageAllowance.shared.reset()
+                    status = UsageAllowance.shared.status
+                }
+                .font(.system(size: 13))
+                .buttonStyle(.bordered)
+                .tint(PMTheme.accent)
+            }
+        }
+        .onAppear { status = UsageAllowance.shared.status }
+    }
+
+    private var detail: String {
+        if let until = status.blockedUntil {
+            return "Limit reached · scans again at \(UsageAllowance.timeText(until))"
+        }
+        return "\(status.usedThisHour) of \(UsageAllowance.hourlyLimit) this hour · \(status.usedToday) of \(UsageAllowance.dailyLimit) today"
     }
 }
 

@@ -27,12 +27,17 @@ struct OpenRouterClient {
         var errorDescription: String? {
             switch self {
             case .missingAPIKey:
-                return "Add your OpenRouter API key in Settings → Recognition to analyze photos."
+                return DeveloperOptions.enabled
+                    ? "Add your OpenRouter API key in Settings → Recognition to analyze photos."
+                    : "Photo recognition isn't set up in this build. Drawn circuits still solve."
             case .badStatus(let code, let message):
                 switch code {
-                case 401: return "OpenRouter rejected the API key. Check it in Settings → Recognition."
-                case 402: return "The OpenRouter key has run out of credits."
-                case 429: return "OpenRouter is rate limiting this key. Wait a moment and try again."
+                case 401:
+                    return DeveloperOptions.enabled
+                        ? "OpenRouter rejected the API key. Check it in Settings → Recognition."
+                        : "The recognition service rejected this build's key. Please tell us; drawn circuits still solve."
+                case 402: return DeveloperOptions.enabled ? "The OpenRouter key has run out of credits." : "The shared beta key has run out of credit for now. Please tell us; drawn circuits still solve."
+                case 429: return "The recognition service is busy right now. Wait a moment and try again."
                 default: return "OpenRouter returned an error (\(code)). \(message)"
                 }
             case .emptyResponse(let detail):

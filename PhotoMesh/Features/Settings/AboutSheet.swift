@@ -2,6 +2,19 @@ import SwiftUI
 
 struct AboutSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @AppStorage(DeveloperOptions.unlockedKey) private var developerUnlocked = false
+    @State private var versionTaps = 0
+    @State private var unlockMessage: String?
+
+    /// Seven taps on the version reveal the developer rows in Settings (API key, models, allowance reset).
+    private func versionTapped() {
+        versionTaps += 1
+        guard versionTaps >= 7 else { return }
+        versionTaps = 0
+        developerUnlocked.toggle()
+        Haptics.notify(.success)
+        unlockMessage = developerUnlocked ? "Developer options unlocked in Settings → Recognition." : "Developer options hidden again."
+    }
 
     private var version: String {
         let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
@@ -19,6 +32,8 @@ struct AboutSheet: View {
                         Text(version)
                             .font(.system(size: 13))
                             .foregroundStyle(PMTheme.secondaryText)
+                            .contentShape(Rectangle())
+                            .onTapGesture { versionTapped() }
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
@@ -42,6 +57,9 @@ struct AboutSheet: View {
             .listStyle(.insetGrouped)
             .navigationTitle("About us")
             .navigationBarTitleDisplayMode(.inline)
+            .alert(unlockMessage ?? "", isPresented: Binding(get: { unlockMessage != nil }, set: { if !$0 { unlockMessage = nil } })) {
+                Button("OK", role: .cancel) {}
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Close") { dismiss() }
