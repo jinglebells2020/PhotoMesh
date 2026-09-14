@@ -19,7 +19,7 @@ extension SketchDocument {
         var best: (CGPoint, CGFloat)?
         for point in connectionPoints {
             let d = hypot(point.x - p.x, point.y - p.y)
-            if d <= radius, best == nil || d < best!.1 { best = (point, d) }
+            if d <= radius, best == nil || d < best!.1 { best = (point, CGFloat(d)) }
         }
         return best?.0
     }
@@ -32,7 +32,7 @@ extension SketchDocument {
             guard along >= wire.lowerEnd - 0.5, along <= wire.upperEnd + 0.5 else { continue }
             let point = wire.isHorizontal ? CGPoint(x: along, y: wire.line) : CGPoint(x: wire.line, y: along)
             let d = hypot(point.x - p.x, point.y - p.y)
-            if d <= radius, best == nil || d < best!.1 { best = (point, d) }
+            if d <= radius, best == nil || d < best!.1 { best = (point, CGFloat(d)) }
         }
         return best?.0
     }

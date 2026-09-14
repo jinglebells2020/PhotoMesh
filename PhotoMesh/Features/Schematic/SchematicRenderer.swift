@@ -348,7 +348,7 @@ enum SchematicRenderer {
         var previous = CGPoint.zero
         for i in 0...steps {
             let fraction = Double(i) / Double(steps)
-            let angle = clockwise ? startAngle + sweep * fraction : -startAngle - sweep * fraction
+            let angle = CGFloat(clockwise ? startAngle + sweep * fraction : -startAngle - sweep * fraction)
             let point = CGPoint(x: center.x + radius * cos(angle), y: center.y + radius * sin(angle))
             if i == 0 { path.move(to: point) } else { path.addLine(to: point) }
             previous = last
