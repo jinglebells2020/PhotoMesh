@@ -27,7 +27,7 @@ enum EquationLaTeX {
 
     private static let subscriptDigits: [Character: Character] = ["₀": "0", "₁": "1", "₂": "2", "₃": "3", "₄": "4", "₅": "5", "₆": "6", "₇": "7", "₈": "8", "₉": "9"]
     private static let superscriptDigits: [Character: Character] = ["⁰": "0", "¹": "1", "²": "2", "³": "3", "⁴": "4", "⁵": "5", "⁶": "6", "⁷": "7", "⁸": "8", "⁹": "9", "⁻": "-"]
-    private static let operatorCharacters: Set<Character> = ["=", "+", "−", "-", "·", "/", "→", "⇒", "×", "÷", "^", "√", ":", ",", "!", "%", "*", "<", ">", "≈", "≠", "≤", "≥"]
+    private static let operatorCharacters: Set<Character> = ["=", "+", "−", "-", "·", "/", "→", "⇒", "×", "÷", "^", "√", ":", ",", "!", "%", "*", "<", ">", "≈", "≠", "≤", "≥", "′", "✓", "✗"]
     private static let functionNames: Set<String> = ["sin", "cos", "tan", "log", "ln", "exp"]
 
     private static func tokenize(_ line: String) -> [Token] {
@@ -185,6 +185,9 @@ enum EquationLaTeX {
         case ":": return .punct("{:}\\;")
         case "!": return .punct("!")
         case "%": return .punct("\\%")
+        case "′": return .punct("'")
+        case "✓": return .punct("\\checkmark")
+        case "✗": return .punct("\\times")
         default: return .text(String(c))
         }
     }
@@ -260,7 +263,7 @@ enum EquationLaTeX {
         var i = 0
         while i < items.count {
             if case .op("^") = items[i], i > 0, i + 1 < items.count, items[i - 1].isOperand, items[i + 1].isOperand {
-                let power = Node.power([items[i - 1]], operandContents(items[i + 1]))
+                let power = Node.power([items[i - 1]], operandContents(items[i + 1]))   // a group base keeps its parentheses
                 items.replaceSubrange((i - 1)...(i + 1), with: [power])
                 i -= 1
             } else {

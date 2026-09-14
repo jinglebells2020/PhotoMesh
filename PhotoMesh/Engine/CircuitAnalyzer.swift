@@ -16,6 +16,8 @@ enum CircuitAnalyzer {
         let circuit = try raw.validated()
         var methods: [MethodSolution] = []
         var failures: [String] = []
+        // The drawing comes first so the mesh method can run its currents clockwise on it.
+        let layout = SchematicLayoutEngine.layout(for: circuit)
 
         do {
             methods.append(try NodalAnalysis.solve(circuit, formatter: formatter))
@@ -23,7 +25,7 @@ enum CircuitAnalyzer {
             failures.append("Nodal analysis: \(error.localizedDescription)")
         }
         do {
-            methods.append(try MeshAnalysis.solve(circuit, formatter: formatter))
+            methods.append(try MeshAnalysis.solve(circuit, formatter: formatter, layout: layout))
         } catch {
             failures.append("Mesh analysis: \(error.localizedDescription)")
         }
@@ -38,7 +40,7 @@ enum CircuitAnalyzer {
             methods: methods,
             methodsAgree: agree(methods),
             recognitionNotes: recognitionNotes,
-            layout: SchematicLayoutEngine.layout(for: circuit)
+            layout: layout
         )
     }
 

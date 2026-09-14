@@ -1,12 +1,14 @@
 import Foundation
 
 enum AnalysisMethod: String, Codable, Hashable, CaseIterable {
+    case reduction
     case nodal
     case mesh
     case arithmetic
 
     var eyebrow: String {
         switch self {
+        case .reduction: return "SERIES & PARALLEL"
         case .nodal: return "NODAL ANALYSIS"
         case .mesh: return "MESH ANALYSIS"
         case .arithmetic: return "SOLVING STEPS"
@@ -15,6 +17,7 @@ enum AnalysisMethod: String, Codable, Hashable, CaseIterable {
 
     var title: String {
         switch self {
+        case .reduction: return "Simplify step by step"
         case .nodal: return "Node-voltage method"
         case .mesh: return "Mesh-current method"
         case .arithmetic: return "Evaluate the expression"
@@ -23,8 +26,9 @@ enum AnalysisMethod: String, Codable, Hashable, CaseIterable {
 
     var summary: String {
         switch self {
+        case .reduction: return "Combine resistors that are in series or in parallel until one is left, apply Ohm's law, then work back out."
         case .nodal: return "Write KCL at each node, solve for the node voltages, then read off every current."
-        case .mesh: return "Assign a current to each mesh, write KVL around each one, then combine them for every element."
+        case .mesh: return "Assign a clockwise current to each mesh, write KVL around each one, then combine them for every element."
         case .arithmetic: return "Apply the order of operations."
         }
     }
@@ -42,6 +46,9 @@ struct StepFocus: Hashable {
     var elementCurrents: [String: Double] = [:]
     var meshCurrents: [Int: Double] = [:]
     var showMeshArrows = false
+    /// Show the currents moving: dots travel along wires and elements (or around meshes) in the
+    /// direction the current really flows, faster where it is larger.
+    var animateCurrents = false
 
     var isEmpty: Bool { nodes.isEmpty && elements.isEmpty && loops.isEmpty }
 }

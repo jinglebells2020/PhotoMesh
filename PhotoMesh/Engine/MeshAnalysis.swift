@@ -17,10 +17,17 @@ enum MeshAnalysis {
         func contains(_ edge: Int) -> Bool { edges.contains { $0.index == edge } }
     }
 
-    static func solve(_ circuit: Circuit, formatter: QuantityFormatter) throws -> MethodSolution {
+    /// The schematic layout lets every mesh current run clockwise on the drawing, the convention
+    /// textbooks use so a shared resistor reads I₁ − I₂.
+    static func solve(_ circuit: Circuit, formatter: QuantityFormatter, layout: SchematicLayout? = nil) throws -> MethodSolution {
         let context = AnalysisContext(circuit: circuit, formatter: formatter)
         let graph = CircuitGraph(circuit)
-        let loops = try findLoops(circuit: circuit, graph: graph)
+        var loops = try findLoops(circuit: circuit, graph: graph, layout: layout)
+        if let layout {
+            let nodePositions = layout.nodePositions
+            let centers = Dictionary(uniqueKeysWithValues: layout.symbols.map { ($0.id, $0.center) })
+            loops = loops.map { clockwise($0, components: circuit.components, nodePositions: nodePositions, elementCenters: centers) }
+        }
         let components = circuit.components
         let currentSourceIndices = components.indices.filter { components[$0].kind == .currentSource }
         let L = loops.count
@@ -123,16 +130,111 @@ enum MeshAnalysis {
         var errorDescription: String? { "No closed loop was found, so mesh analysis does not apply." }
     }
 
-    static func findLoops(circuit: Circuit, graph: CircuitGraph) throws -> [Loop] {
+    static func findLoops(circuit: Circuit, graph: CircuitGraph, layout: SchematicLayout? = nil) throws -> [Loop] {
         let needed = circuit.components.count - circuit.nodes.count + 1
         guard needed > 0 else { throw LoopError.noLoops }
 
+        // The windows of the drawing are the real meshes; anything else is just a valid loop set.
+        if let layout, let faces = planarMeshes(circuit: circuit, layout: layout), faces.count == needed, areIndependent(faces, edgeCount: circuit.components.count) {
+            return faces
+        }
         if let hinted = loopsFromHints(circuit: circuit), hinted.count == needed, areIndependent(hinted, edgeCount: circuit.components.count) {
             return hinted
         }
         let computed = shortestCycleBasis(circuit: circuit, graph: graph, needed: needed)
         guard computed.count == needed else { throw LoopError.noLoops }
         return computed
+    }
+
+    /// Inner faces of the drawn circuit (planar map traversal). Each element is an edge that passes
+    /// through its symbol centre, which tells parallel elements apart. Nil when the drawing does not
+    /// give a clean set of faces (degenerate positions, crossings).
+    static func planarMeshes(circuit: Circuit, layout: SchematicLayout) -> [Loop]? {
+        let components = circuit.components
+        let positions = layout.nodePositions
+        let centers = Dictionary(uniqueKeysWithValues: layout.symbols.map { ($0.id, $0.center) })
+        guard components.allSatisfy({ positions[$0.nodeA] != nil && positions[$0.nodeB] != nil && centers[$0.id] != nil }) else { return nil }
+
+        struct HalfEdge: Hashable { var edge: Int; var forward: Bool }   // forward: nodeA → nodeB
+        func tail(_ h: HalfEdge) -> String { h.forward ? components[h.edge].nodeA : components[h.edge].nodeB }
+        func head(_ h: HalfEdge) -> String { h.forward ? components[h.edge].nodeB : components[h.edge].nodeA }
+        func angle(_ h: HalfEdge) -> Double {
+            let from = positions[tail(h)]!, via = centers[components[h.edge].id]!
+            return atan2(via.y - from.y, via.x - from.x)
+        }
+
+        // Rotation system: half-edges leaving each node, sorted by angle.
+        var rotation: [String: [HalfEdge]] = [:]
+        for (index, component) in components.enumerated() {
+            rotation[component.nodeA, default: []].append(HalfEdge(edge: index, forward: true))
+            rotation[component.nodeB, default: []].append(HalfEdge(edge: index, forward: false))
+        }
+        for (node, list) in rotation {
+            let sorted = list.sorted { angle($0) < angle($1) }
+            // Two half-edges at the same angle cannot be told apart: give up.
+            for (a, b) in zip(sorted, sorted.dropFirst()) where abs(angle(a) - angle(b)) < 1e-6 { return nil }
+            rotation[node] = sorted
+        }
+
+        var visited: Set<HalfEdge> = []
+        var faces: [(loop: Loop, area: Double)] = []
+        for (index, _) in components.enumerated() {
+            for forward in [true, false] {
+                let start = HalfEdge(edge: index, forward: forward)
+                guard !visited.contains(start) else { continue }
+                var edges: [(index: Int, forward: Bool)] = []
+                var sequence = [tail(start)]
+                var current = start
+                var points: [SPoint] = []
+                var guardCount = 0
+                repeat {
+                    visited.insert(current)
+                    edges.append((current.edge, current.forward))
+                    points.append(positions[tail(current)]!)
+                    points.append(centers[components[current.edge].id]!)
+                    let arrivedAt = head(current)
+                    sequence.append(arrivedAt)
+                    // Next half-edge: the one after the twin in the rotation at the node we arrived at.
+                    let twin = HalfEdge(edge: current.edge, forward: !current.forward)
+                    guard let list = rotation[arrivedAt], let position = list.firstIndex(of: twin) else { return nil }
+                    current = list[(position + 1) % list.count]
+                    guardCount += 1
+                    if guardCount > components.count * 2 + 2 { return nil }
+                } while current != start
+                // A face that uses the same element twice is a dangling path, not a window.
+                guard Set(edges.map(\.index)).count == edges.count, sequence.count == edges.count + 1 else { continue }
+                var area = 0.0
+                for i in points.indices {
+                    let p = points[i], q = points[(i + 1) % points.count]
+                    area += p.x * q.y - q.x * p.y
+                }
+                faces.append((Loop(edges: edges, nodeSequence: sequence), area))
+            }
+        }
+        guard faces.count >= 2 else { return nil }
+        // The outer face is the one with the largest area and the opposite orientation; drop it.
+        let outer = faces.indices.max { abs(faces[$0].area) < abs(faces[$1].area) }!
+        var inner = faces.enumerated().filter { $0.offset != outer }.map(\.element)
+        // Inner faces share one orientation; anything oriented like the outer face is not a window.
+        let outerSign = faces[outer].area >= 0
+        inner = inner.filter { ($0.area >= 0) != outerSign && abs($0.area) > 1e-6 }
+        guard !inner.isEmpty else { return nil }
+        // Windows of a planar drawing traverse every shared element in opposite directions; if two
+        // faces run the same way through an element the drawing has crossings, so give up.
+        var direction: [Int: Bool] = [:]
+        for face in inner {
+            for edge in face.loop.edges {
+                if let seen = direction[edge.index], seen == edge.forward { return nil }
+                direction[edge.index] = edge.forward
+            }
+        }
+        // Present them in a stable order: top-left window first.
+        inner.sort { lhs, rhs in
+            let a = SRect.around(lhs.loop.nodeSequence.compactMap { positions[$0] }), b = SRect.around(rhs.loop.nodeSequence.compactMap { positions[$0] })
+            if abs(a.minY - b.minY) > 1 { return a.minY < b.minY }
+            return a.minX < b.minX
+        }
+        return inner.map(\.loop)
     }
 
     /// Turns "[V1, R1, R2]" style hints into oriented loops, or nil if any hint is not a closed simple cycle.
@@ -234,6 +336,27 @@ enum MeshAnalysis {
         return chosen
     }
 
+    /// Reverses a loop that runs counter-clockwise on screen. The polygon alternates node positions
+    /// and element midpoints, so even a two-element loop (two parts in parallel) has an area.
+    /// y grows downward on screen, so a positive shoelace area is clockwise.
+    static func clockwise(_ loop: Loop, components: [Component], nodePositions: [String: SPoint], elementCenters: [String: SPoint]) -> Loop {
+        var points: [SPoint] = []
+        for (offset, edge) in loop.edges.enumerated() {
+            if let p = nodePositions[loop.nodeSequence[offset]] { points.append(p) }
+            if let c = elementCenters[components[edge.index].id] { points.append(c) }
+        }
+        guard points.count >= 3 else { return loop }
+        var area = 0.0
+        for i in points.indices {
+            let p = points[i], q = points[(i + 1) % points.count]
+            area += p.x * q.y - q.x * p.y
+        }
+        guard area < 0 else { return loop }
+        let reversedEdges = loop.edges.reversed().map { (index: $0.index, forward: !$0.forward) }
+        let sequence = Array(loop.nodeSequence.reversed())
+        return Loop(edges: reversedEdges, nodeSequence: sequence)
+    }
+
     /// Orders an edge set into a traversal starting at its lowest-named node.
     static func orient(edges: [Int], components: [Component]) -> Loop? {
         var remaining = Set(edges)
@@ -264,19 +387,22 @@ enum MeshAnalysis {
         let f = context.formatter
         var steps: [AnalysisStep] = []
         let L = loops.count
+        let meshSymbols = (0..<L).map { context.meshCurrentSymbol($0) }
+
+        // 0. Given / find
+        steps.append(SharedSteps.readCircuit(context: context))
 
         // 1. Meshes
         let meshLines = loops.enumerated().map { k, loop -> String in
-            let path = loop.nodeSequence.joined(separator: " → ")
-            let ids = loop.edges.map { components[$0.index].id }.joined(separator: ", ")
-            return "Mesh \(k + 1), current \(context.meshCurrentSymbol(k)): \(path)  (\(ids))"
+            let ids = loop.edges.map { components[$0.index].id }.joined(separator: " → ")
+            return "Mesh \(k + 1), \(meshSymbols[k]) clockwise: \(ids)"
         }
         steps.append(AnalysisStep(
             title: "Identify the meshes",
-            summary: "\(L) independent loop\(L == 1 ? "" : "s")",
+            summary: "\(L) mesh\(L == 1 ? "" : "es"), so \(L) unknown current\(L == 1 ? "" : "s")",
             equations: meshLines,
-            explanation: "A mesh is a loop that encloses no other loop. Each one gets its own circulating current in the direction listed; an element shared by two meshes carries the difference of their currents.",
-            result: "Mesh currents: " + (0..<L).map { context.meshCurrentSymbol($0) }.joined(separator: ", "),
+            explanation: "A mesh is a loop that has no other loop inside it, a \"window\" of the drawing. Give each mesh its own circulating current and take them all clockwise: an element on the outside of a mesh carries that mesh current alone, and an element shared by two meshes carries the difference of the two (they run through it in opposite directions).",
+            result: "Mesh currents: " + meshSymbols.joined(separator: ", "),
             focus: StepFocus(loops: Array(0..<L), showMeshArrows: true)
         ))
 
@@ -285,6 +411,7 @@ enum MeshAnalysis {
         var supermeshPairs: [(a: Int, b: Int, source: Int)] = []
         var extendedSources: [Int] = []
         var sourceLines: [String] = []
+        var constraintEquations: [(DisplayEquation, StepFocus)] = []
         for index in currentSourceIndices {
             let component = components[index]
             let inLoops = loops.indices.filter { loops[$0].contains(index) }
@@ -292,16 +419,17 @@ enum MeshAnalysis {
                 let k = inLoops[0]
                 let value = component.value * loops[k].sign(of: index)
                 knownMesh[k] = value
-                sourceLines.append("\(context.meshCurrentSymbol(k)) = \(context.amps(value))  (\(component.id) lies only in mesh \(k + 1))")
+                sourceLines.append("\(meshSymbols[k]) = \(context.amps(value))  (\(component.id) lies only in mesh \(k + 1)\(value < 0 ? "; it points against the clockwise direction" : ""))")
             } else if inLoops.count == 2 {
                 let (a, b) = (inLoops[0], inLoops[1])
                 supermeshPairs.append((a, b, index))
                 let sa = loops[a].sign(of: index), sb = loops[b].sign(of: index)
                 var constraint = DisplayEquation()
-                constraint.add(sa, to: context.meshCurrentSymbol(a))
-                constraint.add(sb, to: context.meshCurrentSymbol(b))
+                constraint.add(sa, to: meshSymbols[a])
+                constraint.add(sb, to: meshSymbols[b])
                 constraint.addConstant(component.value)
-                sourceLines.append("\(constraint.rendered(with: f))  (\(component.id) is shared by meshes \(a + 1) and \(b + 1) → supermesh)")
+                constraintEquations.append((constraint, StepFocus(elements: [component.id], loops: [a, b], zoom: true, showMeshArrows: true)))
+                sourceLines.append("\(constraint.rendered(with: f, order: meshSymbols))  (\(component.id) sits between meshes \(a + 1) and \(b + 1): the two mesh currents through it must add up to its value)")
             } else {
                 extendedSources.append(index)
                 sourceLines.append("\(component.id) spans \(inLoops.count) meshes: keep its voltage \(context.elementVoltageSymbol(component.id)) as an extra unknown")
@@ -313,116 +441,191 @@ enum MeshAnalysis {
                 title: "Account for the current sources",
                 summary: "\(currentSourceIndices.count) current source\(currentSourceIndices.count == 1 ? "" : "s")",
                 equations: sourceLines,
-                explanation: "A current source fixes the current of any mesh it belongs to alone. When it sits between two meshes, their KVL loops are merged into one supermesh and the source gives the relation between the two mesh currents.",
-                result: sourceLines.first ?? "",
+                explanation: "A current source forces its current whatever the voltage across it, so KVL cannot be written through it. If it lies in one mesh only, that mesh current is known at once. If two meshes share it, the two are merged into one bigger loop (a supermesh) for KVL, and the source gives the relation between their currents instead.",
+                result: sourceLines.first.map { String($0.split(separator: "  ").first ?? "") } ?? "",
                 focus: StepFocus(elements: currentSourceIndices.map { components[$0].id }, loops: involvedLoops, zoom: true, meshCurrents: knownMesh, showMeshArrows: true)
             ))
         }
 
-        // 3. KVL equations
-        func kvlPieces(loop k: Int, skipping skip: Int?, scale: Double) -> (TermList, DisplayEquation) {
-            var terms = TermList()
+        // 3. KVL, element by element
+        struct Piece { var line: String; var term: String; var expanded: [String] }
+        func kvlPieces(loop k: Int, skipping skip: Int?) -> ([Piece], DisplayEquation) {
+            var pieces: [Piece] = []
             var equation = DisplayEquation()
             let loop = loops[k]
             for (index, forward) in loop.edges where index != skip {
                 let component = components[index]
-                let s: Double = (forward ? 1 : -1) * scale
+                let s: Double = forward ? 1 : -1
                 switch component.kind {
                 case .resistor:
                     var inner = ""
                     var count = 0
-                    for (j, other) in loops.enumerated() {
+                    var sharedWith: [Int] = []
+                    var expanded: [String] = []
+                    let rText = f.number(component.value)
+                    // Own mesh current first, then the neighbours: "R·(I₂ − I₁)" reads naturally.
+                    let order = [k] + loops.indices.filter { $0 != k }
+                    for j in order {
+                        let other = loops[j]
                         let sj = other.sign(of: index)
                         guard sj != 0 else { continue }
-                        let relative = (forward ? 1 : -1) * sj
-                        let symbol = context.meshCurrentSymbol(j)
+                        let relative = s * sj   // +1: mesh j runs through R the same way we are walking
+                        if j != k { sharedWith.append(j) }
                         if let value = knownMesh[j] {
-                            equation.addConstant(-s * component.value * sj * value)
-                            inner += (count == 0 ? (relative < 0 ? "−" : "") : (relative < 0 ? " − " : " + ")) + f.term(abs(value))
+                            equation.addConstant(-component.value * relative * value)
+                            let piece = f.term(abs(value))
+                            inner += (count == 0 ? (relative < 0 ? "−" : "") : (relative < 0 ? " − " : " + ")) + piece
+                            expanded.append((relative < 0 ? "−" : "+") + f.number(component.value * abs(value)))
                         } else {
-                            equation.add(s * component.value * sj, to: symbol)
-                            inner += (count == 0 ? (relative < 0 ? "−" : "") : (relative < 0 ? " − " : " + ")) + symbol
+                            equation.add(component.value * relative, to: meshSymbols[j])
+                            inner += (count == 0 ? (relative < 0 ? "−" : "") : (relative < 0 ? " − " : " + ")) + meshSymbols[j]
+                            expanded.append((relative < 0 ? "−" : "+") + (abs(component.value - 1) < 1e-12 ? "" : rText + "·") + meshSymbols[j])
                         }
                         count += 1
                     }
-                    let body = count > 1 ? "\(f.number(component.value))·(\(inner))" : "\(f.number(component.value))·\(inner)"
-                    terms.add(body, negative: s < 0)
+                    let unitResistance = abs(component.value - 1) < 1e-12
+                    let body = count > 1 ? (unitResistance ? "(\(inner))" : "\(rText)·(\(inner))") : (unitResistance ? inner : "\(rText)·\(inner)")
+                    let note = sharedWith.isEmpty ? "" : " (shared with mesh \(sharedWith.map { String($0 + 1) }.joined(separator: ", ")))"
+                    pieces.append(Piece(line: "\(component.id)\(note): +\(body)", term: "+" + body, expanded: expanded))
                 case .voltageSource:
-                    terms.add(f.number(component.value), negative: s < 0)
-                    equation.addConstant(-s * component.value)
+                    let drop = s * component.value   // crossing + → − is a drop
+                    let text = f.number(abs(drop))
+                    pieces.append(Piece(line: "\(component.id) (crossed \(s > 0 ? "+ to −, a drop" : "− to +, a rise")): \(drop >= 0 ? "+" : "−")\(text)", term: (drop >= 0 ? "+" : "−") + text, expanded: [(drop >= 0 ? "+" : "−") + text]))
+                    equation.addConstant(-drop)
                 case .currentSource:
-                    terms.add(context.elementVoltageSymbol(component.id), negative: s < 0)
-                    equation.add(s, to: context.elementVoltageSymbol(component.id))
+                    let symbol = context.elementVoltageSymbol(component.id)
+                    pieces.append(Piece(line: "\(component.id): \(s > 0 ? "+" : "−")\(symbol)", term: (s > 0 ? "+" : "−") + symbol, expanded: [(s > 0 ? "+" : "−") + symbol]))
+                    equation.add(s, to: symbol)
                 }
             }
-            return (terms, equation)
+            return (pieces, equation)
         }
 
-        var systemLines: [String] = []
+        func joined(_ parts: [String]) -> String {
+            var out = ""
+            for part in parts {
+                if out.isEmpty { out = part.hasPrefix("+") ? String(part.dropFirst()) : part; continue }
+                if part.hasPrefix("−") { out += " − " + part.dropFirst() } else { out += " + " + (part.hasPrefix("+") ? String(part.dropFirst()) : part) }
+            }
+            return out.isEmpty ? "0" : out
+        }
+
+        var systemEquations: [DisplayEquation] = []
+        var equationFocus: [StepFocus] = []
         var handledLoops: Set<Int> = Set(knownMesh.keys)
         for pair in supermeshPairs {
             handledLoops.insert(pair.a)
             handledLoops.insert(pair.b)
-            let sa = loops[pair.a].sign(of: pair.source), sb = loops[pair.b].sign(of: pair.source)
-            let scaleB = -(sa * sb)   // cancels the source voltage
-            let (termsA, eqA) = kvlPieces(loop: pair.a, skipping: pair.source, scale: 1)
-            let (termsB, eqB) = kvlPieces(loop: pair.b, skipping: pair.source, scale: scaleB)
+            let (piecesA, eqA) = kvlPieces(loop: pair.a, skipping: pair.source)
+            let (piecesB, eqB) = kvlPieces(loop: pair.b, skipping: pair.source)
             var combined = eqA
             combined.add(eqB)
-            let written = [termsA.renderedLeftSide(), termsB.renderedLeftSide()].filter { !$0.isEmpty && $0 != "0" }.joined(separator: " + ") + " = 0"
-            let collected = combined.rendered(with: f)
-            systemLines.append(collected)
+            var lines: [String] = []
+            lines.append("Around mesh \(pair.a + 1), skipping \(components[pair.source].id):")
+            lines.append(contentsOf: piecesA.map(\.line))
+            lines.append("Around mesh \(pair.b + 1), skipping \(components[pair.source].id):")
+            lines.append(contentsOf: piecesB.map(\.line))
+            let sum = joined((piecesA + piecesB).map(\.term)) + " = 0"
+            lines.append("Sum of drops around the supermesh = 0:  " + sum)
+            let expanded = joined((piecesA + piecesB).flatMap(\.expanded)) + " = 0"
+            if expanded != sum { lines.append("Expand:  " + expanded) }
+            let collected = combined.rendered(with: f, order: meshSymbols)
+            lines.append("→ " + collected)
+            systemEquations.append(combined)
             let supermeshElements = (loops[pair.a].edges + loops[pair.b].edges).map { components[$0.index].id }.filter { $0 != components[pair.source].id }
+            let focus = StepFocus(elements: supermeshElements, loops: [pair.a, pair.b], zoom: true, meshCurrents: knownMesh, showMeshArrows: true)
+            equationFocus.append(focus)
             steps.append(AnalysisStep(
                 title: "Apply KVL around the supermesh (meshes \(pair.a + 1) and \(pair.b + 1))",
-                summary: "Go around both meshes, skipping \(components[pair.source].id)",
-                equations: [written, "→ " + collected],
-                explanation: "Walking around the outside of the two merged meshes avoids the unknown voltage across the current source. Sum of voltage drops = 0.",
+                summary: "Walk the outside of both meshes; the current source is never crossed",
+                equations: lines,
+                explanation: "Kirchhoff's voltage law: the voltage drops around any closed path add up to zero. The path goes around the outside of the two merged meshes, so the unknown voltage across the current source never appears. A resistor drops R times the net current through it in the walking direction; a voltage source counts as a drop when crossed from + to − and as a rise (negative) from − to +.",
                 result: collected,
-                focus: StepFocus(elements: supermeshElements, loops: [pair.a, pair.b], zoom: true, meshCurrents: knownMesh, showMeshArrows: true)
+                focus: focus
             ))
         }
         for k in 0..<L where !handledLoops.contains(k) {
-            let (terms, equation) = kvlPieces(loop: k, skipping: nil, scale: 1)
-            let written = terms.rendered()
-            let collected = equation.rendered(with: f)
-            systemLines.append(collected)
+            let (pieces, equation) = kvlPieces(loop: k, skipping: nil)
+            var lines = pieces.map(\.line)
+            let sum = joined(pieces.map(\.term)) + " = 0"
+            lines.append("Sum of drops = 0:  " + sum)
+            let expanded = joined(pieces.flatMap(\.expanded)) + " = 0"
+            if expanded != sum { lines.append("Expand:  " + expanded) }
+            let collected = equation.rendered(with: f, order: meshSymbols)
+            lines.append("→ " + collected)
+            systemEquations.append(equation)
+            let focus = StepFocus(elements: loops[k].edges.map { components[$0.index].id }, loops: [k], zoom: true, meshCurrents: knownMesh, showMeshArrows: true)
+            equationFocus.append(focus)
             steps.append(AnalysisStep(
                 title: "Apply KVL around mesh \(k + 1)",
-                summary: "Sum of voltage drops in the direction of \(context.meshCurrentSymbol(k)) = 0",
-                equations: [written, "→ " + collected],
-                explanation: "Going around the loop, a resistor drops R times the net current through it, a voltage source adds +V when crossed from + to − and −V when crossed from − to +.",
+                summary: "Walk clockwise with \(meshSymbols[k]); the drops add up to zero",
+                equations: lines,
+                explanation: "Kirchhoff's voltage law: going once around a closed loop brings you back to the same voltage, so the drops add up to zero. Walk the mesh in the direction of \(meshSymbols[k]). A resistor drops R times the net current through it (its own mesh current minus any neighbouring mesh current running the other way); a voltage source is a drop when crossed from + to − and a rise when crossed from − to +. Then expand the brackets and collect the terms.",
                 result: collected,
-                focus: StepFocus(elements: loops[k].edges.map { components[$0.index].id }, loops: [k], zoom: true, meshCurrents: knownMesh, showMeshArrows: true)
+                focus: focus
             ))
         }
 
-        // 4. Solve
+        // 4. Solve, narrated
         let unknownMeshes = (0..<L).filter { knownMesh[$0] == nil }
-        if !unknownMeshes.isEmpty || !extendedSources.isEmpty {
-            var lines = systemLines
-            for pair in supermeshPairs {
-                let sa = loops[pair.a].sign(of: pair.source), sb = loops[pair.b].sign(of: pair.source)
-                var constraint = DisplayEquation()
-                constraint.add(sa, to: context.meshCurrentSymbol(pair.a))
-                constraint.add(sb, to: context.meshCurrentSymbol(pair.b))
-                constraint.addConstant(components[pair.source].value)
-                lines.append(constraint.rendered(with: f))
+        let unknownSymbols = unknownMeshes.map { meshSymbols[$0] } + extendedSources.map { context.elementVoltageSymbol(components[$0].id) }
+        if !unknownSymbols.isEmpty {
+            var equations = systemEquations
+            var focuses = equationFocus
+            for (constraint, focus) in constraintEquations {
+                equations.append(constraint)
+                focuses.append(focus)
             }
-            var solution = unknownMeshes.map { "\(context.meshCurrentSymbol($0)) = \(context.amps(meshCurrents[$0]))" }
-            for index in extendedSources {
-                solution.append("\(context.elementVoltageSymbol(components[index].id)) = \(context.volts(sourceVoltages[index] ?? 0))")
+            let meshOf = Dictionary(uniqueKeysWithValues: unknownMeshes.map { (meshSymbols[$0], $0) })
+            var expected: [String: Double] = [:]
+            for k in unknownMeshes { expected[meshSymbols[k]] = meshCurrents[k] }
+            for index in extendedSources { expected[context.elementVoltageSymbol(components[index].id)] = sourceVoltages[index] ?? 0 }
+            let allMeshCurrents = Dictionary(uniqueKeysWithValues: (0..<L).map { ($0, meshCurrents[$0]) })
+            let options = SystemNarrator.Options(
+                unknowns: unknownSymbols,
+                unit: extendedSources.isEmpty ? "A" : "A",
+                formatter: f,
+                systemFocus: StepFocus(loops: Array(0..<L), meshCurrents: knownMesh, showMeshArrows: true),
+                equationFocus: focuses,
+                solvedFocus: { symbol, value in
+                    var partial = knownMesh
+                    if let k = meshOf[symbol] { partial[k] = value }
+                    return StepFocus(loops: meshOf[symbol].map { [$0] } ?? [], zoom: true, meshCurrents: partial, showMeshArrows: true)
+                },
+                describe: { symbol in meshOf[symbol].map { "the current circulating clockwise in mesh \($0 + 1)" } ?? "the voltage across a current source" }
+            )
+            if extendedSources.isEmpty,
+               let narrated = SystemNarrator.narrate(equations, options: options),
+               unknownSymbols.allSatisfy({ symbol in
+                   guard let want = expected[symbol], let got = narrated.solution[symbol] else { return false }
+                   return abs(want - got) <= 1e-6 * max(1, abs(want))
+               }) {
+                steps.append(contentsOf: narrated.steps)
+                if unknownMeshes.count > 1 {
+                    let negatives = unknownMeshes.filter { meshCurrents[$0] < 0 }
+                    if !negatives.isEmpty {
+                        steps.append(AnalysisStep(
+                            title: "Read the signs",
+                            summary: "\(negatives.map { meshSymbols[$0] }.joined(separator: ", ")) came out negative",
+                            equations: negatives.map { "\(meshSymbols[$0]) = \(context.amps(meshCurrents[$0])) → \(context.amps(abs(meshCurrents[$0]))) counter-clockwise" },
+                            explanation: "A negative mesh current is not a mistake: it means the current actually circulates the other way round from the clockwise direction we assumed. Keep the sign in the algebra; use the direction when describing the answer.",
+                            result: "Negative means counter-clockwise",
+                            focus: StepFocus(loops: negatives, zoom: true, meshCurrents: allMeshCurrents, showMeshArrows: true, animateCurrents: true)
+                        ))
+                    }
+                }
+            } else {
+                let lines = equations.map { $0.rendered(with: f, order: unknownSymbols) }
+                let solution = unknownSymbols.map { "\($0) = \(f.format(expected[$0] ?? 0, $0.hasPrefix("V") ? "V" : "A"))" }
+                steps.append(AnalysisStep(
+                    title: "Solve the system of equations",
+                    summary: "\(equations.count) equations, \(unknownSymbols.count) unknowns",
+                    equations: lines + ["→ " + solution.joined(separator: ", ")],
+                    explanation: "Solved as a linear system; all mesh currents come out together.",
+                    result: solution.joined(separator: ", "),
+                    focus: StepFocus(loops: Array(0..<L), meshCurrents: allMeshCurrents, showMeshArrows: true)
+                ))
             }
-            steps.append(AnalysisStep(
-                title: unknownMeshes.count == 1 ? "Solve for the mesh current" : "Solve the system of equations",
-                summary: "\(lines.count) equation\(lines.count == 1 ? "" : "s"), \(solution.count) unknown\(solution.count == 1 ? "" : "s")",
-                equations: lines + ["→ " + solution.joined(separator: ", ")],
-                explanation: unknownMeshes.count == 1
-                    ? "Divide the constant by the coefficient of the unknown."
-                    : "Solve by substitution or with a matrix; all mesh currents come out together.",
-                result: solution.joined(separator: ", "),
-                focus: StepFocus(loops: Array(0..<L), meshCurrents: Dictionary(uniqueKeysWithValues: (0..<L).map { ($0, meshCurrents[$0]) }), showMeshArrows: true)
-            ))
         }
 
         // 5. Element currents
@@ -437,8 +640,7 @@ enum MeshAnalysis {
             for (j, loop) in loops.enumerated() {
                 let sj = loop.sign(of: index)
                 guard sj != 0 else { continue }
-                let symbol = context.meshCurrentSymbol(j)
-                expression += (count == 0 ? (sj < 0 ? "−" : "") : (sj < 0 ? " − " : " + ")) + symbol
+                expression += (count == 0 ? (sj < 0 ? "−" : "") : (sj < 0 ? " − " : " + ")) + meshSymbols[j]
                 count += 1
             }
             let contributions = loops.enumerated().compactMap { j, loop -> String? in
@@ -447,7 +649,9 @@ enum MeshAnalysis {
                 return f.term(sj * meshCurrents[j], "A")
             }
             let numeric = contributions.count > 1 ? contributions.joined(separator: " + ") + " = " : ""
-            let suffix = e.kind == .voltageSource ? "  (\(e.id) \(-e.current >= 0 ? "delivers" : "absorbs") \(context.amps(abs(e.current))))" : ""
+            let suffix = e.kind == .voltageSource
+                ? "  (\(e.id) \(-e.current >= 0 ? "delivers" : "absorbs") \(context.amps(abs(e.current))))"
+                : "  (\(Answers.flowWords(e)))"
             currentLines.append("\(context.currentSymbol(e.id)) = \(expression) = \(numeric)\(context.amps(e.current))\(suffix)")
         }
         let currents = Dictionary(uniqueKeysWithValues: elements.map { ($0.id, $0.current) })
@@ -455,13 +659,14 @@ enum MeshAnalysis {
             title: "Find the current through each element",
             summary: "Combine the mesh currents",
             equations: currentLines,
-            explanation: "An element in one mesh carries that mesh current; an element shared by two meshes carries their difference. Currents are given from the element's first terminal to its second.",
+            explanation: "An element on the edge of the drawing lies in one mesh and simply carries that mesh current. An element between two meshes carries both, running in opposite directions, so its current is the difference. Each current is given from the element's first terminal to its second; the words say which way it really flows.",
             result: currentLines.count == 1 ? currentLines[0] : "\(currentLines.count) currents found",
-            focus: StepFocus(elementCurrents: currents)
+            focus: StepFocus(elementCurrents: currents, animateCurrents: true)
         ))
 
-        // 6. Voltages, 7. Answer
+        // 6. Voltages, 7. Check, 8. Answer
         steps.append(SharedSteps.elementVoltages(context: context, elements: elements, voltages: voltages))
+        steps.append(SharedSteps.checkStep(context: context, elements: elements, voltages: voltages))
         steps.append(SharedSteps.answerStep(context: context, answers: answers, elements: elements, voltages: voltages))
         return steps
     }

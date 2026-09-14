@@ -187,6 +187,14 @@ enum Answers {
         return answers
     }
 
+    /// "from n2 to 0" — which way the current really flows.
+    static func flowWords(_ element: ElementResult) -> String {
+        if abs(element.current) < 1e-12 { return "no current" }
+        let from = element.current >= 0 ? element.nodeA : element.nodeB
+        let to = element.current >= 0 ? element.nodeB : element.nodeA
+        return "from \(from) to \(to)"
+    }
+
     /// "1.538 A from n2 to 0"
     static func currentDescription(_ element: ElementResult, context: AnalysisContext) -> String {
         let magnitude = context.amps(abs(element.current))
@@ -206,9 +214,33 @@ enum Answers {
     }
 }
 
-// MARK: - Shared final steps
+// MARK: - Shared steps
 
 enum SharedSteps {
+    /// "Given / find": every element with its value and where it sits, then the question.
+    static func readCircuit(context: AnalysisContext) -> AnalysisStep {
+        let circuit = context.circuit
+        var lines = circuit.components.map { c -> String in
+            switch c.kind {
+            case .resistor: return "\(c.id) = \(context.ohms(c.value)) between \(c.nodeA) and \(c.nodeB)"
+            case .voltageSource: return "\(c.id) = \(context.volts(c.value)), + at \(c.nodeA), − at \(c.nodeB)"
+            case .currentSource: return "\(c.id) = \(context.amps(c.value)) from \(c.nodeA) into \(c.nodeB)"
+            }
+        }
+        let question = circuit.question ?? "Find the current through every element"
+        lines.append(question.lowercased().hasPrefix("find") ? question : "Find: \(question)")
+        let sources = circuit.components.filter { $0.kind != .resistor }.count
+        let resistors = circuit.components.count - sources
+        return AnalysisStep(
+            title: "Read the circuit",
+            summary: "\(sources) source\(sources == 1 ? "" : "s"), \(resistors) resistor\(resistors == 1 ? "" : "s"), \(circuit.nodes.count) nodes",
+            equations: lines,
+            explanation: "Before solving anything, write down what is given and what is asked. Every value here comes straight from the diagram; the node names are the junctions the elements share.",
+            result: question,
+            focus: StepFocus(elements: circuit.components.map(\.id))
+        )
+    }
+
     static func elementVoltages(context: AnalysisContext, elements: [ElementResult], voltages: [String: Double]) -> AnalysisStep {
         let f = context.formatter
         var lines: [String] = []
@@ -219,25 +251,73 @@ enum SharedSteps {
             case .voltageSource:
                 lines.append("\(context.elementVoltageSymbol(e.id)) = \(context.volts(e.voltage)) (given)")
             case .currentSource:
-                lines.append("\(context.elementVoltageSymbol(e.id)) = \(context.voltageTerm(e.nodeA, known: [:])) − \(context.voltageTerm(e.nodeB, known: [:])) = \(context.volts(e.voltage))")
+                lines.append("\(context.elementVoltageSymbol(e.id)) = \(context.voltageTerm(e.nodeA, known: voltages)) − \(context.voltageTerm(e.nodeB, known: voltages)) = \(context.volts(e.voltage))")
             }
         }
         return AnalysisStep(
             title: "Find the voltage across each element",
             summary: "Ohm's law for resistors, node differences for sources",
             equations: lines,
-            explanation: "For a resistor the voltage is R·I (positive at the terminal the current enters). Sources keep their given voltage, and a current source takes whatever voltage the rest of the circuit imposes.",
+            explanation: "For a resistor the voltage is R·I, positive at the terminal the current enters. A voltage source keeps its given voltage; a current source takes whatever voltage the rest of the circuit imposes, which is the difference of its node voltages.",
             result: lines.count == 1 ? lines[0] : "\(lines.count) voltages found",
-            focus: StepFocus(nodeVoltages: voltages, elementCurrents: Dictionary(uniqueKeysWithValues: elements.map { ($0.id, $0.current) }))
+            focus: StepFocus(nodeVoltages: voltages, elementCurrents: Dictionary(uniqueKeysWithValues: elements.map { ($0.id, $0.current) }), animateCurrents: true)
+        )
+    }
+
+    /// Power balance and a KCL spot check: the two things a textbook asks you to verify.
+    static func checkStep(context: AnalysisContext, elements: [ElementResult], voltages: [String: Double]) -> AnalysisStep {
+        let f = context.formatter
+        let circuit = context.circuit
+        var lines: [String] = []
+        var absorbedTerms: [String] = []
+        var deliveredTerms: [String] = []
+        var absorbed = 0.0, delivered = 0.0
+        for e in elements {
+            let p = e.power
+            switch e.kind {
+            case .resistor:
+                lines.append("P(\(e.id)) = I²·R = (\(f.term(e.current, "A")))²·\(context.ohms(e.value)) = \(context.watts(p))")
+                absorbedTerms.append(context.watts(p)); absorbed += p
+            case .voltageSource, .currentSource:
+                let magnitude = abs(p)
+                lines.append("P(\(e.id)) = V·I = \(context.volts(e.voltage))·\(f.term(e.current, "A")) = \(context.watts(p))  (\(e.id) \(p < 0 ? "delivers" : "absorbs") \(context.watts(magnitude)))")
+                if p < 0 { deliveredTerms.append(context.watts(magnitude)); delivered += magnitude } else if p > 1e-15 { absorbedTerms.append(context.watts(p)); absorbed += p }
+            }
+        }
+        lines.append(deliveredTerms.count > 1 ? "Delivered: \(deliveredTerms.joined(separator: " + ")) = \(context.watts(delivered))" : "Delivered by the sources: \(context.watts(delivered))")
+        lines.append(absorbedTerms.count > 1 ? "Absorbed: \(absorbedTerms.joined(separator: " + ")) = \(context.watts(absorbed))" : "Absorbed by the circuit: \(context.watts(absorbed))")
+        let balanced = abs(delivered - absorbed) <= 1e-6 * max(1e-12, abs(delivered))
+        lines.append("→ delivered \(balanced ? "=" : "≠") absorbed \(balanced ? "✓" : "✗")")
+
+        // KCL at the busiest node
+        var kclNode: String?
+        var kclLine: String?
+        let candidates = circuit.nodes.filter { $0 != circuit.groundNode }.sorted { circuit.components(at: $0).count > circuit.components(at: $1).count }
+        if let node = candidates.first, circuit.components(at: node).count >= 2 {
+            var into: [String] = [], out: [String] = []
+            var sumIn = 0.0, sumOut = 0.0
+            for e in elements where e.nodeA == node || e.nodeB == node {
+                let leaving = ElementResults.currentLeaving(node, through: e)
+                if leaving >= 0 { out.append(context.amps(leaving)); sumOut += leaving } else { into.append(context.amps(-leaving)); sumIn -= leaving }
+            }
+            kclNode = node
+            kclLine = "KCL at \(node): in \(into.isEmpty ? "0 A" : into.joined(separator: " + ")) = \(context.amps(sumIn)), out \(out.isEmpty ? "0 A" : out.joined(separator: " + ")) = \(context.amps(sumOut)) ✓"
+            lines.append(kclLine!)
+        }
+        let currents = Dictionary(uniqueKeysWithValues: elements.map { ($0.id, $0.current) })
+        return AnalysisStep(
+            title: "Check the result",
+            summary: balanced ? "Power balances and KCL holds" : "Power does not balance",
+            equations: lines,
+            explanation: "Energy is conserved, so the power the sources deliver must equal the power the resistors turn into heat. A quick KCL check at a node confirms the currents add up. If either failed, a value or a sign would be wrong.",
+            result: balanced ? "Delivered \(context.watts(delivered)) = absorbed \(context.watts(absorbed))" : "Mismatch: \(context.watts(delivered)) vs \(context.watts(absorbed))",
+            focus: StepFocus(nodes: kclNode.map { [$0] } ?? [], nodeVoltages: voltages, elementCurrents: currents, animateCurrents: true)
         )
     }
 
     static func answerStep(context: AnalysisContext, answers: [Answer], elements: [ElementResult], voltages: [String: Double]) -> AnalysisStep {
         let question = context.circuit.question ?? "What was asked"
         let lines = answers.map { "\($0.label): \($0.value)" }
-        let power = elements.map(\.power)
-        let delivered = -power.filter { $0 < 0 }.reduce(0, +)
-        let absorbed = power.filter { $0 > 0 }.reduce(0, +)
         var askedElements = context.circuit.unknowns.compactMap(\.element)
         var askedNodes = context.circuit.unknowns.flatMap { ($0.node.map { [$0] } ?? []) + ($0.between ?? []) }
         if askedElements.isEmpty, askedNodes.isEmpty {
@@ -249,9 +329,26 @@ enum SharedSteps {
             title: "Answer",
             summary: question,
             equations: lines,
-            explanation: "Check: the sources deliver \(context.watts(delivered)) and the circuit absorbs \(context.watts(absorbed)); these match, so the solution is consistent.",
+            explanation: "This is what the question asked for, read off from the currents and voltages found above. The direction words say which way the current actually flows; a negative value along the way only meant the assumed direction was backwards.",
             result: lines.first ?? "Solved",
-            focus: StepFocus(nodes: askedNodes, elements: askedElements, zoom: true, nodeVoltages: voltages, elementCurrents: currents.filter { askedElements.contains($0.key) })
+            focus: StepFocus(nodes: askedNodes, elements: askedElements, zoom: true, nodeVoltages: voltages, elementCurrents: currents.filter { askedElements.contains($0.key) }, animateCurrents: true)
         )
+    }
+
+    /// Node voltages from element voltages by walking the graph from ground (used by the methods
+    /// that solve for currents first).
+    static func nodeVoltages(circuit: Circuit, elementVoltages: [String: Double]) -> [String: Double] {
+        let graph = CircuitGraph(circuit)
+        var voltages: [String: Double] = [circuit.groundNode: 0]
+        var queue = [circuit.groundNode]
+        while let node = queue.popLast() {
+            for (edge, neighbor) in graph.neighbors(of: node) where voltages[neighbor] == nil {
+                let component = circuit.components[edge]
+                let drop = elementVoltages[component.id] ?? 0   // V(nodeA) − V(nodeB)
+                voltages[neighbor] = component.nodeA == node ? (voltages[node]! - drop) : (voltages[node]! + drop)
+                queue.append(neighbor)
+            }
+        }
+        return voltages
     }
 }

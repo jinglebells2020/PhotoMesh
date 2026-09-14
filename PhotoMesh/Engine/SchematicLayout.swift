@@ -138,6 +138,20 @@ struct SchematicLayout: Hashable {
 
     func symbol(_ id: String) -> Symbol? { symbols.first { $0.id == id } }
 
+    /// Where each node sits on the drawing: the average of the terminals that belong to it.
+    var nodePositions: [String: SPoint] {
+        var sums: [String: (SPoint, Int)] = [:]
+        for s in symbols {
+            for (node, point) in [(s.nodeA, s.a), (s.nodeB, s.b)] {
+                let current = sums[node] ?? (SPoint(x: 0, y: 0), 0)
+                sums[node] = (SPoint(x: current.0.x + point.x, y: current.0.y + point.y), current.1 + 1)
+            }
+        }
+        var positions: [String: SPoint] = [:]
+        for (node, sum) in sums { positions[node] = SPoint(x: sum.0.x / Double(sum.1), y: sum.0.y / Double(sum.1)) }
+        return positions
+    }
+
     /// Region covered by a node's wires and terminals.
     func bounds(ofNode node: String) -> SRect {
         var r = SRect.empty
@@ -570,6 +584,11 @@ enum SchematicLayoutEngine {
             positions[node] = SPoint(x: center.x + radius * cos(angle), y: center.y + radius * sin(angle))
         }
         var symbols: [SchematicLayout.Symbol] = []
+        // Parallel elements fan out symmetrically on both sides of the straight line between their nodes.
+        var parallelTotal: [String: Int] = [:]
+        for component in circuit.components {
+            parallelTotal[[component.nodeA, component.nodeB].sorted().joined(separator: "|"), default: 0] += 1
+        }
         var parallelCount: [String: Int] = [:]
         for component in circuit.components {
             guard let pa = positions[component.nodeA], let pb = positions[component.nodeB] else { continue }
@@ -580,7 +599,8 @@ enum SchematicLayoutEngine {
             let length = pa.distance(to: pb)
             let unit = length > 0 ? dir * (1 / length) : SPoint(x: 1, y: 0)
             let perp = SPoint(x: -unit.y, y: unit.x)
-            let offset = perp * (Double(n) * 44 - Double(n) * 22)
+            let total = parallelTotal[key] ?? 1
+            let offset = perp * ((Double(n) - Double(total - 1) / 2) * 70)
             let a = pa + unit * (length * 0.32) + offset
             let b = pa + unit * (length * 0.68) + offset
             symbols.append(SchematicLayout.Symbol(id: component.id, kind: component.kind, value: component.value, nodeA: component.nodeA, nodeB: component.nodeB, a: a, b: b, labelSide: perp))
