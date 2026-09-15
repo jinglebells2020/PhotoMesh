@@ -328,7 +328,7 @@ enum StrokeClassifier {
     static func cuspImbalance(_ points: [CGPoint], first: CGPoint, last: CGPoint) -> CGFloat? {
         guard points.count >= 12 else { return nil }
         let dx = last.x - first.x, dy = last.y - first.y
-        let length = max(hypot(dx, dy), 0.001)
+        let length: CGFloat = max(CGFloat(hypot(dx, dy)), 0.001)
         let n = CGFloat(points.count)
         let cx = points.map(\.x).reduce(0, +) / n, cy = points.map(\.y).reduce(0, +) / n
         let o = points.map { (($0.x - cx) * dy - ($0.y - cy) * dx) / length }
@@ -437,7 +437,7 @@ enum StrokeClassifier {
     /// (0 = everything at one extreme, 0.5 = evenly spread).
     static func offsetBalance(_ points: [CGPoint], first: CGPoint, last: CGPoint) -> CGFloat {
         let dx = last.x - first.x, dy = last.y - first.y
-        let length = max(hypot(dx, dy), 0.001)
+        let length: CGFloat = max(CGFloat(hypot(dx, dy)), 0.001)
         let n = CGFloat(points.count)
         guard n >= 8 else { return 0.5 }
         let cx = points.map(\.x).reduce(0, +) / n, cy = points.map(\.y).reduce(0, +) / n
@@ -450,7 +450,7 @@ enum StrokeClassifier {
     /// the chord): 0 for anything symmetric about its axis, larger the more one-sided the stroke is.
     static func sideAsymmetry(_ points: [CGPoint], first: CGPoint, last: CGPoint) -> CGFloat {
         let dx = last.x - first.x, dy = last.y - first.y
-        let length = max(hypot(dx, dy), 0.001)
+        let length: CGFloat = max(CGFloat(hypot(dx, dy)), 0.001)
         let n = CGFloat(points.count)
         guard n >= 8 else { return 0 }
         let cx = points.map(\.x).reduce(0, +) / n, cy = points.map(\.y).reduce(0, +) / n
@@ -497,7 +497,7 @@ enum StrokeClassifier {
 
     static func maxDeviation(_ points: [CGPoint], from a: CGPoint, to b: CGPoint) -> CGFloat {
         let dx = b.x - a.x, dy = b.y - a.y
-        let length = max(hypot(dx, dy), 0.001)
+        let length: CGFloat = max(CGFloat(hypot(dx, dy)), 0.001)
         return points.map { abs(($0.x - a.x) * dy - ($0.y - a.y) * dx) / length }.max() ?? 0
     }
 
@@ -710,7 +710,7 @@ enum StrokeClassifier {
     /// True when the stroke never crosses more than `tolerance` to the other side of its chord.
     static func isOneSided(_ points: [CGPoint], from a: CGPoint, to b: CGPoint, tolerance: CGFloat) -> Bool {
         let dx = b.x - a.x, dy = b.y - a.y
-        let length = max(hypot(dx, dy), 0.001)
+        let length: CGFloat = max(CGFloat(hypot(dx, dy)), 0.001)
         let offsets = points.map { (($0.x - a.x) * dy - ($0.y - a.y) * dx) / length }
         guard let lo = offsets.min(), let hi = offsets.max() else { return false }
         return lo >= -tolerance || hi <= tolerance
@@ -718,7 +718,7 @@ enum StrokeClassifier {
 
     static func sidewaysReversals(_ points: [CGPoint], from a: CGPoint, to b: CGPoint, threshold: CGFloat) -> Int {
         let dx = b.x - a.x, dy = b.y - a.y
-        let length = max(hypot(dx, dy), 0.001)
+        let length: CGFloat = max(CGFloat(hypot(dx, dy)), 0.001)
         let offsets = points.map { (($0.x - a.x) * dy - ($0.y - a.y) * dx) / length }
         var reversals = 0
         var lastExtreme = offsets[0]

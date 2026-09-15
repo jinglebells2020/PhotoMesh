@@ -42,7 +42,7 @@ enum StrokeRecognizer {
         var cx: CGFloat = 0, cy: CGFloat = 0
         for p in points { cx += p.x; cy += p.y }
         cx /= CGFloat(points.count); cy /= CGFloat(points.count)
-        return points.map { CGPoint(x: ($0.x - cx) * sx, y: ($0.y - cy) * sy) }
+        return points.map { p -> CGPoint in CGPoint(x: (p.x - cx) * sx, y: (p.y - cy) * sy) }
     }
 
     /// Exactly `count` points spread evenly along the path.
@@ -55,7 +55,7 @@ enum StrokeRecognizer {
         var carry: CGFloat = 0
         var previous = points[0]
         for point in points.dropFirst() {
-            var segment = hypot(point.x - previous.x, point.y - previous.y)
+            var segment: CGFloat = CGFloat(hypot(point.x - previous.x, point.y - previous.y))
             var from = previous
             while segment > 0, carry + segment >= interval, result.count < count - 1 {
                 let t = (interval - carry) / segment
@@ -73,7 +73,7 @@ enum StrokeRecognizer {
     }
 
     static func pathLength(_ points: [CGPoint]) -> CGFloat {
-        zip(points, points.dropFirst()).reduce(0) { $0 + hypot($1.1.x - $1.0.x, $1.1.y - $1.0.y) }
+        zip(points, points.dropFirst()).reduce(CGFloat(0)) { $0 + CGFloat(hypot($1.1.x - $1.0.x, $1.1.y - $1.0.y)) }
     }
 
     // MARK: Matching

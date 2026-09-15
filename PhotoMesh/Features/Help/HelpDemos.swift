@@ -36,7 +36,7 @@ struct DemoPlayer<Content: View>: View {
             playing = false
         } else {
             startedAt = Date()
-            playing = !reduceMotion || true
+            playing = true
         }
         Haptics.selection()
     }
@@ -94,6 +94,11 @@ struct ScanDemo: View {
             let sweep = demoProgress(phase, 1.7, 2.8)
             let detect = demoProgress(phase, 2.8, 3.8)
             let clean = demoProgress(phase, 4.0, 4.9)
+            let boxOffsets: [CGSize] = [CGSize(width: -48, height: -4), CGSize(width: 0, height: -30), CGSize(width: 48, height: -4)]
+            let frameWidth: CGFloat = 210 - 50 * CGFloat(fit)
+            let frameHeight: CGFloat = 150 - 52 * CGFloat(fit)
+            let scanOffset: CGFloat = -50 + 100 * CGFloat(sweep)
+            let scanning = sweep > 0 && sweep < 1
             ZStack {
                 PMTheme.accent
                 ZStack {
@@ -114,30 +119,31 @@ struct ScanDemo: View {
                             }
                             // Detection boxes
                             ForEach(0..<3, id: \.self) { index in
-                                let on = min(max(detect * 3 - Double(index), 0), 1)
+                                let on: Double = min(max(detect * 3 - Double(index), 0), 1)
+                                let grow: CGFloat = CGFloat(0.6 + 0.4 * on)
                                 RoundedRectangle(cornerRadius: 4)
                                     .stroke(PMTheme.accent, lineWidth: 2)
                                     .frame(width: 34, height: 22)
-                                    .offset(x: [-48, 0, 48][index], y: [-4, -30, -4][index])
+                                    .offset(boxOffsets[index])
                                     .opacity(on * (1 - clean))
-                                    .scaleEffect(0.6 + 0.4 * on)
+                                    .scaleEffect(grow)
                             }
                             // Scan line
                             Rectangle()
                                 .fill(LinearGradient(colors: [PMTheme.accent.opacity(0), PMTheme.accent, PMTheme.accent.opacity(0)], startPoint: .top, endPoint: .bottom))
                                 .frame(width: 160, height: 26)
-                                .offset(y: -50 + 100 * sweep)
-                                .opacity(sweep > 0 && sweep < 1 ? 0.9 : 0)
+                                .offset(y: scanOffset)
+                                .opacity(scanning ? 0.9 : 0)
                             // Viewfinder brackets close in on the circuit
                             ViewfinderFrame()
-                                .frame(width: 210 - 50 * fit, height: 150 - 52 * fit)
+                                .frame(width: frameWidth, height: frameHeight)
                         }
                         .frame(height: 170)
                         Spacer()
                         ZStack {
                             Circle().stroke(Color.white, lineWidth: 2).frame(width: 34, height: 34)
                             Circle().fill(PMTheme.accent).frame(width: 28, height: 28)
-                                .scaleEffect(sweep > 0 && sweep < 0.3 ? 0.8 : 1)
+                                .scaleEffect(sweep > 0 && sweep < 0.3 ? 0.8 : 1.0)
                         }
                         .padding(.bottom, 26)
                     }
@@ -167,12 +173,18 @@ private struct SketchedLoop: View {
             // Zigzag on the top wire
             let zx = c.x - 22
             path.move(to: CGPoint(x: zx, y: y0))
-            for k in 0..<6 { path.addLine(to: CGPoint(x: zx + CGFloat(k) * 7 + 3.5, y: y0 + (k % 2 == 0 ? -8 : 8))) }
+            for k in 0..<6 {
+                let dy: CGFloat = k % 2 == 0 ? -8 : 8
+                path.addLine(to: CGPoint(x: zx + CGFloat(k) * 7 + 3.5, y: y0 + dy))
+            }
             path.addLine(to: CGPoint(x: zx + 44, y: y0))
             // Zigzag on the right wire
             let zy = c.y - 18
             path.move(to: CGPoint(x: x1, y: zy))
-            for k in 0..<5 { path.addLine(to: CGPoint(x: x1 + (k % 2 == 0 ? -8 : 8), y: zy + CGFloat(k) * 7 + 3.5)) }
+            for k in 0..<5 {
+                let dx: CGFloat = k % 2 == 0 ? -8 : 8
+                path.addLine(to: CGPoint(x: x1 + dx, y: zy + CGFloat(k) * 7 + 3.5))
+            }
             path.addLine(to: CGPoint(x: x1, y: zy + 38))
             context.stroke(path, with: .color(PMTheme.ink.opacity(0.85)), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
             // Battery plates on the left wire (gap in the wire)
@@ -185,8 +197,8 @@ private struct SketchedLoop: View {
             // Ground under the bottom wire
             var ground = Path()
             ground.move(to: CGPoint(x: c.x + 10, y: y1)); ground.addLine(to: CGPoint(x: c.x + 10, y: y1 + 8))
-            for (i, half) in [9.0, 6.0, 3.0].enumerated() {
-                let yy = y1 + 8 + CGFloat(i) * 4
+            for (i, half) in [CGFloat(9), CGFloat(6), CGFloat(3)].enumerated() {
+                let yy: CGFloat = y1 + 8 + CGFloat(i) * 4
                 ground.move(to: CGPoint(x: c.x + 10 - half, y: yy)); ground.addLine(to: CGPoint(x: c.x + 10 + half, y: yy))
             }
             context.stroke(ground, with: .color(PMTheme.ink.opacity(0.85)), style: StrokeStyle(lineWidth: 2, lineCap: .round))
@@ -232,6 +244,9 @@ struct DrawDemo: View {
             let bubble = demoProgress(phase, 4.2, 4.6)
             let pick = demoProgress(phase, 5.2, 5.5)
             let value = demoProgress(phase, 5.7, 6.2)
+            let bubbleScale: CGFloat = CGFloat(0.8 + 0.2 * bubble)
+            let bubblePosition = CGPoint(x: side * 0.42, y: side * 0.5 + 30)
+            let highlightVoltage = phase > 4.9
             ZStack {
                 Color.white
                 DotGrid(spacing: 18, dotRadius: 1.2)
@@ -251,19 +266,27 @@ struct DrawDemo: View {
                     zig.move(to: zStart)
                     let peaks = 6
                     let seg = (zEnd.x - zStart.x) / CGFloat(peaks + 1)
-                    for k in 1...peaks { zig.addLine(to: CGPoint(x: zStart.x + seg * CGFloat(k) + sin(CGFloat(k)) * 1.5, y: wireY + (k % 2 == 1 ? -13 : 13))) }
+                    for k in 1...peaks {
+                        let dy: CGFloat = k % 2 == 1 ? -13 : 13
+                        zig.addLine(to: CGPoint(x: zStart.x + seg * CGFloat(k), y: wireY + dy))
+                    }
                     zig.addLine(to: zEnd)
                     if stroke1 > 0, snap1 < 1 {
-                        context.stroke(zig.trimmedPath(from: 0, to: CGFloat(stroke1)), with: .color(PMTheme.accent.opacity(0.75 * Double(1 - snap1))), style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                        let strokeOpacity: Double = 0.75 * (1 - snap1)
+                        context.stroke(zig.trimmedPath(from: 0, to: CGFloat(stroke1)), with: .color(PMTheme.accent.opacity(strokeOpacity)), style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
                     }
                     if snap1 > 0 {
                         // The clean resistor seated in the wire
                         let symbol = SchematicLayout.Symbol(id: "R1", kind: .resistor, value: 100, nodeA: "a", nodeB: "b", a: SPoint(x: Double(zStart.x), y: Double(wireY)), b: SPoint(x: Double(zEnd.x), y: Double(wireY)), labelSide: SPoint(x: 0, y: -1))
-                        var body = SchematicRenderer.symbolPath(symbol)
-                        body = body.applying(CGAffineTransform(translationX: (zStart.x + zEnd.x) / 2, y: wireY).scaledBy(x: CGFloat(0.85 + 0.15 * snap1), y: CGFloat(0.85 + 0.15 * snap1)).translatedBy(x: -(zStart.x + zEnd.x) / 2, y: -wireY))
+                        let centerX: CGFloat = (zStart.x + zEnd.x) / 2
+                        let grow: CGFloat = CGFloat(0.85 + 0.15 * snap1)
+                        var transform = CGAffineTransform(translationX: centerX, y: wireY)
+                        transform = transform.scaledBy(x: grow, y: grow)
+                        transform = transform.translatedBy(x: -centerX, y: -wireY)
+                        let body = SchematicRenderer.symbolPath(symbol).applying(transform)
                         context.fill(Path(CGRect(x: zStart.x, y: wireY - 2, width: zEnd.x - zStart.x, height: 4)), with: .color(.white))
                         context.stroke(body, with: .color(PMTheme.ink.opacity(snap1)), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                        context.draw(Text("R₁").font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundStyle(PMTheme.ink.opacity(snap1)), at: CGPoint(x: (zStart.x + zEnd.x) / 2, y: wireY - 22))
+                        context.draw(Text("R₁").font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundStyle(PMTheme.ink.opacity(snap1)), at: CGPoint(x: centerX, y: wireY - 22))
                     }
 
                     // 2. Circle stroke on the left wire
@@ -271,12 +294,14 @@ struct DrawDemo: View {
                     let r: CGFloat = 20
                     var circle = Path()
                     for k in 0...40 {
-                        let t = -CGFloat.pi / 2 + 2 * .pi * CGFloat(k) / 40
-                        let p = CGPoint(x: cc.x + (r + sin(t * 3) * 1.2) * cos(t), y: cc.y + r * sin(t))
+                        let t: CGFloat = -CGFloat.pi / 2 + 2 * CGFloat.pi * CGFloat(k) / 40
+                        let radius: CGFloat = r + sin(t * 3) * 1.2
+                        let p = CGPoint(x: cc.x + radius * cos(t), y: cc.y + r * sin(t))
                         if k == 0 { circle.move(to: p) } else { circle.addLine(to: p) }
                     }
                     if stroke2 > 0, pick < 1 {
-                        context.stroke(circle.trimmedPath(from: 0, to: CGFloat(stroke2)), with: .color(PMTheme.accent.opacity(0.75 * Double(1 - pick))), style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
+                        let strokeOpacity: Double = 0.75 * (1 - pick)
+                        context.stroke(circle.trimmedPath(from: 0, to: CGFloat(stroke2)), with: .color(PMTheme.accent.opacity(strokeOpacity)), style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round))
                     }
                     if pick > 0 {
                         let source = SchematicLayout.Symbol(id: "V1", kind: .voltageSource, value: 9, nodeA: "a", nodeB: "0", a: SPoint(x: Double(cc.x), y: Double(cc.y - 40)), b: SPoint(x: Double(cc.x), y: Double(cc.y + 40)), labelSide: SPoint(x: -1, y: 0))
@@ -290,10 +315,12 @@ struct DrawDemo: View {
                     }
 
                     // The finger
-                    let finger: CGPoint?
-                    if stroke1 > 0, stroke1 < 1 { finger = zig.trimmedPath(from: 0, to: CGFloat(stroke1)).currentPoint }
-                    else if stroke2 > 0, stroke2 < 1 { finger = circle.trimmedPath(from: 0, to: CGFloat(stroke2)).currentPoint }
-                    else { finger = nil }
+                    var finger: CGPoint?
+                    if stroke1 > 0, stroke1 < 1 {
+                        finger = zig.trimmedPath(from: 0, to: CGFloat(stroke1)).currentPoint
+                    } else if stroke2 > 0, stroke2 < 1 {
+                        finger = circle.trimmedPath(from: 0, to: CGFloat(stroke2)).currentPoint
+                    }
                     if let finger {
                         context.fill(Path(ellipseIn: CGRect(x: finger.x - 11, y: finger.y - 11, width: 22, height: 22)), with: .color(PMTheme.accent.opacity(0.25)))
                         context.fill(Path(ellipseIn: CGRect(x: finger.x - 5, y: finger.y - 5, width: 10, height: 10)), with: .color(PMTheme.accent.opacity(0.9)))
@@ -310,14 +337,14 @@ struct DrawDemo: View {
                             }
                             .foregroundStyle(PMTheme.ink)
                             .frame(width: 50, height: 46)
-                            .background(RoundedRectangle(cornerRadius: 8).fill(index == 0 && phase > 4.9 ? PMTheme.accentSoft : Color.clear))
+                            .background(RoundedRectangle(cornerRadius: 8).fill(index == 0 && highlightVoltage ? PMTheme.accentSoft : Color.clear))
                         }
                     }
                     .padding(4)
                     .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white).shadow(color: .black.opacity(0.18), radius: 12, y: 4))
-                    .scaleEffect(0.8 + 0.2 * bubble)
+                    .scaleEffect(bubbleScale)
                     .opacity(bubble)
-                    .position(x: side * 0.42, y: side * 0.5 + 30)
+                    .position(bubblePosition)
                 }
             }
         }
@@ -333,23 +360,29 @@ struct StepsDemo: View {
 
     private let lines = ["KCL at node b:", "(Vb − 10)/2 + Vb/4 + (Vb − 5)/3 = 0", "× 12:  6·(Vb − 10) + 3·Vb + 4·(Vb − 5) = 0", "→ 13·Vb = 80", "Vb = 6.154 V"]
 
+    /// The sample's voltages-and-currents focus, moving only while the demo plays.
+    private func focus(_ playing: Bool) -> StepFocus {
+        var focus = DemoCircuit.flowFocus
+        focus.animateCurrents = playing
+        return focus
+    }
+
     var body: some View {
         GeometryReader { geo in
             let side = geo.size.width
-            let revealed = Int(min(Double(lines.count), floor(demoProgress(phase, 0.6, 4.0) * Double(lines.count) + 0.001)))
-            let pulse = 1 + 0.06 * sin(phase * 4)
+            let revealed: Int = Int(min(Double(lines.count), floor(demoProgress(phase, 0.6, 4.0) * Double(lines.count) + 0.001)))
+            let pulse: CGFloat = CGFloat(1 + 0.06 * sin(phase * 4))
+            let panel = CGSize(width: side * 0.8, height: side * 0.42)
             ZStack {
                 PMTheme.darkSheet
                 VStack(spacing: 10) {
                     if let layout = DemoCircuit.layout {
-                        var focus = DemoCircuit.flowFocus
-                        let _ = { focus.animateCurrents = playing }()
                         ZStack {
                             Color.white
                             DotGrid()
-                            SchematicView(layout: layout, style: SchematicStyle(focus: focus, formatter: FormattingPreferences.formatter()), camera: .fitting(layout.bounds, in: CGSize(width: side * 0.8, height: side * 0.42), padding: 10))
+                            SchematicView(layout: layout, style: SchematicStyle(focus: focus(playing), formatter: FormattingPreferences.formatter()), camera: .fitting(layout.bounds, in: panel, padding: 10))
                         }
-                        .frame(width: side * 0.8, height: side * 0.42)
+                        .frame(width: panel.width, height: panel.height)
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                     }
                     VStack(alignment: .leading, spacing: 6) {
@@ -374,7 +407,7 @@ struct StepsDemo: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, 14).padding(.vertical, 8)
                             .background(Capsule().fill(PMTheme.accent))
-                            .scaleEffect(revealed == lines.count ? pulse : 1)
+                            .scaleEffect(revealed == lines.count ? pulse : 1.0)
                             Spacer()
                         }
                         .padding(.top, 2)
@@ -403,6 +436,12 @@ struct CalculatorDemo: View {
             let popup = demoProgress(phase, 1.0, 1.4)
             let choose = demoProgress(phase, 2.6, 2.9)
             let fade = demoProgress(phase, 3.4, 3.8)
+            let ringOpacity: Double = 0.28 * press * (1 - fade)
+            let ringSize: CGFloat = CGFloat(40 * (0.6 + 0.4 * press))
+            let popupScale: CGFloat = CGFloat(0.7 + 0.3 * popup)
+            let popupOpacity: Double = popup * (1 - fade)
+            let key = CGPoint(x: side * 0.31, y: side * 0.56)
+            let popupPosition = CGPoint(x: key.x + 60, y: key.y - 48)
             ZStack {
                 Color(red: 0.13, green: 0.36, blue: 0.98)
                 ZStack(alignment: .bottom) {
@@ -421,10 +460,9 @@ struct CalculatorDemo: View {
                 .offset(y: side * 0.24)
 
                 // Finger on a key, and the extra functions above it
-                let key = CGPoint(x: side * 0.5 - side * 0.19, y: side * 0.5 + side * 0.06)
                 Circle()
-                    .fill(PMTheme.accent.opacity(0.28 * Double(press) * Double(1 - fade)))
-                    .frame(width: 40 * (0.6 + 0.4 * press), height: 40 * (0.6 + 0.4 * press))
+                    .fill(PMTheme.accent.opacity(ringOpacity))
+                    .frame(width: ringSize, height: ringSize)
                     .position(key)
                 HStack(spacing: 6) {
                     ForEach(Array(["x²", "xʸ", "√", "∛"].enumerated()), id: \.offset) { index, label in
@@ -437,9 +475,9 @@ struct CalculatorDemo: View {
                 }
                 .padding(6)
                 .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white).shadow(color: .black.opacity(0.22), radius: 10, y: 4))
-                .scaleEffect(0.7 + 0.3 * popup, anchor: .bottom)
-                .opacity(popup * (1 - fade))
-                .position(x: key.x + 60, y: key.y - 48)
+                .scaleEffect(popupScale, anchor: .bottom)
+                .opacity(popupOpacity)
+                .position(popupPosition)
             }
         }
     }
