@@ -65,7 +65,8 @@ struct SchematicStyle {
 /// transformed by the camera, so line widths and text stay crisp at any zoom.
 enum SchematicRenderer {
     static let ink = Color(red: 0.12, green: 0.12, blue: 0.14)
-    static let dim = Color(red: 0.12, green: 0.12, blue: 0.14).opacity(0.22)
+    /// Out-of-focus ink: faded, but never so faint that a part looks missing when zoomed out.
+    static let dim = Color(red: 0.12, green: 0.12, blue: 0.14).opacity(0.42)
     static let nodeLabelColor = Color(red: 0.33, green: 0.45, blue: 0.75)
 
     static func draw(_ layout: SchematicLayout, camera: SchematicCamera, style: SchematicStyle, in context: inout GraphicsContext, size: CGSize) {

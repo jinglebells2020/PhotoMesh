@@ -343,7 +343,12 @@ enum SchematicLayoutEngine {
     }
 
     static func layout(circuit: Circuit, geometry: CircuitGeometry) -> SchematicLayout {
-        let width = canvasHeight * max(0.5, min(3, geometry.aspectRatio))
+        // A photo's aspect is only a hint, so it is kept within reason; a sketch's geometry is
+        // exact (it carries its own wires) and must keep its true proportions, or a wide or tall
+        // drawing comes out squashed and its far parts sit away from where they were drawn.
+        let exact = geometry.wires != nil
+        let aspect = exact ? max(0.1, min(12, geometry.aspectRatio)) : max(0.5, min(3, geometry.aspectRatio))
+        let width = canvasHeight * aspect
         let height = canvasHeight
         func toCanvas(_ p: SPoint) -> SPoint { SPoint(x: p.x * width, y: p.y * height) }
 
