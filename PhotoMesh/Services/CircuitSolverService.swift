@@ -162,11 +162,11 @@ struct SampleCircuitSolver: CircuitSolverService {
 
     static let sample = Circuit(
         components: [
-            Component(id: "V1", kind: .voltageSource, value: 10, nodeA: "n1", nodeB: "0"),
-            Component(id: "R1", kind: .resistor, value: 2, nodeA: "n1", nodeB: "n2"),
-            Component(id: "R2", kind: .resistor, value: 4, nodeA: "n2", nodeB: "0"),
-            Component(id: "R3", kind: .resistor, value: 3, nodeA: "n2", nodeB: "n3"),
-            Component(id: "V2", kind: .voltageSource, value: 5, nodeA: "n3", nodeB: "0"),
+            Component(id: "V1", kind: .voltageSource, value: 10, nodeA: "a", nodeB: "0"),
+            Component(id: "R1", kind: .resistor, value: 2, nodeA: "a", nodeB: "b"),
+            Component(id: "R2", kind: .resistor, value: 4, nodeA: "b", nodeB: "0"),
+            Component(id: "R3", kind: .resistor, value: 3, nodeA: "b", nodeB: "c"),
+            Component(id: "V2", kind: .voltageSource, value: 5, nodeA: "c", nodeB: "0"),
         ],
         groundNode: "0",
         meshes: [["V1", "R1", "R2"], ["R2", "R3", "V2"]],
@@ -180,7 +180,7 @@ struct SampleCircuitSolver: CircuitSolverService {
                 "R3": .init(box: SRect(minX: 0.57, minY: 0.21, maxX: 0.74, maxY: 0.27), isHorizontal: true),
                 "V2": .init(box: SRect(minX: 0.80, minY: 0.43, maxX: 0.865, maxY: 0.535), isHorizontal: false),
             ],
-            nodePoints: ["0": SPoint(x: 0.5, y: 0.725), "n1": SPoint(x: 0.17, y: 0.24), "n2": SPoint(x: 0.5, y: 0.24), "n3": SPoint(x: 0.83, y: 0.24)],
+            nodePoints: ["0": SPoint(x: 0.5, y: 0.725), "a": SPoint(x: 0.17, y: 0.24), "b": SPoint(x: 0.5, y: 0.24), "c": SPoint(x: 0.83, y: 0.24)],
             aspectRatio: 900.0 / 620.0
         )
     )

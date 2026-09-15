@@ -157,7 +157,7 @@ struct CircuitPayload: Decodable {
             return Unknown(kind: kind, element: payload.element?.value, node: payload.node?.value, between: payload.between?.map(\.value))
         }
 
-        return Circuit(
+        let circuit = Circuit(
             components: converted,
             groundNode: groundNode?.value ?? "0",
             meshes: (meshes ?? []).map { $0.map(\.value) },
@@ -167,6 +167,8 @@ struct CircuitPayload: Decodable {
             unsupported: (unsupported ?? []).map(\.value).filter { !$0.isEmpty },
             geometry: geometry
         )
+        // Whatever the model called the nodes, the app names them a, b, c… (ground stays "0").
+        return circuit.withLetterNodes()
     }
 }
 

@@ -124,17 +124,37 @@ enum SchematicRenderer {
             }
         }
 
-        // Ground
+        // Supernodes: a dashed boundary around the tied nodes and the source between them, the
+        // way the textbook draws the region KCL is applied to.
+        for supernode in style.focus.supernodes {
+            var region = SRect.empty
+            for node in supernode.nodes { region.include(layout.bounds(ofNode: node)) }
+            region.include(layout.bounds(ofElements: supernode.elements))
+            guard !region.isEmpty else { continue }
+            region = region.insetBy(24)
+            let rect = CGRect(x: region.minX, y: region.minY, width: region.width, height: region.height).applying(t)
+            let path = Path(roundedRect: rect, cornerRadius: min(max(16 * camera.scale, 10), 24), style: .continuous)
+            context.fill(path, with: .color(PMTheme.accent.opacity(0.05)))
+            context.stroke(path, with: .color(PMTheme.accent.opacity(0.9)), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, dash: [7, 5]))
+            context.draw(
+                Text("supernode").font(.system(size: 10.5, weight: .semibold, design: .rounded)).foregroundStyle(PMTheme.accent),
+                at: CGPoint(x: rect.minX + 10, y: rect.minY - 4), anchor: .bottomLeading
+            )
+        }
+
+        // Ground. Drawn in screen points with a floor on its size, so a zoomed-out circuit keeps
+        // a legible ground symbol instead of a dot.
         if let ground = layout.groundPoint {
             let focused = focusedNodes.contains(layout.groundNode)
+            let g: CGFloat = min(max(camera.scale, 0.6), 1.3)
+            let p = camera.convert(ground)
             var path = Path()
-            let x = ground.x, y = ground.y
-            path.move(to: CGPoint(x: x, y: y)); path.addLine(to: CGPoint(x: x, y: y + 16))
-            for (i, half) in [18.0, 12.0, 6.0].enumerated() {
-                let yy = y + 16 + Double(i) * 7
-                path.move(to: CGPoint(x: x - half, y: yy)); path.addLine(to: CGPoint(x: x + half, y: yy))
+            path.move(to: p); path.addLine(to: CGPoint(x: p.x, y: p.y + 16 * g))
+            for (i, half) in [CGFloat(18), CGFloat(12), CGFloat(6)].enumerated() {
+                let yy = p.y + 16 * g + CGFloat(i) * 7 * g
+                path.move(to: CGPoint(x: p.x - half * g, y: yy)); path.addLine(to: CGPoint(x: p.x + half * g, y: yy))
             }
-            context.stroke(path.applying(t), with: .color(focused ? PMTheme.accent : (hasFocus ? dim : ink)), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+            context.stroke(path, with: .color(focused ? PMTheme.accent : (hasFocus ? dim : ink)), style: StrokeStyle(lineWidth: 2, lineCap: .round))
         }
 
         // Symbols
@@ -165,14 +185,15 @@ enum SchematicRenderer {
                 }
                 let anchorPoint = CGPoint(x: p.x + 7, y: p.y - 9)
                 let color: Color = focused ? PMTheme.accent : (hasFocus ? nodeLabelColor.opacity(0.4) : nodeLabelColor)
-                var text = subscripted(label.node)
+                let size: CGFloat = focused ? 12 : 11
+                let weight: Font.Weight = focused ? .semibold : .medium
+                var text = Text(subscripted(label.node)).font(.system(size: size, weight: weight, design: .rounded))
                 if let v = style.focus.nodeVoltages[label.node], label.node != layout.groundNode {
-                    text += "  " + style.formatter.format(v, "V")
+                    // "Va = 3 V": the node's voltage symbol with a true subscript.
+                    text = nodeVoltageText(label.node, size: size, weight: weight)
+                        + Text(" = " + style.formatter.format(v, "V")).font(.system(size: size, weight: weight, design: .rounded))
                 }
-                context.draw(
-                    Text(text).font(.system(size: focused ? 12 : 11, weight: focused ? .semibold : .medium, design: .rounded)).foregroundStyle(color),
-                    at: anchorPoint, anchor: .bottomLeading
-                )
+                context.draw(text.foregroundStyle(color), at: anchorPoint, anchor: .bottomLeading)
             }
         }
 
@@ -458,6 +479,15 @@ enum SchematicRenderer {
         }
         let label = style.formatter.format(abs(current), "A")
         context.draw(Text("I = \(label)").font(.system(size: 10.5, weight: .semibold, design: .rounded)).foregroundStyle(PMTheme.accent), at: p, anchor: anchor)
+    }
+
+    /// "Va" with a real subscript for node "a" (legacy "n2" reads V₂).
+    static func nodeVoltageText(_ node: String, size: CGFloat, weight: Font.Weight) -> Text {
+        let base = Text("V").font(.system(size: size, weight: weight, design: .rounded))
+        if node.count > 1, node.first == "n", node.dropFirst().allSatisfy(\.isNumber) {
+            return Text("V" + QuantityFormatter.subscriptDigits(String(node.dropFirst()))).font(.system(size: size, weight: weight, design: .rounded))
+        }
+        return base + Text(node).font(.system(size: size * 0.74, weight: weight, design: .rounded)).baselineOffset(-size * 0.22)
     }
 
     /// "R1" → "R₁", "n2" → "n₂": the way every textbook labels parts and nodes.

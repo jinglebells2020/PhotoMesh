@@ -121,7 +121,7 @@ struct CircuitEditorView: View {
         var index = draft.resistors.count + 1
         while draft.component("R\(index)") != nil { index += 1 }
         let nodes = nodeNames
-        let a = nodes.first { $0 != draft.groundNode } ?? "n1"
+        let a = nodes.first { $0 != draft.groundNode } ?? "a"
         let b = draft.groundNode.isEmpty ? "0" : draft.groundNode
         draft.components.append(Component(id: "R\(index)", kind: .resistor, value: 1000, nodeA: a, nodeB: b))
     }
@@ -298,9 +298,9 @@ private struct NodeField: View {
                         .buttonStyle(.plain)
                     }
                     Button {
-                        var index = nodeNames.count
-                        while nodeNames.contains("n\(index)") { index += 1 }
-                        value = "n\(index)"
+                        var index = 0
+                        while nodeNames.contains(Circuit.nodeLetter(index)) { index += 1 }
+                        value = Circuit.nodeLetter(index)
                     } label: {
                         Text("+ new")
                             .font(.system(size: 13, weight: .medium, design: .rounded))

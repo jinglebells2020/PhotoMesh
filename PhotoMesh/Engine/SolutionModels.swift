@@ -51,8 +51,16 @@ struct StepFocus: Hashable {
     var animateCurrents = false
     /// Mark + and − across each element whose current is known (voltage steps).
     var showPolarity = false
+    /// Groups of nodes to draw a dashed boundary around, with the sources tying them together.
+    var supernodes: [Supernode] = []
 
     var isEmpty: Bool { nodes.isEmpty && elements.isEmpty && loops.isEmpty }
+}
+
+/// Nodes joined by floating voltage sources that KCL treats as one region.
+struct Supernode: Hashable {
+    var nodes: [String]
+    var elements: [String]
 }
 
 /// A mesh / loop as element ids in traversal order, for drawing circulating arrows.

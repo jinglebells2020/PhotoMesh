@@ -56,12 +56,13 @@ struct SolutionsSheet: View {
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                             if showConsent { ConsentCard { showConsent = false } }
                         case .loaded(let analysis):
-                            ForEach(Array(analysis.methods.enumerated()), id: \.element.id) { index, method in
-                                MethodCard(method: method, methodIndex: index, analysis: analysis, request: request)
-                                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                            }
+                            // The circuit first: what was solved, then how.
                             if analysis.circuit != nil {
                                 RecognizedCircuitCard(analysis: analysis, image: sourceImage, isDrawn: isDrawn)
+                                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                            }
+                            ForEach(Array(analysis.methods.enumerated()), id: \.element.id) { index, method in
+                                MethodCard(method: method, methodIndex: index, analysis: analysis, request: request)
                                     .transition(.move(edge: .bottom).combined(with: .opacity))
                             }
                             if showConsent { ConsentCard { showConsent = false } }
@@ -283,8 +284,8 @@ private struct RecognizedCircuitCard: View {
                     .padding(.top, 4)
 
                 if let layout = analysis.layout {
-                    StaticSchematic(layout: layout)
-                        .frame(height: 190)
+                    InteractiveSchematic(layout: layout)
+                        .frame(height: 220)
                         .padding(.top, 14)
                 }
 
@@ -459,7 +460,18 @@ private struct FailedCard: View {
     SolutionsSheet(request: SolutionRequest(source: .expression("12/320")))
 }
 
-/// Non-interactive schematic that fits its frame; used on cards.
+/// Schematic on a card that can be looked at closely: pinch to zoom, drag to pan once zoomed,
+/// double-tap to fit. The page keeps scrolling normally until the user zooms in.
+struct InteractiveSchematic: View {
+    let layout: SchematicLayout
+    var focus = StepFocus()
+
+    var body: some View {
+        SchematicWindow(layout: layout, focus: focus, embedded: true)
+    }
+}
+
+/// Non-interactive schematic that fits its frame; used on small cards and history rows.
 struct StaticSchematic: View {
     let layout: SchematicLayout
     var focus = StepFocus()
@@ -499,8 +511,8 @@ private struct ReviewCard: View {
                 .foregroundStyle(PMTheme.ink)
                 .padding(.top, 4)
 
-            StaticSchematic(layout: layout)
-                .frame(height: 200)
+            InteractiveSchematic(layout: layout)
+                .frame(height: 240)
                 .padding(.top, 14)
 
             if let image {

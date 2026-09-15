@@ -148,6 +148,62 @@ struct Circuit: Hashable, Codable {
     static func naturalOrder(_ a: String, _ b: String) -> Bool {
         a.compare(b, options: [.numeric, .caseInsensitive]) == .orderedAscending
     }
+
+    // MARK: Node names
+
+    /// Textbook node names: "a", "b", "c", … then "aa", "ab", …; the reference node keeps its own.
+    static func nodeLetter(_ index: Int) -> String {
+        var n = max(index, 0)
+        var name = ""
+        repeat {
+            name = String(UnicodeScalar(UInt8(97 + n % 26))) + name
+            n = n / 26 - 1
+        } while n >= 0
+        return name
+    }
+
+    /// True for a name the app gives nodes itself ("a", "b", … "zz").
+    static func isLetterNode(_ node: String) -> Bool {
+        !node.isEmpty && node.count <= 2 && node.allSatisfy { $0.isLetter && $0.isLowercase && $0.isASCII }
+    }
+
+    /// The same circuit with every node except the reference renamed to letters in natural
+    /// order ("n1", "n2", "top" → "a", "b", "c"), so equations read Va, Vb rather than V(n1) and
+    /// never clash with source names like V1. Circuits already lettered are returned as they are.
+    func withLetterNodes() -> Circuit {
+        let others = nodes.filter { $0 != groundNode }
+        guard !others.isEmpty, !others.allSatisfy(Circuit.isLetterNode) else { return self }
+        var map: [String: String] = [groundNode: groundNode]
+        for (index, node) in others.enumerated() { map[node] = Circuit.nodeLetter(index) }
+        return renamingNodes { map[$0] ?? $0 }
+    }
+
+    func renamingNodes(_ rename: (String) -> String) -> Circuit {
+        var copy = self
+        copy.components = components.map { component in
+            var c = component
+            c.nodeA = rename(c.nodeA)
+            c.nodeB = rename(c.nodeB)
+            return c
+        }
+        copy.groundNode = rename(groundNode)
+        copy.unknowns = unknowns.map { unknown in
+            var u = unknown
+            u.node = u.node.map(rename)
+            u.between = u.between?.map(rename)
+            return u
+        }
+        if var geometry = copy.geometry {
+            geometry.nodePoints = Dictionary(geometry.nodePoints.map { (rename($0.key), $0.value) }, uniquingKeysWith: { first, _ in first })
+            geometry.wires = geometry.wires?.map { wire in
+                var w = wire
+                w.node = rename(w.node)
+                return w
+            }
+            copy.geometry = geometry
+        }
+        return copy
+    }
 }
 
 // MARK: - Validation

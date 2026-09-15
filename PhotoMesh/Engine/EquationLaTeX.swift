@@ -207,6 +207,10 @@ enum EquationLaTeX {
             guard letters.count <= 2 else { return nil }
             return "\(letters)_{\(digits)}"
         }
+        // Node voltages: "Va" → V with subscript a, "Vab" → V with subscript ab.
+        if letters.count >= 2, letters.count <= 3, letters.first == "V", letters.dropFirst().allSatisfy({ $0.isLowercase }) {
+            return "V_{\(letters.dropFirst())}"
+        }
         return letters.count == 1 ? letters : nil
     }
 

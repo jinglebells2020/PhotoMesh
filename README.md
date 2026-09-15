@@ -15,6 +15,7 @@ method to follow.
 | --- | --- |
 | Camera home (menu, help, adjustable viewfinder + crosshair, shutter, Calculator, album, flashlight, hint pill) | Done, pixel layout matched to Photomath |
 | Left slide‑out menu (Language, Settings, Help center, About us, PhotoMesh Plus) | Done, tap + edge‑swipe + drag to close |
+| Help center with playable demonstrations (scan, draw, steps, calculator) drawn live by the app itself | Done, `HelpDemos.swift` |
 | Calculator sheet (dotted input line, live `= result`, Show Solution, history) | Done |
 | Custom keyboard (abc / history / arrows / return / delete row, four category chips, key grid, press bubble, long‑press alternates on green‑dot keys) | Done |
 | Help center ("How to use" cards) | Done |
@@ -102,6 +103,13 @@ it); an inductor at DC is a wire and the dots ride through its coil. Mesh steps 
 circulating around each window, reversed for a negative mesh current. The animation runs only
 while such a step is open and respects Reduce Motion.
 
+**Node names.** Nodes are named the way a textbook names them: letters `a`, `b`, `c`… from left
+to right, with the reference node `0`, so node voltages read *Va*, *Vb* (typeset as V with a
+subscript) and never clash with source names like V1. Whatever the recognizer or the sketch
+called a node, `Circuit.withLetterNodes()` renames it on the way in. A supernode step draws a
+dashed, lightly tinted boundary around the tied nodes and the source between them, labelled
+"supernode", exactly the region the KCL equation is written for.
+
 **Drawing conventions.** The schematic follows what a student sees in a textbook or lecture
 figure (checked against a dozen Wikipedia / Commons figures on nodal analysis, mesh analysis,
 Kirchhoff's laws, current dividers, Thévenin and Wheatstone bridges): parts and nodes are
@@ -117,6 +125,9 @@ each analysed node with an accent dot at its label, the way an analysis figure m
 node 2 even between two series parts.
 The expand button (or a tap) opens `CircuitExplorerView`: free pinch/pan, double‑tap to fit, tap
 a component or wire to read about it in the floating card at the bottom.
+
+The ground symbol and the dots are drawn in screen points with a floor on their size, so a
+zoomed‑out circuit keeps a legible ground instead of a speck.
 
 The window is live: drag to pan, pinch to zoom, double‑tap to refit. The next step's focus
 takes the camera back over (a re‑centre chip appears whenever you have moved it). New steps and
@@ -202,6 +213,11 @@ to parse it falls back to the plain text, and the plain text stays the accessibi
 converter is checked against the full corpus of lines the engine emits for the test circuits.
 
 ### Checking a scan
+
+The "Is this what's on the page?" card and the circuit card at the top of Solutions show the
+schematic in an `InteractiveSchematic`: pinch to zoom, drag to pan once zoomed, double‑tap to
+fit; until you zoom, the page keeps scrolling normally. Solutions lists the circuit card first
+(what was solved), then a card per method (how).
 
 After recognition the Solutions sheet first shows the redrawn circuit, the part list, the ground
 node and the question next to a thumbnail of the photo. *Looks right* solves; *Fix something*

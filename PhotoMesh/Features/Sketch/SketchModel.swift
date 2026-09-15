@@ -236,7 +236,7 @@ struct SketchDocument: Equatable {
             if groundRoots.contains(root) {
                 names[root] = "0"
             } else {
-                names[root] = "n\(index)"
+                names[root] = Circuit.nodeLetter(index - 1)
                 index += 1
             }
         }

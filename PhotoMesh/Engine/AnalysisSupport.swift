@@ -12,13 +12,15 @@ struct AnalysisContext {
 
     // MARK: Symbols
 
-    /// "V₁" for node "n1", "V(A)" for other ids, nil for the reference node.
+    /// "Va" for node "a" (typeset as V with subscript a), "V₁" for a legacy "n1", "V(top)" for
+    /// any other id, nil for the reference node.
     func voltageSymbol(_ node: String) -> String? {
         guard node != circuit.groundNode else { return nil }
         return AnalysisContext.voltageSymbol(forNodeId: node)
     }
 
     static func voltageSymbol(forNodeId node: String) -> String {
+        if Circuit.isLetterNode(node) { return "V" + node }
         if node.count > 1, node.first == "n", node.dropFirst().allSatisfy(\.isNumber) {
             return "V" + QuantityFormatter.subscriptDigits(String(node.dropFirst()))
         }

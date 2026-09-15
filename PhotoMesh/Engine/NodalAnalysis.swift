@@ -172,7 +172,7 @@ enum NodalAnalysis {
                 equations: lines,
                 explanation: "Ohm's law does not give the current through a voltage source, so KCL cannot be written for either of its nodes alone. Draw a boundary around both nodes (a supernode): the source current stays inside and cancels out. The source still contributes an equation, the fixed difference between the two node voltages.",
                 result: lines.first ?? "",
-                focus: StepFocus(nodes: group, elements: sources.map(\.id), zoom: true, nodeVoltages: known)
+                focus: StepFocus(nodes: group, elements: sources.map(\.id), zoom: true, nodeVoltages: known, supernodes: [Supernode(nodes: group, elements: sources.map(\.id))])
             ))
         }
 
@@ -283,7 +283,8 @@ enum NodalAnalysis {
             lines.append("→ " + collected)
             systemEquations.append(combined)
             let adjacent = circuit.components.filter { c in c.kind != .voltageSource && group.contains(where: { c.touches($0) }) }.map(\.id)
-            let focus = StepFocus(nodes: group, elements: adjacent, zoom: true, nodeVoltages: known)
+            let tied = isSuper ? floatingSources.filter { group.contains($0.nodeA) && group.contains($0.nodeB) }.map(\.id) : []
+            let focus = StepFocus(nodes: group, elements: adjacent, zoom: true, nodeVoltages: known, supernodes: isSuper ? [Supernode(nodes: group, elements: tied)] : [])
             equationFocus.append(focus)
             steps.append(AnalysisStep(
                 title: isSuper ? "Apply KCL to the supernode \(group.joined(separator: "–"))" : "Apply KCL at node \(node)",

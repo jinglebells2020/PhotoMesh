@@ -98,9 +98,12 @@ struct DotGrid: View {
 /// Drag to pan and pinch to zoom in place; the next step's focus takes the camera back over.
 struct SchematicWindow: View {
     let layout: SchematicLayout
-    let loops: [LoopPath]
-    let focus: StepFocus
-    let onExpand: () -> Void
+    var loops: [LoopPath] = []
+    var focus = StepFocus()
+    /// Inside a scrolling card: pinching zooms, and dragging pans only once zoomed in, so the
+    /// page underneath still scrolls normally.
+    var embedded = false
+    var onExpand: (() -> Void)? = nil
 
     private struct PinchState {
         var magnification: CGFloat
@@ -121,15 +124,34 @@ struct SchematicWindow: View {
             ZStack(alignment: .topTrailing) {
                 Color.white
                 DotGrid()
-                SchematicView(layout: layout, style: SchematicStyle(focus: focus, loops: loops, formatter: FormattingPreferences.formatter()), camera: liveCamera)
+                let schematic = SchematicView(layout: layout, style: SchematicStyle(focus: focus, loops: loops, formatter: FormattingPreferences.formatter()), camera: liveCamera)
                     .contentShape(Rectangle())
-                    .gesture(SimultaneousGesture(dragGesture, magnifyGesture))
-                    .onTapGesture(count: 2) {
-                        userMoved = false
-                        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
-                            committed = target(for: focus, in: size)
-                        }
+                    .simultaneousGesture(magnifyGesture)
+                Group {
+                    if embedded, !zoomedIn {
+                        schematic
+                    } else if embedded {
+                        schematic.highPriorityGesture(dragGesture)
+                    } else {
+                        schematic.gesture(dragGesture)
                     }
+                }
+                .onTapGesture(count: 2) {
+                    userMoved = false
+                    withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                        committed = target(for: focus, in: size)
+                    }
+                }
+
+                if embedded, !zoomedIn {
+                    Text("pinch to zoom · double-tap to fit")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(PMTheme.tertiaryText)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                        .allowsHitTesting(false)
+                }
 
                 HStack(spacing: 6) {
                     if userMoved {
@@ -149,15 +171,17 @@ struct SchematicWindow: View {
                         .accessibilityLabel("Re-centre on this step")
                         .transition(.scale.combined(with: .opacity))
                     }
-                    Button(action: onExpand) {
-                        Image(systemName: "arrow.up.left.and.arrow.down.right")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(PMTheme.ink)
-                            .frame(width: 28, height: 28)
-                            .background(Circle().fill(Color.white.opacity(0.9)).shadow(color: .black.opacity(0.12), radius: 4, y: 1))
+                    if let onExpand {
+                        Button(action: onExpand) {
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(PMTheme.ink)
+                                .frame(width: 28, height: 28)
+                                .background(Circle().fill(Color.white.opacity(0.9)).shadow(color: .black.opacity(0.12), radius: 4, y: 1))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Open circuit full screen")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Open circuit full screen")
                 }
                 .padding(6)
                 .animation(.easeOut(duration: 0.2), value: userMoved)
@@ -182,6 +206,12 @@ struct SchematicWindow: View {
     }
 
     // MARK: Camera
+
+    /// The user has zoomed past the fitted view (or panned): dragging then pans the drawing.
+    private var zoomedIn: Bool {
+        guard size.width > 0 else { return false }
+        return userMoved || committed.scale > target(for: focus, in: size).scale * 1.02
+    }
 
     private var liveCamera: SchematicCamera {
         var camera = committed
