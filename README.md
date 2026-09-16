@@ -58,17 +58,30 @@ circuit through the real engine, so every screen can be exercised without hardwa
      shown, applies Ohm's law to the equivalent, then undoes each combination, sharing the
      current along series parts and the voltage across parallel parts;
    - `NodalAnalysis`: modified nodal analysis internally; the walkthrough lists every current
-     leaving a node ("through R1 to n1: (V₂ − V₁)/R1 = (V₂ − 9)/1000"), clears the fractions
-     with a common multiple so the equations have whole‑number coefficients, handles fixed
-     nodes and supernodes, and solves the system by numbered elimination steps followed by
-     back‑substitution (`SystemNarrator`), checked against the matrix solution;
+     leaving a node ("through R1 to a: (Vb − Va)/R1 = (Vb − 9)/1000"), clears the fractions
+     with a common multiple so the equations have whole‑number coefficients, handles nodes
+     fixed by sources (including sources chained off a fixed node) and supernodes, and solves
+     the system by numbered elimination steps followed by back‑substitution
+     (`SystemNarrator`), checked against the matrix solution;
    - `MeshAnalysis`: meshes are the windows of the drawing (planar face enumeration from the
      layout, falling back to the recognizer's hints or a cycle basis), all clockwise so shared
      resistors read R·(I₁ − I₂); KVL lists each element crossed, the sum, the expansion and the
      collected equation; current sources become known mesh currents or supermeshes; a negative
      result gets a "read the signs" step.
-   Every method opens with a given/find step and closes with a power‑balance + KCL check and the
-   answer. The methods are compared element by element; the UI shows whether they agree.
+   Every method opens with a given/find step and closes with a power‑balance + KCL check
+   (both computed, never assumed) and the answer. The methods are compared element by
+   element; the UI shows whether they agree.
+
+   The narrated algebra is exact: while a system is being solved every coefficient and every
+   intermediate value is kept as a fraction (`Fraction` in `StepAlgebra.swift`) whenever the
+   circuit's numbers allow it, so the working reads "Vc = 4600/775 = 184/31" and a value
+   substituted into the next equation is the exact one. When a fraction would be unreadable
+   (E12 values give things like 6534/4001) the lines switch to decimals carrying one guard
+   digit, chosen so that redoing the printed arithmetic reproduces the printed result
+   (12/140.74 = 85.26 mA). Elimination multipliers are the smallest whole numbers that make
+   the two coefficients match; when those would exceed two digits the pivot row is scaled by
+   the ratio itself ("(27/6991)×(1)"). Explanations are given in full the first time a rule
+   is used and briefly afterwards.
 4. **Present** – one card per method on the Solutions sheet, each opening its own walkthrough.
 
 Values are formatted with engineering prefixes (37.5 mA, 4.7 kΩ) following the settings.
@@ -274,10 +287,23 @@ variable in the scheme. The model id is editable; any OpenRouter model with imag
 
 ### Engine tests
 
-The engine is plain Foundation code, so it also builds on Linux. `scratchpad` scripts used
-during development fed synthetic schematics (series loop, loaded divider, two sources,
-current source, supermesh, supernode, Wheatstone bridge) through the recognizer and the
-solver and compared against hand‑computed values; nodal and mesh agree on all of them.
+The engine is plain Foundation code, so it also builds on Linux. A development harness feeds
+sixteen fixtures through the solver: series loop, loaded divider, two sources, current source
+(both orientations), supermesh, supernode, Wheatstone bridge, DC parts (battery, inductor,
+lamp, capacitor, switch), a source with its + terminal on the ground side, a parallel‑only
+network, two batteries in series, and two E12‑valued networks (a ladder and a bridge). For
+each one it checks hand‑computed values, that every offered method agrees on every element
+current, and that no method fell back from the narrated solve.
+
+On top of that a step verifier reads every line of every step: it splits each line at its
+"=" signs, evaluates every segment that is arithmetic (numbers with SI prefixes and units,
+fractions, squares) or a known symbol (node voltages, element values, element currents and
+voltages, mesh currents, all taken from the true solution) and requires all segments to
+agree. So "17·Vb − 2·Vc = 100" is checked against the real node voltages, "(85.263 mA)²·100 Ω
+= 727 mW" is checked as arithmetic, and a "→ Vb = 6.581 V" line is checked against the
+division written above it. The last run verified about 1,150 such equalities with none wrong.
+A separate corpus check converts every produced line to LaTeX and rejects anything the
+typesetter could not render.
 
 ## Project layout
 

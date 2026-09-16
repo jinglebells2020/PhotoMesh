@@ -688,7 +688,10 @@ enum SchematicLayoutEngine {
             let unit = length > 0 ? dir * (1 / length) : SPoint(x: 1, y: 0)
             let perp = SPoint(x: -unit.y, y: unit.x)
             let total = parallelTotal[key] ?? 1
-            let offset = perp * ((Double(n) - Double(total - 1) / 2) * 70)
+            // The fan is laid out on the canonical (sorted) node order, so an element drawn the
+            // other way round still gets its own slot instead of landing on a neighbour.
+            let flip = component.nodeA > component.nodeB ? -1.0 : 1.0
+            let offset = perp * (flip * (Double(n) - Double(total - 1) / 2) * 70)
             let a = pa + unit * (length * 0.32) + offset
             let b = pa + unit * (length * 0.68) + offset
             symbols.append(SchematicLayout.Symbol(id: component.id, kind: component.kind, value: component.value, nodeA: component.nodeA, nodeB: component.nodeB, a: a, b: b, labelSide: perp))

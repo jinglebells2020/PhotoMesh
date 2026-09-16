@@ -347,8 +347,8 @@ private struct StepRow: View {
             return "Kirchhoff's current law: charge cannot pile up at a node, so the currents flowing out must add up to the currents flowing in."
         case let t where t.hasPrefix("Apply KVL"):
             return "Kirchhoff's voltage law: going once around any closed loop brings you back to the same potential, so the voltage rises and drops sum to zero."
-        case let t where t.hasPrefix("Identify the meshes"):
-            return "Each mesh current is an independent unknown; there are exactly (elements − nodes + 1) of them for a connected circuit."
+        case let t where t.hasPrefix("Identify the meshes") || t.hasPrefix("Choose independent loops"):
+            return "Each loop current is an independent unknown; there are exactly (elements − nodes + 1) of them for a connected circuit."
         case let t where t.hasPrefix("Choose the reference"):
             return "Only voltage differences matter physically, so one node can be set to 0 V without loss of generality."
         default:

@@ -98,43 +98,91 @@ enum NodalAnalysis {
             focus: StepFocus(nodes: nodes)
         ))
 
+        // Voltages fixed by sources: a source to ground fixes its node, and a source whose other
+        // end is already fixed carries the value one node further (two batteries in series).
+        var known: [String: Double] = [:]
+        var fixedLines: [String] = []
+        var fixedSources: [String] = []
+        var chained = false
+        var pending = circuit.voltageSources
+        var progress = true
+        while progress {
+            progress = false
+            for source in pending {
+                let a = source.nodeA, b = source.nodeB
+                let va: Double? = a == ground ? 0 : known[a]
+                let vb: Double? = b == ground ? 0 : known[b]
+                if let vb, va == nil {
+                    known[a] = vb + source.value
+                    if b == ground {
+                        fixedLines.append("\(context.voltageSymbol(a) ?? "") = \(context.volts(source.value))  (\(source.id): + at \(a), − on ground)")
+                    } else {
+                        chained = true
+                        fixedLines.append("\(context.voltageSymbol(a) ?? "") = \(context.voltageSymbol(b) ?? "") + \(source.id) = \(f.term(vb, "V")) + \(context.volts(source.value)) = \(context.volts(vb + source.value))  (\(source.id): + at \(a), − at \(b))")
+                    }
+                } else if let va, vb == nil {
+                    known[b] = va - source.value
+                    if a == ground {
+                        fixedLines.append("\(context.voltageSymbol(b) ?? "") = \(context.volts(-source.value))  (\(source.id): + on ground, − at \(b))")
+                    } else {
+                        chained = true
+                        fixedLines.append("\(context.voltageSymbol(b) ?? "") = \(context.voltageSymbol(a) ?? "") − \(source.id) = \(f.term(va, "V")) − \(context.volts(source.value)) = \(context.volts(va - source.value))  (\(source.id): + at \(a), − at \(b))")
+                    }
+                } else {
+                    continue
+                }
+                fixedSources.append(source.id)
+                pending.removeAll { $0.id == source.id }
+                progress = true
+                break
+            }
+        }
+        let floatingSources = pending
+
         // 2. Reference + plan
         let unknownSymbols = unknownNodes.compactMap { context.voltageSymbol($0) }
-        let groundedSourceCount = circuit.voltageSources.filter { $0.nodeA == ground || $0.nodeB == ground }.count
-        let equationsNeeded = max(0, unknownNodes.count - groundedSourceCount)
+        let fixedCount = known.count
+        let floatingCount = floatingSources.count
+        let kclCount = max(0, unknownNodes.count - fixedCount - floatingCount)
+        var plan = "That leaves \(unknownSymbols.count) unknown node voltage\(unknownSymbols.count == 1 ? "" : "s")"
+        var clauses: [String] = []
+        if fixedCount > 0 {
+            let which = fixedCount == unknownSymbols.count ? (fixedCount == 1 ? "it" : "all of them") : "\(fixedCount) of them"
+            clauses.append("\(which) \(fixedCount == 1 ? "is" : "are") fixed directly by \(fixedCount == 1 ? "a voltage source" : "voltage sources")")
+        }
+        if floatingCount > 0 {
+            clauses.append("\(floatingCount) voltage source\(floatingCount == 1 ? " sits" : "s sit") between two unknown nodes and will tie them into a supernode, each giving one relation between the two voltages")
+        }
+        if !clauses.isEmpty { plan += "; " + clauses.joined(separator: ", and ") }
+        if kclCount == 0 {
+            plan += ", so no KCL equation is needed at all"
+        } else {
+            plan += ", so \(kclCount) KCL equation\(kclCount == 1 ? " is" : "s are") needed"
+            if floatingCount > 0 { plan += " besides the \(floatingCount) source relation\(floatingCount == 1 ? "" : "s")" }
+        }
+        plan += "."
+        let otherDegree = unknownNodes.map { circuit.components(at: $0).count }.max() ?? 0
+        let groundIsBusiest = circuit.components(at: ground).count > otherDegree
         steps.append(AnalysisStep(
             title: "Choose the reference node",
             summary: "Node \(ground) is ground: 0 V by definition",
             equations: ["V(\(ground)) = 0", "Unknowns: " + unknownSymbols.joined(separator: ", ")],
-            explanation: "Voltages are always differences, so one node is declared 0 V and every other node voltage is measured against it. The node with the most connections (or the one drawn with a ground symbol) keeps the equations short. That leaves \(unknownSymbols.count) unknown\(unknownSymbols.count == 1 ? "" : "s")\(groundedSourceCount > 0 ? ", of which \(groundedSourceCount) will be fixed directly by a source, so \(equationsNeeded) KCL equation\(equationsNeeded == 1 ? " is" : "s are") needed" : ", so \(equationsNeeded) KCL equation\(equationsNeeded == 1 ? " is" : "s are") needed").",
+            explanation: "Voltages are always differences, so one node is declared 0 V and every other node voltage is measured against it. Node \(ground) is that reference here\(groundIsBusiest ? "; it is also the node with the most connections, which keeps the equations short" : ""). Any node would do: the element currents and voltages would come out the same, only the node numbers would shift. \(plan)",
             result: "\(unknownSymbols.count) unknown node voltage\(unknownSymbols.count == 1 ? "" : "s")",
             focus: StepFocus(nodes: [ground], zoom: true)
         ))
 
-        // 3. Voltages fixed by grounded sources; supernodes for floating sources
-        var known: [String: Double] = [:]
-        var fixedLines: [String] = []
-        var floatingSources: [Component] = []
-        for source in circuit.voltageSources {
-            if source.nodeB == ground {
-                known[source.nodeA] = source.value
-                fixedLines.append("\(context.voltageSymbol(source.nodeA) ?? "") = \(context.volts(source.value))  (\(source.id): + at \(source.nodeA), − on ground)")
-            } else if source.nodeA == ground {
-                known[source.nodeB] = -source.value
-                fixedLines.append("\(context.voltageSymbol(source.nodeB) ?? "") = \(context.volts(-source.value))  (\(source.id): + on ground, − at \(source.nodeB))")
-            } else {
-                floatingSources.append(source)
-            }
-        }
+        // 3. Voltages fixed by sources; supernodes for floating sources
         if !fixedLines.isEmpty {
-            let groundedSources = circuit.voltageSources.filter { $0.nodeA == ground || $0.nodeB == ground }.map(\.id)
             steps.append(AnalysisStep(
                 title: "Read off the voltages fixed by sources",
                 summary: "\(fixedLines.count) node voltage\(fixedLines.count == 1 ? " is" : "s are") known immediately",
                 equations: fixedLines,
-                explanation: "A voltage source between a node and ground holds that node at exactly its voltage, whatever current flows. No equation is needed for such a node; its value is simply substituted into the others.",
-                result: fixedLines.map { String($0.split(separator: "  ").first ?? "") }.joined(separator: ", "),
-                focus: StepFocus(nodes: Array(known.keys).sorted(by: Circuit.naturalOrder), elements: groundedSources, nodeVoltages: known)
+                explanation: "A voltage source between a node and ground holds that node at exactly its voltage, whatever current flows. "
+                    + (chained ? "A source whose other end is already known does the same one node further along: add its voltage when its + terminal is at the new node, subtract it when its − terminal is. " : "")
+                    + "No equation is needed for such a node; its value is simply substituted into the others.",
+                result: known.keys.sorted(by: Circuit.naturalOrder).map { "\(context.voltageSymbol($0) ?? "") = \(context.volts(known[$0] ?? 0))" }.joined(separator: ", "),
+                focus: StepFocus(nodes: Array(known.keys).sorted(by: Circuit.naturalOrder), elements: fixedSources, nodeVoltages: known)
             ))
         }
 
@@ -171,7 +219,7 @@ enum NodalAnalysis {
                 summary: "Nodes \(group.joined(separator: " and ")) are tied together by \(sources.map(\.id).joined(separator: ", "))",
                 equations: lines,
                 explanation: "Ohm's law does not give the current through a voltage source, so KCL cannot be written for either of its nodes alone. Draw a boundary around both nodes (a supernode): the source current stays inside and cancels out. The source still contributes an equation, the fixed difference between the two node voltages.",
-                result: lines.first ?? "",
+                result: lines.map { String($0.split(separator: "  ").first ?? "") }.joined(separator: ", "),
                 focus: StepFocus(nodes: group, elements: sources.map(\.id), zoom: true, nodeVoltages: known, supernodes: [Supernode(nodes: group, elements: sources.map(\.id))])
             ))
         }
@@ -199,8 +247,8 @@ enum NodalAnalysis {
                     label = "through \(r.id) to ground"
                 } else if let value = known[other] {
                     symbolic = "(\(symbol) − \(context.voltageSymbol(other) ?? ""))/\(r.id)"
-                    numeric = "(\(symbol) − \(f.term(value)))/\(f.number(r.value))"
-                    inner = "\(symbol) − \(f.term(value))"
+                    numeric = "(\(symbol) − \(f.preciseTerm(value)))/\(f.number(r.value))"
+                    inner = "\(symbol) − \(f.preciseTerm(value))"
                     label = "through \(r.id) to \(other)"
                     equation.addConstant(g * value)
                 } else {
@@ -236,10 +284,13 @@ enum NodalAnalysis {
             return out.isEmpty ? "0" : out
         }
 
+        var explainedNode = false
+        var explainedSupernode = false
         for node in unknownNodes where known[node] == nil && !handled.contains(node) {
             let group = supernodeGroups.first { $0.contains(node) } ?? [node]
             handled.formUnion(group)
             let isSuper = group.count > 1
+            var cleared = false
             var lines: [String] = []
             var allTerms: [BranchTerm] = []
             var combined = DisplayEquation()
@@ -278,6 +329,7 @@ enum NodalAnalysis {
                 }
                 lines.append("× \(f.number(multiple)):  " + joined(pieces) + " = 0")
                 combined = combined.scaled(by: multiple)
+                cleared = true
             }
             let collected = combined.rendered(with: f, order: unknownSymbols)
             lines.append("→ " + collected)
@@ -286,14 +338,22 @@ enum NodalAnalysis {
             let tied = isSuper ? floatingSources.filter { group.contains($0.nodeA) && group.contains($0.nodeB) }.map(\.id) : []
             let focus = StepFocus(nodes: group, elements: adjacent, zoom: true, nodeVoltages: known, supernodes: isSuper ? [Supernode(nodes: group, elements: tied)] : [])
             equationFocus.append(focus)
+            let clearing = cleared ? " Multiplying by a common multiple of the resistances clears the fractions and leaves whole-number coefficients." : ""
+            let explanation: String
+            if isSuper, !explainedSupernode {
+                explainedSupernode = true
+                explanation = "Kirchhoff's current law for a region: whatever flows into the supernode flows out again, so the currents leaving it through its resistors add up to zero. The source current inside the boundary never appears. Each current is (this node − other node)/R, positive when it really leaves; a current source counts with its value, negative when it pushes current in." + clearing
+            } else if !isSuper, !explainedNode {
+                explainedNode = true
+                explanation = "Kirchhoff's current law: charge does not pile up at a node, so the currents leaving it add up to zero. Each resistor current is written as (this node − other node)/R, which is positive when it really leaves; a current source counts with its value, negative when it pushes current into the node." + clearing
+            } else {
+                explanation = "Same procedure at \(isSuper ? "the supernode" : "node \(node)"): write each current leaving as (this node − other node)/R, add any source term, set the sum to zero\(cleared ? " and clear the fractions" : "")."
+            }
             steps.append(AnalysisStep(
                 title: isSuper ? "Apply KCL to the supernode \(group.joined(separator: "–"))" : "Apply KCL at node \(node)",
                 summary: "Currents leaving \(isSuper ? "the supernode" : node) add up to zero",
                 equations: lines,
-                explanation: (isSuper
-                    ? "Kirchhoff's current law: whatever flows into a region flows out again. Write each current leaving the supernode as (this node − other node)/R, add the current-source terms, and set the total to zero. "
-                    : "Kirchhoff's current law: charge does not pile up at a node, so the currents leaving it add up to zero. Each resistor current is (this node − other node)/R, a current source contributes its value with a sign. ")
-                    + "Multiplying by a common multiple of the resistances clears the fractions and leaves an equation with whole-number coefficients.",
+                explanation: explanation,
                 result: collected,
                 focus: focus
             ))
@@ -348,32 +408,49 @@ enum NodalAnalysis {
         for e in elements where e.kind != .voltageSource {
             switch e.kind {
             case .resistor:
-                currentLines.append("\(context.currentSymbol(e.id)) = (\(context.voltageTerm(e.nodeA, known: voltages)) − \(context.voltageTerm(e.nodeB, known: voltages)))/\(f.number(e.value)) = \(context.amps(e.current))  (\(Answers.flowWords(e)))")
+                currentLines.append("\(context.currentSymbol(e.id)) = (\(context.voltageTerm(e.nodeA, known: voltages)) − \(context.voltageTerm(e.nodeB, known: voltages)))/\(f.precise(e.value)) = \(context.amps(e.current))  (\(Answers.flowWords(e)))")
             default:
                 currentLines.append("\(context.currentSymbol(e.id)) = \(context.amps(e.value)) (given, from \(e.nodeA) to \(e.nodeB))")
             }
         }
         for e in elements where e.kind == .voltageSource {
-            // Ohm's law says nothing about a source; KCL at its + terminal does.
-            let others = elements.filter { $0.id != e.id && ($0.nodeA == e.nodeA || $0.nodeB == e.nodeA) }
-            var symbols = TermList()
-            var numbers: [String] = []
-            for other in others {
-                let leaving = ElementResults.currentLeaving(e.nodeA, through: other)
-                symbols.add(context.currentSymbol(other.id), negative: other.nodeA != e.nodeA)
-                numbers.append(f.term(leaving, "A"))
+            // Ohm's law says nothing about a source; KCL at one of its terminals does. Prefer a
+            // terminal with no other voltage source, so that every other current there is known.
+            func sourcesAt(_ node: String) -> Int {
+                elements.filter { $0.id != e.id && $0.kind == .voltageSource && ($0.nodeA == node || $0.nodeB == node) }.count
             }
-            let delivered = -e.current
+            let terminal = (sourcesAt(e.nodeA) == 0 || sourcesAt(e.nodeB) > 0) ? e.nodeA : e.nodeB
+            let atPlus = terminal == e.nodeA
+            let others = elements.filter { $0.id != e.id && $0.nodeA != $0.nodeB && ($0.nodeA == terminal || $0.nodeB == terminal) }
+            var symbols = TermList()
+            var numbers = TermList()
+            var leavingSum = 0.0
+            for other in others {
+                let negative = other.nodeA != terminal
+                symbols.add(context.currentSymbol(other.id), negative: negative)
+                numbers.add(f.preciseTerm(other.current, "A"), negative: negative)
+                leavingSum += ElementResults.currentLeaving(terminal, through: other)
+            }
+            // The source pushes `leavingSum` into this terminal: out of its + terminal means delivering.
+            let delivered = atPlus ? leavingSum : -leavingSum
             let expression = symbols.isEmpty ? "0" : symbols.renderedLeftSide()
-            let numeric = numbers.count > 1 ? numbers.joined(separator: " + ") + " = " : ""
-            currentLines.append("\(context.currentSymbol(e.id)): KCL at \(e.nodeA) → \(expression) = \(numeric)\(context.amps(delivered)) leaves through the other elements, so \(e.id) \(delivered >= 0 ? "delivers" : "absorbs") \(context.amps(abs(delivered)))")
+            let numeric = others.count > 1 ? numbers.renderedLeftSide() + " = " : ""
+            let sign = atPlus ? "+" : "−"
+            var line = "\(context.currentSymbol(e.id)): KCL at \(terminal) → \(expression) = \(numeric)\(context.amps(leavingSum))"
+            if leavingSum >= 0 {
+                line += " leaves \(terminal) through the other elements; \(e.id) supplies it from its \(sign) terminal"
+            } else {
+                line += ", i.e. \(context.amps(-leavingSum)) arrives at \(terminal) through the other elements and enters \(e.id) at its \(sign) terminal"
+            }
+            line += ", so \(e.id) \(delivered >= 0 ? "delivers" : "absorbs") \(context.amps(abs(delivered)))\(delivered >= 0 ? "" : " (it is being charged)")"
+            currentLines.append(line)
         }
         let currents = Dictionary(uniqueKeysWithValues: elements.map { ($0.id, $0.current) })
         steps.append(AnalysisStep(
             title: "Find the current through each element",
             summary: "Ohm's law on every resistor, KCL at the sources",
             equations: currentLines,
-            explanation: "With every node voltage known, the current through a resistor is the voltage drop across it divided by its resistance, flowing from the higher node to the lower one. A voltage source's current is not given by Ohm's law, so it comes from KCL at its terminal: it must supply whatever the elements next to it carry away.",
+            explanation: "With every node voltage known, the current through a resistor is the voltage drop across it divided by its resistance, flowing from the higher node to the lower one. A voltage source's current is not given by Ohm's law, so it comes from KCL at one of its terminals: the source carries whatever the elements next to it carry away. Current coming out of a source's + terminal means it delivers power; current coming out of its − terminal means the rest of the circuit is pushing current through it backwards, and it absorbs power.",
             result: currentLines.count == 1 ? currentLines[0] : "\(currentLines.count) currents found",
             focus: StepFocus(nodeVoltages: voltages, elementCurrents: currents, animateCurrents: true)
         ))

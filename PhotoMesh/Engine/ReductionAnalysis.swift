@@ -93,10 +93,10 @@ enum ReductionAnalysis {
                         summary: "Both sit between \(g1.nodeA) and \(g1.nodeB)",
                         equations: [
                             "\(g1.id) ‖ \(g2.id): both between \(g1.nodeA) and \(g1.nodeB)",
-                            "\(group.id) = (\(g1.id)·\(g2.id))/(\(g1.id) + \(g2.id)) = (\(f.number(g1.value))·\(f.number(g2.value)))/(\(f.number(g1.value)) + \(f.number(g2.value))) = \(context.ohms(value))",
+                            "\(group.id) = (\(g1.id)·\(g2.id))/(\(g1.id) + \(g2.id)) = (\(f.precise(g1.value))·\(f.precise(g2.value)))/(\(f.precise(g1.value)) + \(f.precise(g2.value))) = \(f.precise(value, "Ω"))",
                         ],
                         explanation: "Two elements that connect the same pair of nodes are in parallel: the same voltage sits across both, and the current splits between them. Their combined resistance is smaller than either one, given by the product over the sum. \(group.id) now stands in for \(g1.id) and \(g2.id).",
-                        result: "\(group.id) = \(context.ohms(value))",
+                        result: "\(group.id) = \(f.precise(value, "Ω"))",
                         focus: StepFocus(nodes: [g1.nodeA, g1.nodeB], elements: group.members, zoom: true)
                     ))
                     merged = true
@@ -122,10 +122,10 @@ enum ReductionAnalysis {
                     summary: "Node \(node) joins only these two",
                     equations: [
                         "\(g1.id) — \(node) — \(g2.id): nothing else connects at \(node)",
-                        "\(group.id) = \(g1.id) + \(g2.id) = \(f.number(g1.value)) + \(f.number(g2.value)) = \(context.ohms(value))",
+                        "\(group.id) = \(g1.id) + \(g2.id) = \(f.precise(g1.value)) + \(f.precise(g2.value)) = \(f.precise(value, "Ω"))",
                     ],
                     explanation: "When a node joins exactly two elements, every bit of current that enters through one must leave through the other, so they carry the same current: they are in series and their resistances add. \(group.id) now stands in for \(g1.id) and \(g2.id), running from \(a) to \(b).",
-                    result: "\(group.id) = \(context.ohms(value))",
+                    result: "\(group.id) = \(f.precise(value, "Ω"))",
                     focus: StepFocus(nodes: [node], elements: group.members, zoom: true)
                 ))
                 progress = true
@@ -149,7 +149,7 @@ enum ReductionAnalysis {
                 title: "Ohm's law for the whole circuit",
                 summary: "\(source.id) drives \(root.id)",
                 equations: [
-                    "I = \(source.id)/\(root.id) = \(f.number(source.value))/\(f.number(root.value))",
+                    "I = \(source.id)/\(root.id) = \(f.number(source.value))/\(f.precise(root.value))",
                     "→ I = \(context.amps(total))",
                 ],
                 explanation: "The source now sees a single resistor \(root.id) across its terminals, so the total current is simply the source voltage divided by the equivalent resistance. This current leaves the + terminal, flows through the network and returns to the − terminal.",
@@ -166,7 +166,7 @@ enum ReductionAnalysis {
                 title: "Ohm's law for the whole circuit",
                 summary: "\(source.id) pushes its current through \(root.id)",
                 equations: [
-                    "V = \(source.id)·\(root.id) = \(f.number(source.value))·\(f.number(root.value))",
+                    "V = \(source.id)·\(root.id) = \(f.number(source.value))·\(f.precise(root.value))",
                     "→ V = \(context.volts(source.value * root.value)) across \(root.id), \(source.nodeB) higher than \(source.nodeA)",
                 ],
                 explanation: "A current source fixes the current, so the unknown is the voltage it must develop: the source current times the equivalent resistance. The current enters the network at \(source.nodeB) and returns to the source at \(source.nodeA).",
@@ -182,21 +182,21 @@ enum ReductionAnalysis {
             case .single:
                 continue
             case .series(let g1, let g2, let via):
-                // Same current through both, in the direction of the combined group.
+                // The chain runs group.nodeA — via — group.nodeB and carries group.current in that
+                // direction. A child's own current (nodeA → nodeB) is positive when its nodeA is
+                // the end the chain enters it by. (The group may have been flipped to face the
+                // source, so this is worked out from the chain, not from stored orientations.)
                 for child in [g1, g2] {
-                    let forward = child.nodeA == group.nodeA || child.nodeB == group.nodeB
-                    // The child's orientation relative to the group's: it starts where the group starts, or ends where it ends.
-                    child.current = forward ? group.current : -group.current
-                    if child.nodeA != group.nodeA && child.nodeB != group.nodeB {
-                        // Middle-of-chain orientation is decided by the shared node.
-                        child.current = child.nodeA == via ? -group.current : group.current
-                        if child.nodeA == group.nodeA { child.current = group.current }
-                    }
+                    let entry = child.touches(group.nodeA) && child.touches(via) && group.nodeA != via
+                        ? group.nodeA
+                        : via
+                    child.current = child.nodeA == entry ? group.current : -group.current
                     child.voltage = child.current * child.value
                 }
-                var lines = ["Series: I(\(g1.id)) = I(\(g2.id)) = I(\(group.id)) = \(context.amps(abs(group.current)))"]
+                let path = group.current >= 0 ? [group.nodeA, via, group.nodeB] : [group.nodeB, via, group.nodeA]
+                var lines = ["Series: I(\(g1.id)) = I(\(g2.id)) = I(\(group.id)) = \(f.precise(abs(group.current), "A")), flowing from \(path[0]) through \(path[1]) to \(path[2])"]
                 for child in [g1, g2] {
-                    lines.append("V(\(child.id)) = \(child.id)·I = \(context.ohms(child.value))·\(context.amps(abs(child.current))) = \(context.volts(abs(child.voltage)))")
+                    lines.append("V(\(child.id)) = \(child.id)·I = \(f.precise(child.value, "Ω"))·\(f.precise(abs(child.current), "A")) = \(context.volts(abs(child.voltage)))")
                 }
                 lines.append("Check: \(context.volts(abs(g1.voltage))) + \(context.volts(abs(g2.voltage))) = \(context.volts(abs(g1.voltage) + abs(g2.voltage))) = V(\(group.id)) ✓")
                 for child in [g1, g2] where child.members.count == 1 { known[child.id] = child.current }
@@ -214,9 +214,11 @@ enum ReductionAnalysis {
                     child.voltage = forward ? group.voltage : -group.voltage
                     child.current = child.voltage / child.value
                 }
-                var lines = ["Parallel: V(\(g1.id)) = V(\(g2.id)) = V(\(group.id)) = \(context.volts(abs(group.voltage)))"]
+                let high = group.voltage >= 0 ? group.nodeA : group.nodeB
+                let low = group.voltage >= 0 ? group.nodeB : group.nodeA
+                var lines = ["Parallel: V(\(g1.id)) = V(\(g2.id)) = V(\(group.id)) = \(f.precise(abs(group.voltage), "V")), \(high) higher than \(low)"]
                 for child in [g1, g2] {
-                    lines.append("I(\(child.id)) = V/\(child.id) = \(f.number(abs(child.voltage)))/\(f.number(child.value)) = \(context.amps(abs(child.current)))")
+                    lines.append("I(\(child.id)) = V/\(child.id) = \(f.precise(abs(child.voltage)))/\(f.precise(child.value)) = \(context.amps(abs(child.current)))")
                 }
                 lines.append("Check: \(context.amps(abs(g1.current))) + \(context.amps(abs(g2.current))) = \(context.amps(abs(g1.current) + abs(g2.current))) = I(\(group.id)) ✓")
                 for child in [g1, g2] where child.members.count == 1 { known[child.id] = child.current }
@@ -254,8 +256,10 @@ enum ReductionAnalysis {
                     results.append(ElementResult(id: component.id, kind: component.kind, value: component.value, nodeA: component.nodeA, nodeB: component.nodeB, current: -total, voltage: component.value))
                     elementVoltages[component.id] = component.value
                 default:
-                    results.append(ElementResult(id: component.id, kind: component.kind, value: component.value, nodeA: component.nodeA, nodeB: component.nodeB, current: component.value, voltage: -root.voltage))
-                    elementVoltages[component.id] = -root.voltage
+                    // root runs from the source's nodeA to its nodeB, so root.voltage already is
+                    // V(nodeA) − V(nodeB): the voltage across the source in its own convention.
+                    results.append(ElementResult(id: component.id, kind: component.kind, value: component.value, nodeA: component.nodeA, nodeB: component.nodeB, current: component.value, voltage: root.voltage))
+                    elementVoltages[component.id] = root.voltage
                 }
                 continue
             }
@@ -268,7 +272,7 @@ enum ReductionAnalysis {
         }
         let voltages = SharedSteps.nodeVoltages(circuit: circuit, elementVoltages: elementVoltages)
         let answers = Answers.build(context: context, voltages: voltages, elements: results)
-        steps.append(SharedSteps.checkStep(context: context, elements: results, voltages: voltages))
+        steps.append(SharedSteps.checkStep(context: context, elements: results, voltages: voltages, signed: false))
         steps.append(SharedSteps.answerStep(context: context, answers: answers, elements: results, voltages: voltages))
 
         return MethodSolution(

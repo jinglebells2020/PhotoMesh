@@ -30,7 +30,7 @@ struct AnalysisContext {
     /// The voltage of a node as it appears inside an equation: a symbol, or a number when known.
     func voltageTerm(_ node: String, known: [String: Double]) -> String {
         if node == circuit.groundNode { return "0" }
-        if let value = known[node] { return formatter.term(value) }
+        if let value = known[node] { return formatter.preciseTerm(value) }
         return voltageSymbol(node) ?? "0"
     }
 
@@ -87,7 +87,7 @@ struct DisplayEquation {
             let c = coefficients[symbol] ?? 0
             guard abs(c) > 1e-12 else { continue }
             let magnitude = abs(c)
-            let factor = abs(magnitude - 1) < 1e-12 ? "" : "\(formatter.number(magnitude))·"
+            let factor = abs(magnitude - 1) < 1e-12 ? "" : "\(formatter.precise(magnitude))·"
             if lhs.isEmpty {
                 lhs = (c < 0 ? "−" : "") + factor + symbol
             } else {
@@ -95,7 +95,7 @@ struct DisplayEquation {
             }
         }
         if lhs.isEmpty { lhs = "0" }
-        return "\(lhs) = \(formatter.number(constant))"
+        return "\(lhs) = \(formatter.precise(constant))"
     }
 }
 
@@ -371,7 +371,7 @@ enum SharedSteps {
         var steps = method.steps
         // Rebuild the closing steps so they mention every drawn element.
         while let last = steps.last, last.title == "Answer" || last.title == "Check the result" { steps.removeLast() }
-        steps.append(checkStep(context: context, elements: results, voltages: voltages))
+        steps.append(checkStep(context: context, elements: results, voltages: voltages, signed: method.method != .reduction))
         steps.append(answerStep(context: context, answers: answers, elements: results, voltages: voltages))
         var copy = method
         copy.elements = results
@@ -388,7 +388,7 @@ enum SharedSteps {
         for e in elements {
             switch e.kind.dcRole {
             case .resistor:
-                lines.append("\(context.elementVoltageSymbol(e.id)) = \(e.id)·\(context.currentSymbol(e.id)) = \(context.ohms(e.value))·\(f.term(e.current, "A")) = \(context.volts(e.voltage))")
+                lines.append("\(context.elementVoltageSymbol(e.id)) = \(e.id)·\(context.currentSymbol(e.id)) = \(f.precise(e.value, "Ω"))·\(f.preciseTerm(e.current, "A")) = \(context.volts(e.voltage))")
             case .voltageSource:
                 lines.append("\(context.elementVoltageSymbol(e.id)) = \(context.volts(e.voltage)) (given)")
             case .currentSource, .open:
@@ -408,7 +408,9 @@ enum SharedSteps {
     }
 
     /// Power balance and a KCL spot check: the two things a textbook asks you to verify.
-    static func checkStep(context: AnalysisContext, elements: [ElementResult], voltages: [String: Double]) -> AnalysisStep {
+    /// `signed` is false for the reduction method, whose narrative works with magnitudes and
+    /// direction words rather than the nodeA → nodeB sign convention.
+    static func checkStep(context: AnalysisContext, elements: [ElementResult], voltages: [String: Double], signed: Bool = true) -> AnalysisStep {
         let f = context.formatter
         let circuit = context.circuit
         var lines: [String] = []
@@ -419,12 +421,16 @@ enum SharedSteps {
             let p = e.power
             switch e.kind.dcRole {
             case .resistor:
-                lines.append("P(\(e.id)) = I²·R = (\(f.term(e.current, "A")))²·\(context.ohms(e.value)) = \(context.watts(p))")
-                absorbedTerms.append(context.watts(p)); absorbed += p
+                lines.append("P(\(e.id)) = I²·R = (\(f.precise(signed ? e.current : abs(e.current), "A")))²·\(f.precise(e.value, "Ω")) = \(context.watts(p))")
+                absorbedTerms.append(f.precise(p, "W")); absorbed += p
             case .voltageSource, .currentSource:
                 let magnitude = abs(p)
-                lines.append("P(\(e.id)) = V·I = \(context.volts(e.voltage))·\(f.term(e.current, "A")) = \(context.watts(p))  (\(e.id) \(p < 0 ? "delivers" : "absorbs") \(context.watts(magnitude)))")
-                if p < 0 { deliveredTerms.append(context.watts(magnitude)); delivered += magnitude } else if p > 1e-15 { absorbedTerms.append(context.watts(p)); absorbed += p }
+                if signed {
+                    lines.append("P(\(e.id)) = V·I = \(f.preciseTerm(e.voltage, "V"))·\(f.preciseTerm(e.current, "A")) = \(context.watts(p))  (\(e.id) \(p < 0 ? "delivers" : "absorbs") \(context.watts(magnitude)))")
+                } else {
+                    lines.append("P(\(e.id)) = V·I = \(f.precise(abs(e.voltage), "V"))·\(f.precise(abs(e.current), "A")) = \(context.watts(magnitude))  (\(p < 0 ? "delivered" : "absorbed") by \(e.id))")
+                }
+                if p < 0 { deliveredTerms.append(f.precise(magnitude, "W")); delivered += magnitude } else if p > 1e-15 { absorbedTerms.append(f.precise(p, "W")); absorbed += p }
             case .open, .short:
                 continue   // no power at DC
             }
@@ -434,28 +440,35 @@ enum SharedSteps {
         let balanced = abs(delivered - absorbed) <= 1e-6 * max(1e-12, abs(delivered))
         lines.append("→ delivered \(balanced ? "=" : "≠") absorbed \(balanced ? "✓" : "✗")")
 
-        // KCL at the busiest node
+        // KCL at the busiest node. An element whose two ends have merged into one node at DC (a
+        // shorted inductor, a closed switch) brings no separate current to it and is left out.
+        let flowing = elements.filter { $0.nodeA != $0.nodeB }
+        func degree(_ node: String) -> Int { flowing.filter { $0.nodeA == node || $0.nodeB == node }.count }
+        let candidates = circuit.nodes.filter { $0 != circuit.groundNode }.sorted { degree($0) > degree($1) }
         var kclNode: String?
-        var kclLine: String?
-        let candidates = circuit.nodes.filter { $0 != circuit.groundNode }.sorted { circuit.components(at: $0).count > circuit.components(at: $1).count }
-        if let node = candidates.first, circuit.components(at: node).count >= 2 {
+        var kclHolds = true
+        if let node = candidates.first, degree(node) >= 2 {
             var into: [String] = [], out: [String] = []
             var sumIn = 0.0, sumOut = 0.0
-            for e in elements where e.nodeA == node || e.nodeB == node {
+            for e in flowing where e.nodeA == node || e.nodeB == node {
                 let leaving = ElementResults.currentLeaving(node, through: e)
-                if leaving >= 0 { out.append(context.amps(leaving)); sumOut += leaving } else { into.append(context.amps(-leaving)); sumIn -= leaving }
+                guard abs(leaving) > 1e-12 else { continue }
+                if leaving > 0 { out.append(f.precise(leaving, "A")); sumOut += leaving } else { into.append(f.precise(-leaving, "A")); sumIn -= leaving }
             }
+            kclHolds = abs(sumIn - sumOut) <= 1e-6 * max(1e-12, sumIn, sumOut)
             kclNode = node
-            kclLine = "KCL at \(node): in \(into.isEmpty ? "0 A" : into.joined(separator: " + ")) = \(context.amps(sumIn)), out \(out.isEmpty ? "0 A" : out.joined(separator: " + ")) = \(context.amps(sumOut)) ✓"
-            lines.append(kclLine!)
+            lines.append("KCL at node \(node), in = out:  \(into.isEmpty ? "0 A" : into.joined(separator: " + ")) = \(out.isEmpty ? "0 A" : out.joined(separator: " + ")) \(kclHolds ? "✓" : "✗")")
         }
+        let ok = balanced && kclHolds
         let currents = Dictionary(uniqueKeysWithValues: elements.map { ($0.id, $0.current) })
         return AnalysisStep(
             title: "Check the result",
-            summary: balanced ? "Power balances and KCL holds" : "Power does not balance",
+            summary: ok ? "Power balances and KCL holds" : (balanced ? "KCL does not hold" : "Power does not balance"),
             equations: lines,
-            explanation: "Energy is conserved, so the power the sources deliver must equal the power the resistors turn into heat. A quick KCL check at a node confirms the currents add up. If either failed, a value or a sign would be wrong.",
-            result: balanced ? "Delivered \(context.watts(delivered)) = absorbed \(context.watts(absorbed))" : "Mismatch: \(context.watts(delivered)) vs \(context.watts(absorbed))",
+            explanation: "Energy is conserved: the power the sources deliver must equal the power absorbed, by the resistors as heat and by any source that is being charged. A KCL check at the busiest node confirms the currents add up: what flows in flows out. If either failed, a value or a sign would be wrong.",
+            result: ok
+                ? "Delivered \(context.watts(delivered)) = absorbed \(context.watts(absorbed))"
+                : (balanced ? "KCL does not hold at node \(kclNode ?? "")" : "Mismatch: \(context.watts(delivered)) vs \(context.watts(absorbed))"),
             focus: StepFocus(nodes: kclNode.map { [$0] } ?? [], nodeVoltages: voltages, elementCurrents: currents, animateCurrents: true)
         )
     }
@@ -470,11 +483,26 @@ enum SharedSteps {
         }
         askedNodes = askedNodes.filter { node in context.circuit.nodes.contains(node) }
         let currents = Dictionary(uniqueKeysWithValues: elements.map { ($0.id, $0.current) })
+        let kinds = Set(context.circuit.unknowns.map(\.kind))
+        var explanation = "This is what the question asked for, read off from the currents and voltages found above."
+        if kinds.isEmpty || kinds.contains(.current) {
+            explanation += " The direction words say which way the current actually flows; a negative value along the way only meant the assumed direction was backwards."
+        }
+        let unknowns = context.circuit.unknowns
+        if unknowns.contains(where: { $0.kind == .voltage && ($0.element != nil || $0.between != nil) }) {
+            explanation += " For a voltage across an element or between two points, the words say which side is the higher one."
+        }
+        if unknowns.contains(where: { $0.kind == .voltage && $0.node != nil }) {
+            explanation += " A node voltage is measured relative to the reference node \(context.circuit.groundNode)."
+        }
+        if kinds.contains(.power) {
+            explanation += " Power is given as a positive number together with whether the element absorbs or delivers it."
+        }
         return AnalysisStep(
             title: "Answer",
             summary: question,
             equations: lines,
-            explanation: "This is what the question asked for, read off from the currents and voltages found above. The direction words say which way the current actually flows; a negative value along the way only meant the assumed direction was backwards.",
+            explanation: explanation,
             result: lines.first ?? "Solved",
             focus: StepFocus(nodes: askedNodes, elements: askedElements, zoom: true, nodeVoltages: voltages, elementCurrents: currents.filter { askedElements.contains($0.key) }, animateCurrents: true)
         )

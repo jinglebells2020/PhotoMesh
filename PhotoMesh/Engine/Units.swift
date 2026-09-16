@@ -59,6 +59,35 @@ struct QuantityFormatter {
         value < 0 ? "(\(number(value)))" : number(value)
     }
 
+    /// A number that will be used again in later arithmetic: shown with one extra significant
+    /// digit whenever the usual rounding would not reproduce it, so that redoing the printed
+    /// arithmetic gives the printed result (12/140.74 = 85.26 mA, not 12/140.7 = 85.29 mA).
+    /// (Trailing zeros are trimmed, so the extra digit only appears when it carries information.)
+    func precise(_ value: Double) -> String {
+        finer.number(value)
+    }
+
+    /// `precise` wrapped in parentheses when negative.
+    func preciseTerm(_ value: Double) -> String {
+        value < 0 ? "(\(precise(value)))" : precise(value)
+    }
+
+    /// `precise` with a unit.
+    func precise(_ value: Double, _ unit: String) -> String {
+        finer.format(value, unit)
+    }
+
+    private var finer: QuantityFormatter {
+        var more = self
+        more.significantDigits = significantDigits + 1
+        return more
+    }
+
+    /// `precise(_:_:)` wrapped in parentheses when negative.
+    func preciseTerm(_ value: Double, _ unit: String) -> String {
+        value < 0 ? "(\(precise(value, unit)))" : precise(value, unit)
+    }
+
     /// Quantity used inside an equation: negative values are wrapped in parentheses.
     func term(_ value: Double, _ unit: String) -> String {
         value < 0 ? "(\(format(value, unit)))" : format(value, unit)
