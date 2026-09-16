@@ -15,17 +15,19 @@ from typing import Optional
 from ..schema import Circuit, Component, Unknown, ValidationError, node_letter
 from ..solver import SolveError, solve
 
-LPoint = tuple[int, int]  # (row, col)
+LPoint = tuple[float, float]  # (row, col); jumper endpoints sit at half columns
 
 KIND_WEIGHTS = {
     "resistor": 0.56, "voltage_source": 0.13, "current_source": 0.05, "battery": 0.06,
     "capacitor": 0.05, "inductor": 0.05, "lamp": 0.05, "switch_open": 0.02, "switch_closed": 0.03,
 }
 ID_PREFIX = {"resistor": "R", "voltage_source": "V", "current_source": "I", "battery": "E", "capacitor": "C",
-             "inductor": "L", "lamp": "Lp", "switch_open": "S", "switch_closed": "S"}
+             "inductor": "L", "lamp": "Lp", "switch_open": "S", "switch_closed": "S", "other": "D"}
+# Symbols the app cannot solve; they train the tracer's "other" class and the JSON's "unsupported" list.
+OTHER_SUBTYPES = {"diode": "D", "led": "D", "zener": "D", "ac_source": "V"}
 # What a reader calls an element that carries no label (RecognitionPrompt rule 4; batteries count as V).
 FALLBACK_PREFIX = {"resistor": "R", "voltage_source": "V", "current_source": "I", "battery": "V", "capacitor": "C",
-                   "inductor": "L", "lamp": "Lp", "switch_open": "S", "switch_closed": "S"}
+                   "inductor": "L", "lamp": "Lp", "switch_open": "S", "switch_closed": "S", "other": "D"}
 
 R_NICE = [1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 24, 25, 30, 40, 47, 50, 60, 75, 80, 100, 120, 150, 180, 200, 220, 250,
           270, 300, 330, 390, 400, 470, 500, 560, 600, 680, 750, 820, 1000, 1200, 1500, 1800, 2000, 2200, 2700, 3300,
@@ -46,6 +48,7 @@ class Edge:
     positive_at_a: bool = True      # + terminal / arrow head sits at end `a` (top or left)
     show_name: bool = True
     show_value: bool = True
+    subtype: Optional[str] = None   # for kind == "other": diode | led | zener | ac_source
 
     @property
     def horizontal(self) -> bool:
@@ -78,6 +81,7 @@ class LatticeCircuit:
     junctions: list[LPoint]
     faces: list[list[Edge]]      # inner faces, clockwise as seen on screen
     seed: int = 0
+    crossings: list[tuple[LPoint, Edge, Edge, bool]] = field(default_factory=list)   # (point, jumper, crossed wire, drawn as hop)
 
     @property
     def component_edges(self) -> list[Edge]:
@@ -301,11 +305,36 @@ def _try_generate(rng: random.Random, rows: int, cols: int) -> Optional[LatticeC
     if len(keep) < 4:
         return None
 
+    # A jumper: a vertical branch between two half-column points on the outer rails that crosses the
+    # middle rail without touching it (drawn as a hop, or as a plain crossing).
+    crossings: list[tuple[LPoint, Edge, Edge, bool]] = []
+    if rows == 2 and rng.random() < 0.4:
+        def find_edge(a: LPoint, b: LPoint) -> Optional[Edge]:
+            return next((e for e in keep if {e.a, e.b} == {a, b}), None)
+        candidates = []
+        for c in range(cols):
+            top, mid, bottom = find_edge((0, c), (0, c + 1)), find_edge((1, c), (1, c + 1)), find_edge((2, c), (2, c + 1))
+            if top and mid and bottom:
+                candidates.append((c, top, mid, bottom))
+        if candidates:
+            c, top, mid, bottom = rng.choice(candidates)
+            T: LPoint = (0, c + 0.5)
+            B: LPoint = (2, c + 0.5)
+            keep.remove(top)
+            keep.remove(bottom)
+            keep += [Edge((0, c), T), Edge(T, (0, c + 1)), Edge((2, c), B), Edge(B, (2, c + 1))]
+            jumper = Edge(T, B)
+            keep.append(jumper)
+            crossings.append(((1, c + 0.5), jumper, mid, rng.random() < 0.7))
+
     # Elements. Sources prefer vertical edges (textbook: the source on the left rung).
     n_sources = 0
     n_current = 0
     p_comp = rng.uniform(0.45, 0.8)
     for e in keep:
+        if any(e is x[1] for x in crossings):
+            e.kind = rng.choices(["resistor", "capacitor", "inductor", "lamp"], [0.7, 0.1, 0.1, 0.1])[0]
+            continue
         if rng.random() > p_comp:
             continue
         kind = _pick_kind(rng)
@@ -318,10 +347,11 @@ def _try_generate(rng: random.Random, rows: int, cols: int) -> Optional[LatticeC
             n_sources += 1
             n_current += kind == "current_source"
         e.kind = kind
+    for x in crossings:  # the crossed rail must stay a plain wire
+        x[2].kind = None
     comps = [e for e in keep if e.kind]
     if not any(e.kind in ("voltage_source", "battery", "current_source") for e in comps):
-        # Force a source onto a vertical edge, preferably the leftmost rung.
-        verticals = [e for e in keep if not e.horizontal and e.is_wire] or [e for e in keep if e.is_wire]
+        verticals = [e for e in keep if not e.horizontal and e.is_wire] or [e for e in keep if e.is_wire and not any(e is x[2] for x in crossings)]
         if not verticals:
             return None
         verticals.sort(key=lambda e: (e.a[1], e.a[0]))
@@ -329,7 +359,7 @@ def _try_generate(rng: random.Random, rows: int, cols: int) -> Optional[LatticeC
         e.kind = rng.choices(["voltage_source", "battery", "current_source"], [0.7, 0.2, 0.1])[0]
         comps = [e for e in keep if e.kind]
     if not any(e.kind in ("resistor", "lamp") for e in comps):
-        wires = [e for e in keep if e.is_wire]
+        wires = [e for e in keep if e.is_wire and not any(e is x[2] for x in crossings)]
         if not wires:
             return None
         rng.choice(wires).kind = "resistor"
@@ -380,7 +410,7 @@ def _try_generate(rng: random.Random, rows: int, cols: int) -> Optional[LatticeC
         used_ids.add(e.id)
 
     # Ground.
-    bottom = [p for p in points if p[0] == rows]
+    bottom = [p for p in points if p[0] == rows and float(p[1]).is_integer()]
     ground_point: Optional[LPoint] = None
     has_vsource = any(e.kind in ("voltage_source", "battery") for e in comps)
     if rng.random() < 0.5 or not has_vsource:
@@ -425,10 +455,31 @@ def _try_generate(rng: random.Random, rows: int, cols: int) -> Optional[LatticeC
             return None
         if i is not None and abs(i) > 1e4:
             return None
-    circuit.unknowns, circuit.question = _make_question(rng, circuit, {e.id for e in comps if e.show_name})
 
-    faces = inner_faces_clockwise(keep)
-    circuit.meshes = [[e.id for e in face if e.kind] for face in faces]
+    # Occasionally one resistor becomes a symbol the app cannot solve (diode, LED, zener, AC source):
+    # the drawing keeps it, the JSON lists it under "unsupported" and the app will say so.
+    if rng.random() < 0.08:
+        resistors = [e for e in comps if e.kind == "resistor"]
+        if len(resistors) >= 2:
+            victim = rng.choice(resistors)
+            old_id = victim.id
+            victim.kind = "other"
+            victim.subtype = rng.choices(list(OTHER_SUBTYPES), [0.5, 0.2, 0.1, 0.2])[0]
+            victim.value = None
+            victim.positive_at_a = rng.random() < 0.5
+            prefix = OTHER_SUBTYPES[victim.subtype]
+            n = 1
+            while f"{prefix}{n}" in used_ids:
+                n += 1
+            victim.id = f"{prefix}{n}"
+            used_ids.add(victim.id)
+            circuit.components = [c for c in circuit.components if c.id != old_id]
+            circuit.unsupported = [f"{victim.id} ({victim.subtype.replace('_', ' ')})"]
+
+    circuit.unknowns, circuit.question = _make_question(rng, circuit, {e.id for e in comps if e.show_name and e.kind != "other"})
+
+    faces = inner_faces_clockwise(keep) if not crossings else []
+    circuit.meshes = [[e.id for e in face if e.kind and e.kind != "other"] for face in faces]
     circuit.meshes = [m for m in circuit.meshes if len(m) >= 2]
 
     degree: dict[LPoint, int] = {}
@@ -436,4 +487,4 @@ def _try_generate(rng: random.Random, rows: int, cols: int) -> Optional[LatticeC
         degree[e.a] = degree.get(e.a, 0) + 1
         degree[e.b] = degree.get(e.b, 0) + 1
     junctions = [p for p, d in degree.items() if d >= 3]
-    return LatticeCircuit(rows, cols, keep, node_of_point, ground_point, circuit, junctions, faces)
+    return LatticeCircuit(rows, cols, keep, node_of_point, ground_point, circuit, junctions, faces, crossings=crossings)

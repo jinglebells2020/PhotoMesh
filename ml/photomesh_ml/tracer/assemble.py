@@ -229,15 +229,56 @@ def _terminals(det: Detection) -> list[tuple[Point, Point]]:
     return [((cx, y0), (0.0, -1.0)), ((cx, y1), (0.0, 1.0))]
 
 
+def _peak_near(prob: np.ndarray, point: Point, reach: float) -> tuple[float, Point]:
+    h, w = prob.shape
+    x0, y0 = max(0, int(point[0] - reach)), max(0, int(point[1] - reach))
+    x1, y1 = min(w, int(point[0] + reach) + 1), min(h, int(point[1] + reach) + 1)
+    if x0 >= x1 or y0 >= y1:
+        return 0.0, point
+    win = prob[y0:y1, x0:x1]
+    j = int(np.argmax(win))
+    py, px = divmod(j, win.shape[1])
+    return float(win[py, px]), (float(px + x0), float(py + y0))
+
+
+def _refine_terminal(point: Point, direction: Point, prob: np.ndarray, reach: float) -> Point:
+    """Snap a box-edge terminal to the terminal-heat peak nearby, staying on the box edge line."""
+    score, peak = _peak_near(prob, point, reach)
+    if score < 0.3:
+        return point
+    if direction[0] != 0:      # left/right edge: slide along y only
+        return (point[0], peak[1])
+    return (peak[0], point[1])  # top/bottom edge: slide along x only
+
+
+def _settle_axis(det: Detection, prob: np.ndarray, reach: float) -> Detection:
+    """When the polarity head is unsure, take the axis whose two edge midpoints carry more terminal heat."""
+    probs = det.polarity_probs
+    if probs is None or float(np.max(probs)) >= 0.6:
+        return det
+    x0, y0, x1, y1 = det.box
+    cx, cy = det.centre
+    horizontal = _peak_near(prob, (x0, cy), reach)[0] + _peak_near(prob, (x1, cy), reach)[0]
+    vertical = _peak_near(prob, (cx, y0), reach)[0] + _peak_near(prob, (cx, y1), reach)[0]
+    if abs(horizontal - vertical) < 0.2:
+        return det
+    if horizontal > vertical:
+        polarity = "right" if probs[POLARITY.index("right")] >= probs[POLARITY.index("left")] else "left"
+    else:
+        polarity = "up" if probs[POLARITY.index("up")] >= probs[POLARITY.index("down")] else "down"
+    return Detection(det.cls, det.score, det.box, polarity, det.polarity_probs)
+
+
 def _positive_index(det: Detection, terminals) -> int:
     """Which terminal (0 or 1) the polarity points at."""
     want = {"right": (1.0, 0.0), "left": (-1.0, 0.0), "up": (0.0, -1.0), "down": (0.0, 1.0)}[det.polarity]
     return max(range(2), key=lambda i: terminals[i][1][0] * want[0] + terminals[i][1][1] * want[1])
 
 
-def assemble(detections: list[Detection], wire_prob: np.ndarray, image_size: tuple[int, int], ocr: Optional[list[TextItem]] = None,
+def assemble(detections: list[Detection], wire_prob: np.ndarray, image_size: tuple[int, int], ocr: Optional[list[TextItem]] = None,  # noqa: C901
              junction_prob: Optional[np.ndarray] = None, wire_threshold: float = 0.5, min_component_px: int = 12,
-             box_margin: float = 1.5, closing: int = 1) -> Assembly:
+             box_margin: float = 1.5, closing: int = -1, terminal_prob: Optional[np.ndarray] = None,
+             body_removal: str = "span") -> Assembly:
     W, H = image_size
     scale = max(W, H) / 640.0
     radii = tuple(int(round(r * scale)) for r in (3, 6, 10, 16, 24))
@@ -248,10 +289,24 @@ def assemble(detections: list[Detection], wire_prob: np.ndarray, image_size: tup
     others = [d for d in detections if d.cls == "other"]
     model_texts = [d for d in detections if d.cls == "text"]
 
+    if closing < 0:
+        closing = max(1, int(round(max(W, H) / 160)))
     wire = close_mask(wire_prob >= wire_threshold, closing)
+    if terminal_prob is not None:
+        comps = [_settle_axis(d, terminal_prob, radii[-1]) for d in comps]
     for d in comps + grounds + crossovers + others:
         x0, y0, x1, y1 = d.box
         m = box_margin
+        if d.cls in APP_KINDS and body_removal == "span":
+            # the body is whatever lies between the two terminals; extend the box to them
+            for (pt, direction) in _terminals(d):
+                if terminal_prob is not None:
+                    pt = _refine_terminal(pt, direction, terminal_prob, radii[2])
+                x0, y0, x1, y1 = min(x0, pt[0]), min(y0, pt[1]), max(x1, pt[0]), max(y1, pt[1])
+            if d.horizontal:
+                y0, y1 = y0 - 0.15 * (y1 - y0), y1 + 0.15 * (y1 - y0)
+            else:
+                x0, x1 = x0 - 0.15 * (x1 - x0), x1 + 0.15 * (x1 - x0)
         wire[max(0, int(y0 - m)):min(H, int(math.ceil(y1 + m))), max(0, int(x0 - m)):min(W, int(math.ceil(x1 + m)))] = False
     labels, count = label_components(wire)
     if count:
@@ -286,13 +341,19 @@ def assemble(detections: list[Detection], wire_prob: np.ndarray, image_size: tup
         if arms["top"] and arms["bottom"]:
             union(arms["top"], arms["bottom"])
 
-    # Component terminals.
+    # Component terminals (snapped to terminal-heat peaks: leads rarely leave a box exactly mid-edge).
     attachments: list[list[Optional[int]]] = []
     free_terminals: list[tuple[int, int, Point]] = []
     for ci, d in enumerate(comps):
         labs: list[Optional[int]] = []
         for k, (pt, direction) in enumerate(_terminals(d)):
+            if terminal_prob is not None:
+                pt = _refine_terminal(pt, direction, terminal_prob, radii[2])
             lab = _terminal_label(labels, pt, direction, radii)
+            if lab is None:
+                # predicted masks can leave a gap where a lead meets the body: take the nearest wire pixel
+                reach = 0.5 * max(d.box[2] - d.box[0], d.box[3] - d.box[1])
+                lab = _nearest_label(labels, pt, max(reach, radii[1]))
             labs.append(lab)
             if lab is None:
                 free_terminals.append((ci, k, pt))
@@ -375,6 +436,9 @@ def assemble(detections: list[Detection], wire_prob: np.ndarray, image_size: tup
                         name_candidates.append((dist, ti, ci))
             elif parsed.kind == "name":
                 for ci, dist in _component_distances(comps, tc, None):
+                    # a name's prefix says what it can name: "I.." is a current (source or annotation), never a resistor
+                    if not _name_fits(parsed.name, comps[ci].cls):
+                        dist *= 4.0
                     name_candidates.append((dist, ti, ci))
             elif len(t.text.strip()) == 1 and t.text.strip().islower() and count:
                 reach = max(radii[-1], 2.0 * (t.box[3] - t.box[1]), 2.0 * (t.box[2] - t.box[0]))
@@ -400,7 +464,7 @@ def assemble(detections: list[Detection], wire_prob: np.ndarray, image_size: tup
             names[ci] = parsed_texts[ti].name
         # Whatever is neither a value, a name nor a node letter belongs to the problem statement.
         leftovers = [(ocr[ti].box[1], ocr[ti].box[0], ocr[ti].text.strip()) for ti, parsed in enumerate(parsed_texts)
-                     if parsed.kind == "other" and not (len(ocr[ti].text.strip()) == 1 and ocr[ti].text.strip().islower())]
+                     if parsed.kind == "other" and len(ocr[ti].text.strip()) > 3]
         question_lines = [(ocr[ti].box[1], ocr[ti].box[0], ocr[ti].text.strip()) for ti, parsed in enumerate(parsed_texts) if parsed.kind == "question"] + leftovers
         question_lines = [text for _, _, text in sorted(question_lines)]
     # Respect drawn node letters when they are unique; the other nodes take the remaining letters
@@ -517,6 +581,22 @@ def assemble(detections: list[Detection], wire_prob: np.ndarray, image_size: tup
     circuit.confidence = round(conf, 3)
     circuit.notes = "; ".join(notes) if notes else None
     return Assembly(circuit, conf, detections, {name: node_pixels.get(root, []) for root, name in roots.items()}, notes)
+
+
+_NAME_PREFIX_KINDS = {
+    "R": {"resistor"}, "V": {"voltage_source", "battery"}, "E": {"battery", "voltage_source"}, "B": {"battery"},
+    "I": {"current_source"}, "C": {"capacitor"}, "L": {"inductor", "lamp"}, "S": {"switch_open", "switch_closed"},
+}
+
+
+def _name_fits(name: str, cls: str) -> bool:
+    letters = "".join(ch for ch in name if ch.isalpha())
+    if letters.lower().startswith("lp"):
+        return cls == "lamp"
+    if not letters:
+        return True
+    kinds = _NAME_PREFIX_KINDS.get(letters[0].upper())
+    return kinds is None or cls in kinds
 
 
 def _component_distances(comps: list[Detection], point: Point, family: Optional[str]) -> list[tuple[int, float]]:

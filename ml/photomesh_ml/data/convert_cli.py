@@ -9,7 +9,7 @@ import argparse
 from collections import Counter
 from pathlib import Path
 
-from . import cghd, digitize_hcd, synthetic
+from . import cghd, digitize_hcd, scans, synthetic
 from .records import Record, write_jsonl
 from .splits import partition
 
@@ -20,6 +20,7 @@ def main() -> None:
     parser.add_argument("--digitize-hcd", default=None)
     parser.add_argument("--no-ports", action="store_true")
     parser.add_argument("--cghd", default=None)
+    parser.add_argument("--scans", action="append", default=[], help="app export JSON files or directories of samples")
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
     records: list[Record] = []
@@ -29,6 +30,8 @@ def main() -> None:
         records += digitize_hcd.convert(Path(args.digitize_hcd), include_ports=not args.no_ports)
     if args.cghd:
         records += cghd.convert(Path(args.cghd))
+    if args.scans:
+        records += scans.convert([Path(p) for p in args.scans], Path(args.out) / "scans")
     parts = partition(records)
     out = Path(args.out)
     for name, rows in parts.items():

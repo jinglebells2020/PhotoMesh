@@ -24,6 +24,7 @@ import json
 import os
 import time
 import uuid
+from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -33,6 +34,9 @@ from ..schema import Circuit, ValidationError
 from ..solver import solvable
 from ..vlm.client import chat_json
 from ..vlm.prompt import SYSTEM_PROMPT, USER_PROMPT
+
+OUTPUT_SCHEMA = json.loads((Path(__file__).resolve().parent.parent / "vlm" / "output_schema.json").read_text(encoding="utf-8"))
+GUIDED = os.environ.get("GUIDED_JSON", "1") == "1"
 
 VLM_ENDPOINT = os.environ.get("VLM_ENDPOINT", "http://127.0.0.1:8001/v1/chat/completions")
 VLM_MODEL = os.environ.get("VLM_MODEL", "photomesh-vlm")
@@ -87,7 +91,9 @@ def _quality(text: str) -> tuple[Optional[Circuit], str]:
 def recognize(image_jpeg: bytes, system: str = SYSTEM_PROMPT, user_text: str = USER_PROMPT) -> dict[str, Any]:
     started = time.time()
     tiers: list[dict] = []
-    local = chat_json(VLM_ENDPOINT, None, VLM_MODEL, system, user_text, image_jpeg, temperature=0.0, max_tokens=2048, timeout=60, retries=2)
+    # vLLM can constrain decoding to the output schema (no truncated or malformed JSON from the small model).
+    extra = {"response_format": {"type": "json_schema", "json_schema": {"name": "circuit", "schema": OUTPUT_SCHEMA}}} if GUIDED else None
+    local = chat_json(VLM_ENDPOINT, None, VLM_MODEL, system, user_text, image_jpeg, temperature=0.0, max_tokens=2048, timeout=60, retries=2, extra_body=extra)
     circuit, reason = _quality(local.text)
     tiers.append({"tier": "local", "model": local.model, "latency": round(local.latency, 2), "reason": reason})
     text, model = local.text, local.model

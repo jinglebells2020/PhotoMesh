@@ -19,21 +19,36 @@ from .targets import build_targets
 MAX_OBJECTS = 96
 
 
-def _affine_image(img: Image.Image, scale: float, tx: float, ty: float, size: int, resample, fill) -> Image.Image:
-    """Output(x, y) = Input((x - tx) / scale, (y - ty) / scale)."""
-    inv = (1 / scale, 0.0, -tx / scale, 0.0, 1 / scale, -ty / scale)
+def _affine_image(img: Image.Image, scale: float, tx: float, ty: float, size: int, resample, fill, angle: float = 0.0) -> Image.Image:
+    """Output = rotate(scale * input) + (tx, ty); rotation by `angle` degrees about the input origin after scaling."""
+    a, b, c, d, e, f = _forward_affine(scale, tx, ty, angle)
+    det = a * e - b * d
+    inv = (e / det, -b / det, (b * f - e * c) / det, -d / det, a / det, (d * c - a * f) / det)
     return img.transform((size, size), Image.AFFINE, inv, resample=resample, fillcolor=fill)
 
 
-def _transform_record(record: Record, scale: float, tx: float, ty: float) -> Record:
+def _forward_affine(scale: float, tx: float, ty: float, angle: float = 0.0) -> tuple[float, float, float, float, float, float]:
+    """x' = a x + b y + c, y' = d x + e y + f."""
+    t = math.radians(angle)
+    cos, sin = math.cos(t), math.sin(t)
+    return scale * cos, -scale * sin, tx, scale * sin, scale * cos, ty
+
+
+def _transform_record(record: Record, scale: float, tx: float, ty: float, angle: float = 0.0) -> Record:
+    a, b, c, d, e, f = _forward_affine(scale, tx, ty, angle)
+
     def pt(p):
-        return [p[0] * scale + tx, p[1] * scale + ty]
+        return [a * p[0] + b * p[1] + c, d * p[0] + e * p[1] + f]
+
+    def box(bx):
+        x0, y0, x1, y1 = bx
+        corners = [pt((x0, y0)), pt((x1, y0)), pt((x1, y1)), pt((x0, y1))]
+        xs, ys = [q[0] for q in corners], [q[1] for q in corners]
+        return [min(xs), min(ys), max(xs), max(ys)]
 
     symbols = []
     for s in record.symbols:
-        x0, y0, x1, y1 = s.box
-        symbols.append(replace(s, box=[x0 * scale + tx, y0 * scale + ty, x1 * scale + tx, y1 * scale + ty],
-                               terminals=[pt(p) for p in s.terminals] if s.terminals else None))
+        symbols.append(replace(s, box=box(s.box), terminals=[pt(p) for p in s.terminals] if s.terminals else None))
     junctions = [pt(p) for p in record.junctions] if record.junctions is not None else None
     return replace(record, symbols=symbols, junctions=junctions)
 
@@ -56,13 +71,14 @@ def _border_colour(img: Image.Image) -> tuple[int, int, int]:
 
 class TracerDataset(Dataset):
     def __init__(self, records: Sequence[Record], input_size: int = 640, train: bool = True, stride: int = 4,
-                 jsonl_dir: Optional[Path] = None, mosaic_ports: bool = True, seed: int = 0):
+                 jsonl_dir: Optional[Path] = None, mosaic_ports: bool = True, seed: int = 0, max_rotation: float = 0.0):
         self.records = list(records)
         self.input_size = input_size
         self.train = train
         self.stride = stride
         self.jsonl_dir = jsonl_dir
         self.mosaic_ports = mosaic_ports
+        self.max_rotation = max_rotation
         self.rng = random.Random(seed)
         self.port_records = [r for r in self.records if r.source == "digitize_hcd_ports"]
         # Port crops are only consumed through mosaics; keep one entry per ~6 crops.
@@ -115,6 +131,7 @@ class TracerDataset(Dataset):
     def __getitem__(self, index: int) -> dict:
         kind, record = self.items[index]
         S = self.input_size
+        angle = 0.0
         if kind == "mosaic":
             record, img = self._mosaic()
             mask = None
@@ -124,17 +141,24 @@ class TracerDataset(Dataset):
             fit = S / max(record.width, record.height)
             if self.train:
                 scale = fit * self.rng.uniform(0.75, 1.15)
-                free_x, free_y = S - record.width * scale, S - record.height * scale
-                tx = self.rng.uniform(min(0, free_x), max(0, free_x))
-                ty = self.rng.uniform(min(0, free_y), max(0, free_y))
+                angle = self.rng.uniform(-self.max_rotation, self.max_rotation) if self.max_rotation > 0 else 0.0
+                # translate so the rotated, scaled image stays inside the canvas as far as possible
+                w, h = record.width * scale, record.height * scale
+                t = math.radians(angle)
+                bw, bh = abs(w * math.cos(t)) + abs(h * math.sin(t)), abs(w * math.sin(t)) + abs(h * math.cos(t))
+                cx, cy = w / 2, h / 2
+                rcx, rcy = cx * math.cos(t) - cy * math.sin(t), cx * math.sin(t) + cy * math.cos(t)
+                free_x, free_y = S - bw, S - bh
+                tx = (bw / 2 - rcx) + self.rng.uniform(min(0, free_x), max(0, free_x))
+                ty = (bh / 2 - rcy) + self.rng.uniform(min(0, free_y), max(0, free_y))
             else:
                 scale = fit
                 tx, ty = (S - record.width * scale) / 2, (S - record.height * scale) / 2
             fill = _border_colour(img)
-            img = _affine_image(img, scale, tx, ty, S, Image.BILINEAR, fill)
+            img = _affine_image(img, scale, tx, ty, S, Image.BILINEAR, fill, angle)
             if mask is not None:
-                mask = np.asarray(_affine_image(Image.fromarray(mask, "L"), scale, tx, ty, S, Image.NEAREST, 0))
-        record_t = _transform_record(record, scale, tx, ty)
+                mask = np.asarray(_affine_image(Image.fromarray(mask, "L"), scale, tx, ty, S, Image.NEAREST, 0, angle))
+        record_t = _transform_record(record, scale, tx, ty, angle)
         if self.train and record.source != "synthetic":
             img = self._photometric(img)
         targets = build_targets(record_t, (S, S), self.stride, mask)

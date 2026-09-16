@@ -61,6 +61,7 @@ class Score:
     unknowns_ok: bool = False
     answer_ok: bool = False        # the asked quantities come out the same
     correct: bool = False          # everything the user sees is right
+    unsupported_ok: bool = True    # both sides agree on whether the drawing holds symbols the app cannot solve
     box_iou_mean: Optional[float] = None
     error: Optional[str] = None
 
@@ -93,6 +94,12 @@ def score_prediction(pred: Optional[Circuit], truth: Circuit, labelled_ids: Opti
         relabel[p.id] = t.id
         if labelled_ids is not None and t.id in labelled_ids and p.id != t.id:
             s.ids_ok = False
+    s.unsupported_ok = bool(pred.unsupported) == bool(truth.unsupported)
+    if truth.unsupported:
+        # The app refuses to solve either circuit; what the user sees is the list of unsupported
+        # symbols and the parts that were read, so that is what must match.
+        s.correct = bool(s.unsupported_ok and s.n_matched == s.n_truth == s.n_pred and s.kind_ok == s.n_truth and s.value_ok == s.n_truth and s.ids_ok)
+        return s
     if s.n_matched != s.n_truth or s.n_pred != s.n_truth:
         return _finish(s)
     # Same circuit? Relabel the prediction with the truth's ids and compare solutions.
@@ -119,7 +126,7 @@ def score_prediction(pred: Optional[Circuit], truth: Circuit, labelled_ids: Opti
 
 
 def _finish(s: Score) -> Score:
-    s.correct = bool(s.valid and s.n_matched == s.n_truth == s.n_pred and s.kind_ok == s.n_truth and s.value_ok == s.n_truth
+    s.correct = bool(s.valid and s.unsupported_ok and s.n_matched == s.n_truth == s.n_pred and s.kind_ok == s.n_truth and s.value_ok == s.n_truth
                      and s.topology_ok and s.ids_ok and s.ground_ok and s.unknowns_ok and s.answer_ok)
     return s
 
@@ -147,14 +154,42 @@ def _value_close(x: Optional[float], y: Optional[float], rel: float = 0.01) -> b
     return abs(x - y) <= rel * max(abs(x), abs(y), 1e-12)
 
 
-def summarize(scores: list[Score]) -> dict:
+def bootstrap_ci(flags: list[bool] | list[float], n_boot: int = 2000, seed: int = 0, level: float = 0.95) -> tuple[float, float]:
+    """Percentile bootstrap interval for a mean (rates are means of 0/1 flags)."""
+    import random
+    values = [float(v) for v in flags]
+    n = len(values)
+    if n == 0:
+        return (0.0, 0.0)
+    rng = random.Random(seed)
+    means = []
+    for _ in range(n_boot):
+        total = 0.0
+        for _ in range(n):
+            total += values[rng.randrange(n)]
+        means.append(total / n)
+    means.sort()
+    lo = means[int((1 - level) / 2 * n_boot)]
+    hi = means[min(n_boot - 1, int((1 + level) / 2 * n_boot))]
+    return (lo, hi)
+
+
+def summarize_by(scores: list[Score], keys: list[str]) -> dict[str, dict]:
+    """Summaries per group, e.g. by drawing style; `keys[i]` labels `scores[i]`."""
+    groups: dict[str, list[Score]] = {}
+    for s, k in zip(scores, keys):
+        groups.setdefault(str(k), []).append(s)
+    return {k: summarize(v) for k, v in sorted(groups.items())}
+
+
+def summarize(scores: list[Score], ci: bool = True) -> dict:
     n = len(scores)
     if n == 0:
         return {}
     matched = sum(s.n_matched for s in scores)
     truth = sum(s.n_truth for s in scores)
     pred = sum(s.n_pred for s in scores)
-    return {
+    out = {
         "n": n,
         "valid": sum(s.valid for s in scores) / n,
         "correct": sum(s.correct for s in scores) / n,
@@ -167,4 +202,9 @@ def summarize(scores: list[Score]) -> dict:
         "ids_ok": sum(s.ids_ok for s in scores) / n,
         "ground_ok": sum(s.ground_ok for s in scores) / n,
         "box_iou": sum(s.box_iou_mean for s in scores if s.box_iou_mean is not None) / max(1, sum(1 for s in scores if s.box_iou_mean is not None)),
+        "unsupported_ok": sum(s.unsupported_ok for s in scores) / n,
     }
+    if ci and n >= 5:
+        out["correct_ci95"] = [round(v, 4) for v in bootstrap_ci([s.correct for s in scores])]
+        out["topology_ci95"] = [round(v, 4) for v in bootstrap_ci([s.topology_ok for s in scores])]
+    return out

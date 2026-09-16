@@ -8,6 +8,7 @@ Checkpoints hold the model, the config and the class list; `--resume` continues 
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import math
 import time
@@ -16,11 +17,13 @@ from typing import Optional
 
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 
 from ..classes import TRACER_CLASSES
 from ..data.records import Record, read_jsonl
+from ..eval.detection import DetectionSet, mean_average_precision
 from .assemble import decode_symbols
+from .checkpoint import load_checkpoint, save_checkpoint
 from .dataset import TracerDataset, collate
 from .losses import total_loss
 from .model import CircuitNet, normalize
@@ -42,6 +45,7 @@ def evaluate(model: CircuitNet, loader: DataLoader, device: torch.device, stride
     fp = {c: 0 for c in TRACER_CLASSES}
     fn = {c: 0 for c in TRACER_CLASSES}
     wire_inter = wire_union = 0.0
+    det_sets: list[DetectionSet] = []
     with torch.no_grad():
         for batch in loader:
             x = normalize(batch["image"].to(device))
@@ -49,7 +53,7 @@ def evaluate(model: CircuitNet, loader: DataLoader, device: torch.device, stride
             B = x.shape[0]
             for b in range(B):
                 heat = out["symbol_heat"][b].cpu().numpy()
-                dets = decode_symbols(heat, out["symbol_size"][b].cpu().numpy(), out["symbol_off"][b].cpu().numpy(), out["polarity"][b].cpu().numpy(), stride, threshold)
+                dets = decode_symbols(heat, out["symbol_size"][b].cpu().numpy(), out["symbol_off"][b].cpu().numpy(), out["polarity"][b].cpu().numpy(), stride, 0.05, max_detections=128)
                 # ground truth boxes from targets: reconstruct from index/size/offset
                 gt = []
                 n = int(batch["reg_mask"][b].sum())
@@ -62,6 +66,8 @@ def evaluate(model: CircuitNet, loader: DataLoader, device: torch.device, stride
                     k = int(torch.argmax(batch["heat"][b, :, cy, cx]))
                     ccx, ccy = (cx + ox) * stride, (cy + oy) * stride
                     gt.append((TRACER_CLASSES[k], [ccx - bw * stride / 2, ccy - bh * stride / 2, ccx + bw * stride / 2, ccy + bh * stride / 2]))
+                det_sets.append(DetectionSet([(d.cls, list(d.box), d.score) for d in dets], [(c, list(bx)) for c, bx in gt]))
+                dets = [d for d in dets if d.score >= threshold]
                 matched = set()
                 for d in dets:
                     best, best_iou = None, 0.5
@@ -92,6 +98,7 @@ def evaluate(model: CircuitNet, loader: DataLoader, device: torch.device, stride
     total_tp, total_fp, total_fn = sum(tp.values()), sum(fp.values()), sum(fn.values())
     report["all"] = {"precision": total_tp / max(1, total_tp + total_fp), "recall": total_tp / max(1, total_tp + total_fn), "n": total_tp + total_fn}
     report["wire_iou"] = wire_inter / wire_union if wire_union else None
+    report["detection"] = mean_average_precision(det_sets, TRACER_CLASSES)
     model.train()
     return report
 
@@ -101,20 +108,6 @@ def _iou(a, b) -> float:
     inter = max(0.0, ix1 - ix0) * max(0.0, iy1 - iy0)
     area = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
     return inter / area if area > 0 else 0.0
-
-
-def save_checkpoint(path: Path, model: CircuitNet, args: argparse.Namespace, epoch: int, metrics: Optional[dict]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    torch.save({"model": model.state_dict(), "config": {"backbone": args.backbone, "width": args.width, "size": args.size, "stride": 4},
-                "classes": TRACER_CLASSES, "epoch": epoch, "metrics": metrics}, path)
-
-
-def load_checkpoint(path: str, device: torch.device) -> tuple[CircuitNet, dict]:
-    ckpt = torch.load(path, map_location=device)
-    cfg = ckpt["config"]
-    model = CircuitNet(cfg["backbone"], cfg["width"], pretrained=False).to(device)
-    model.load_state_dict(ckpt["model"])
-    return model, ckpt
 
 
 def main(argv: Optional[list[str]] = None) -> None:
@@ -134,13 +127,23 @@ def main(argv: Optional[list[str]] = None) -> None:
     parser.add_argument("--max-steps", type=int, default=0, help="stop early (smoke tests)")
     parser.add_argument("--no-mosaic", action="store_true")
     parser.add_argument("--no-pretrained", action="store_true")
+    parser.add_argument("--rotate", type=float, default=4.0, help="max random rotation in degrees for training images")
+    parser.add_argument("--ema", type=float, default=0.999, help="EMA decay for the evaluated/exported weights (0 = off)")
+    parser.add_argument("--source-weights", default="", help="sampling weights per source, e.g. synthetic=1,cghd=3,digitize_hcd=2,mosaic=1")
+    parser.add_argument("--e2e-records", default=None, help="records with netlists (synthetic val) for an end-to-end check each epoch")
+    parser.add_argument("--e2e-limit", type=int, default=100)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args(argv)
 
     device = torch.device(args.device)
     train_records, train_base = load_records(args.train)
-    train_ds = TracerDataset(train_records, args.size, True, jsonl_dir=train_base, mosaic_ports=not args.no_mosaic)
-    train_loader = DataLoader(train_ds, args.batch, shuffle=True, num_workers=args.workers, collate_fn=collate, drop_last=True, persistent_workers=args.workers > 0)
+    train_ds = TracerDataset(train_records, args.size, True, jsonl_dir=train_base, mosaic_ports=not args.no_mosaic, max_rotation=args.rotate)
+    sampler = None
+    if args.source_weights:
+        weights_by_source = {k: float(v) for k, v in (kv.split("=") for kv in args.source_weights.split(",") if kv)}
+        item_weights = [weights_by_source.get(rec.source if rec is not None else "mosaic", 1.0) for kind, rec in train_ds.items]
+        sampler = WeightedRandomSampler(item_weights, num_samples=len(item_weights), replacement=True)
+    train_loader = DataLoader(train_ds, args.batch, shuffle=sampler is None, sampler=sampler, num_workers=args.workers, collate_fn=collate, drop_last=True, persistent_workers=args.workers > 0)
     val_loader = None
     if args.val:
         val_records, val_base = load_records(args.val)
@@ -155,6 +158,23 @@ def main(argv: Optional[list[str]] = None) -> None:
         start_epoch = 0
     params = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=args.weight_decay)
+    ema_model = copy.deepcopy(model).eval() if args.ema > 0 else None
+    if ema_model is not None and args.resume and "ema" in ckpt:
+        ema_model.load_state_dict(ckpt["ema"])
+
+    ema_updates = 0
+
+    def update_ema() -> None:
+        nonlocal ema_updates
+        if ema_model is None:
+            return
+        ema_updates += 1
+        decay = min(args.ema, (1 + ema_updates) / (10 + ema_updates))   # warm-up: follow the model closely at first
+        with torch.no_grad():
+            for e, p in zip(ema_model.parameters(), model.parameters()):
+                e.mul_(decay).add_(p.detach(), alpha=1 - decay)
+            for e, b in zip(ema_model.buffers(), model.buffers()):
+                e.copy_(b)
     steps_per_epoch = len(train_loader)
     total_steps = max(1, args.epochs * steps_per_epoch)
     warmup = min(500, total_steps // 10)
@@ -189,6 +209,7 @@ def main(argv: Optional[list[str]] = None) -> None:
             torch.nn.utils.clip_grad_norm_(params, 10.0)
             scaler.step(optimizer)
             scaler.update()
+            update_ema()
             for k, v in terms.items():
                 running[k] = running.get(k, 0.0) + v
             running["total"] = running.get("total", 0.0) + float(loss.detach())
@@ -199,14 +220,25 @@ def main(argv: Optional[list[str]] = None) -> None:
                 print(f"epoch {epoch} step {step} lr {lr_at(step):.2e} {avg}", flush=True)
             if args.max_steps and step >= args.max_steps:
                 break
-        metrics = evaluate(model, val_loader, device) if val_loader is not None else None
+        metrics = evaluate(ema_model or model, val_loader, device) if val_loader is not None else None
         avg = {k: v / max(1, running.get("n", 1)) for k, v in running.items() if k != "n"}
         entry = {"epoch": epoch, "step": step, "train": avg, "val": metrics, "seconds": round(time.time() - t0, 1)}
         log.write(json.dumps(entry) + "\n")
         log.flush()
         if metrics:
-            print(f"epoch {epoch}: all P {metrics['all']['precision']:.3f} R {metrics['all']['recall']:.3f} wire IoU {metrics['wire_iou']}", flush=True)
-        save_checkpoint(out / "last.pt", model, args, epoch, metrics)
+            print(f"epoch {epoch}: mAP@0.5 {metrics['detection']['mAP']} P {metrics['all']['precision']:.3f} R {metrics['all']['recall']:.3f} wire IoU {metrics['wire_iou']}", flush=True)
+        save_checkpoint(out / "last.pt", model, {"backbone": args.backbone, "width": args.width, "size": args.size, "stride": 4}, epoch, metrics,
+                        extra={"ema": ema_model.state_dict()} if ema_model is not None else None)
+        if args.e2e_records:
+            from .evaluate import evaluate_records
+            from .infer import Tracer
+            e2e_records = read_jsonl(args.e2e_records)
+            tracer = Tracer(out / "last.pt", str(device))
+            e2e_summary, _ = evaluate_records(tracer, e2e_records, Path(args.e2e_records), args.e2e_limit)
+            entry["e2e"] = e2e_summary["overall"]
+            print(f"epoch {epoch}: end-to-end correct {e2e_summary['overall'].get('correct')} topology {e2e_summary['overall'].get('topology_ok')}", flush=True)
+            log.write(json.dumps({"epoch": epoch, "e2e": e2e_summary}) + "\n")
+            log.flush()
         if args.max_steps and step >= args.max_steps:
             break
     print("done", out / "last.pt")

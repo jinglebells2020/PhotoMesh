@@ -274,12 +274,18 @@ def render(lattice: LatticeCircuit, rng: random.Random, style: Optional[Style] =
     height = int(rows * s + margin_top + margin_bottom)
 
     # Lattice point positions, jittered for sketches.
-    pos: dict[tuple[int, int], Point] = {}
-    for r in range(rows + 1):
-        for c in range(cols + 1):
-            jx = rng.gauss(0, s * 0.018) if style.hand else 0.0
-            jy = rng.gauss(0, s * 0.018) if style.hand else 0.0
-            pos[(r, c)] = (margin_x + c * s + jx, margin_top + r * s + jy)
+    pos: dict[tuple[float, float], Point] = {}
+    grid = [(r, c) for r in range(rows + 1) for c in range(cols + 1)]
+    for r, c in grid + [q for q in lattice.points if q not in grid]:
+        jx = rng.gauss(0, s * 0.018) if style.hand else 0.0
+        jy = rng.gauss(0, s * 0.018) if style.hand else 0.0
+        pos[(r, c)] = (margin_x + c * s + jx, margin_top + r * s + jy)
+    # Where each jumper meets the wire it crosses (segment intersection of the drawn lines).
+    cross_px: dict[int, tuple[Point, Edge, bool]] = {}
+    for point, jumper, crossed, hop in lattice.crossings:
+        X = _intersection(pos[jumper.a], pos[jumper.b], pos[crossed.a], pos[crossed.b])
+        if X is not None:
+            cross_px[id(jumper)] = (X, crossed, hop)
 
     canvas = _Canvas(width, height)
     symbols: list[SymbolLabel] = []
@@ -304,24 +310,34 @@ def render(lattice: LatticeCircuit, rng: random.Random, style: Optional[Style] =
     box_pad = style.stroke * 0.6
     for e in lattice.component_edges:
         A, B = pos[e.a], pos[e.b]
-        M = ((A[0] + B[0]) / 2, (A[1] + B[1]) / 2)
+        # A jumper's element sits in one of the two cells it spans, never on the wire it crosses.
+        t_mid = rng.choice([0.25, 0.75]) if id(e) in cross_px else 0.5
+        M = (A[0] + (B[0] - A[0]) * t_mid, A[1] + (B[1] - A[1]) * t_mid)
         ux, uy = B[0] - M[0], B[1] - M[1]
         norm = math.hypot(ux, uy) or 1.0
         ux, uy = ux / norm, uy / norm
         polar = e.kind in POLAR_KINDS
-        if polar:
+        if polar or e.kind == "other":
             P = pos[e.positive_end]
             angle = math.atan2(P[1] - M[1], P[0] - M[0])
         else:
             angle = math.atan2(uy, ux)
-        body, half, half_h = _body(e.kind, s, style, rng)
+        body, half, half_h = _body(e.kind, s, style, rng, e.subtype)
         placed = S.place(body, M, angle)
         # Extra marks that are not part of the terminal axis (+/- signs, arrows).
         marks = S.place(_marks(e.kind, s, style, rng), M, angle)
         T_a = (M[0] - ux * half, M[1] - uy * half)
         T_b = (M[0] + ux * half, M[1] + uy * half)
+        crossing = cross_px.get(id(e))
+        hop_r = s * rng.uniform(0.05, 0.075)
         for lead in ([A, T_a], [T_b, B]):
-            canvas.stroke(hand_line(lead, 0.6), stroke_width(), wire=True)
+            pieces = _route_around(lead, crossing[0], hop_r, rng.random() < 0.5) if (crossing and crossing[2]) else [lead]
+            for piece in pieces:
+                canvas.stroke(hand_line(piece, 0.6), stroke_width(), wire=True)
+        if crossing:
+            X, _, hop = crossing
+            r = hop_r if hop else s * 0.05
+            symbols.append(SymbolLabel("crossover", [X[0] - r, X[1] - r, X[0] + r, X[1] + r], "vertical", "up", [], f"X{len([q for q in symbols if q.cls == 'crossover']) + 1}"))
         for line in placed:
             canvas.stroke(hand_line(line, 0.45), stroke_width(rng.uniform(0.9, 1.1)), wire=False)
         for line in marks:
@@ -331,6 +347,8 @@ def render(lattice: LatticeCircuit, rng: random.Random, style: Optional[Style] =
         orientation = "horizontal" if e.horizontal else "vertical"
         polarity = _polarity_name(angle) if polar else ("right" if e.horizontal else "up")
         symbols.append(SymbolLabel(e.kind, box, orientation, polarity, [T_a, T_b], e.id))
+        if e.kind == "other":
+            e.show_value = False
         _place_labels(canvas, texts, e, box, orientation, style, rng, width, height)
 
     # Ground symbol.
@@ -354,6 +372,73 @@ def render(lattice: LatticeCircuit, rng: random.Random, style: Optional[Style] =
         for p in lattice.points:
             if lattice.degree(p) == 2 and p not in lattice.junctions and _is_corner(lattice, p):
                 canvas.disc(pos[p], dot_r * 0.75, wire=True)
+
+    # Current annotations: branch arrows along wires and circulating mesh-current arrows, each with a
+    # label ("Ia", "i1"). Ink, not wire; the labels are not element names and must be told apart.
+    ann_font = load_font(style.font, int(style.font_size * 0.9))
+    used_labels = {e.id for e in lattice.component_edges}
+    ann_index = 0
+
+    def next_label() -> str:
+        nonlocal ann_index
+        while True:
+            ann_index += 1
+            cand = rng.choice([f"I{chr(96 + ann_index)}", f"i{ann_index}", f"I_{chr(96 + ann_index)}", f"I{ann_index}"])
+            if cand not in used_labels:
+                used_labels.add(cand)
+                return cand
+
+    def draw_label(text: str, x: float, y: float, role: str) -> None:
+        layer = _text_layer(text, ann_font, rng.uniform(-4, 4) if style.hand else 0.0)
+        lw, lh = layer.width // SS, layer.height // SS
+        lx, ly = int(min(max(2, x), width - lw - 2)), int(min(max(2, y), height - lh - 2))
+        canvas.paste_text(layer, lx, ly)
+        texts.append(TextLabel([float(lx), float(ly), float(lx + lw), float(ly + lh)], text, role))
+
+    if rng.random() < 0.3:
+        wires = [e for e in lattice.edges if e.is_wire and not any(e is x[2] for x in lattice.crossings)]
+        rng.shuffle(wires)
+        for e in wires[: rng.randint(1, 2)]:
+            A, B = pos[e.a], pos[e.b]
+            if rng.random() < 0.5:
+                A, B = B, A
+            mx, my = (A[0] + B[0]) / 2, (A[1] + B[1]) / 2
+            dx, dy = B[0] - A[0], B[1] - A[1]
+            L = math.hypot(dx, dy) or 1.0
+            ux, uy = dx / L, dy / L
+            nx, ny = -uy, ux
+            off = s * rng.uniform(0.05, 0.08) * rng.choice([-1, 1])
+            head = s * 0.035
+            half = s * rng.uniform(0.07, 0.1)
+            p0 = (mx - ux * half + nx * off, my - uy * half + ny * off)
+            p1 = (mx + ux * half + nx * off, my + uy * half + ny * off)
+            for line in ([p0, p1], [(p1[0] - ux * head - nx * head * 0.6, p1[1] - uy * head - ny * head * 0.6), p1],
+                         [(p1[0] - ux * head + nx * head * 0.6, p1[1] - uy * head + ny * head * 0.6), p1]):
+                canvas.stroke(hand_line(line, 0.4), stroke_width(0.85), wire=False)
+            draw_label(next_label(), p1[0] + nx * off * 0.6 + (s * 0.02 if e.horizontal else s * 0.05), p1[1] + ny * off * 0.6 - (s * 0.12 if e.horizontal else 0), "annotation")
+    if lattice.faces and rng.random() < 0.3:
+        for face in lattice.faces:
+            if rng.random() < 0.4:
+                continue
+            verts = {q for ed in face for q in (ed.a, ed.b)}
+            cx = sum(pos[q][0] for q in verts) / len(verts)
+            cy = sum(pos[q][1] for q in verts) / len(verts)
+            r = s * rng.uniform(0.1, 0.14)
+            clockwise = rng.random() < 0.7
+            arc = [(cx + r * math.cos(math.radians(a)), cy + r * math.sin(math.radians(a))) for a in range(-150, 150, 10)]
+            if not clockwise:
+                arc = list(reversed(arc))
+            canvas.stroke(hand_line(arc, 0.4), stroke_width(0.85), wire=False)
+            ex, ey = arc[-1]
+            px, py = arc[-2]
+            tx, ty = ex - px, ey - py
+            tl = math.hypot(tx, ty) or 1.0
+            tx, ty = tx / tl, ty / tl
+            head = s * 0.035
+            for line in ([(ex - tx * head - ty * head * 0.6, ey - ty * head + tx * head * 0.6), (ex, ey)],
+                         [(ex - tx * head + ty * head * 0.6, ey - ty * head - tx * head * 0.6), (ex, ey)]):
+                canvas.stroke(hand_line(line, 0.3), stroke_width(0.85), wire=False)
+            draw_label(next_label(), cx - s * 0.04, cy - s * 0.06, "annotation")
 
     # Node letters, drawn when the question refers to nodes (and now and then anyway, textbook style).
     referenced = {u.node for u in lattice.circuit.unknowns if u.node} | {n for u in lattice.circuit.unknowns if u.between for n in u.between}
@@ -422,9 +507,50 @@ def _node_anchor(lattice: LatticeCircuit, node: str, pos: dict) -> Optional[Poin
     return None
 
 
+def _intersection(p1: Point, p2: Point, q1: Point, q2: Point) -> Optional[Point]:
+    """Intersection of segments p1-p2 and q1-q2, or None."""
+    d1 = (p2[0] - p1[0], p2[1] - p1[1])
+    d2 = (q2[0] - q1[0], q2[1] - q1[1])
+    den = d1[0] * d2[1] - d1[1] * d2[0]
+    if abs(den) < 1e-9:
+        return None
+    t = ((q1[0] - p1[0]) * d2[1] - (q1[1] - p1[1]) * d2[0]) / den
+    u = ((q1[0] - p1[0]) * d1[1] - (q1[1] - p1[1]) * d1[0]) / den
+    if 0 <= t <= 1 and 0 <= u <= 1:
+        return (p1[0] + t * d1[0], p1[1] + t * d1[1])
+    return None
+
+
+def _route_around(lead: list[Point], X: Point, radius: float, left_side: bool) -> list[list[Point]]:
+    """Replaces the part of a straight lead near X by a semicircular hop; untouched if X is not on it."""
+    (ax, ay), (bx, by) = lead[0], lead[-1]
+    dx, dy = bx - ax, by - ay
+    length = math.hypot(dx, dy)
+    if length < 1e-6:
+        return [lead]
+    ux, uy = dx / length, dy / length
+    t = (X[0] - ax) * ux + (X[1] - ay) * uy
+    if t < radius or t > length - radius:
+        return [lead]
+    nx, ny = (-uy, ux) if left_side else (uy, -ux)
+    p1 = (ax + ux * (t - radius), ay + uy * (t - radius))
+    p2 = (ax + ux * (t + radius), ay + uy * (t + radius))
+    arc = []
+    for i in range(13):
+        a = math.pi * i / 12
+        cx = X[0] - ux * radius * math.cos(a) + nx * radius * math.sin(a)
+        cy = X[1] - uy * radius * math.cos(a) + ny * radius * math.sin(a)
+        arc.append((cx, cy))
+    return [[(ax, ay), p1] + arc + [p2, (bx, by)]]
+
+
 def _is_corner(lattice: LatticeCircuit, p: tuple[int, int]) -> bool:
     edges = [e for e in lattice.edges if p in (e.a, e.b)]
     return len(edges) == 2 and edges[0].horizontal != edges[1].horizontal
+
+
+def _direction(p, q) -> tuple[int, int]:
+    return ((q[0] > p[0]) - (q[0] < p[0]), (q[1] > p[1]) - (q[1] < p[1]))
 
 
 def _wire_runs(lattice: LatticeCircuit) -> list[list[tuple[int, int]]]:
@@ -452,7 +578,7 @@ def _wire_runs(lattice: LatticeCircuit) -> list[list[tuple[int, int]]]:
                         continue
                     w = wires[j]
                     other = w.other(end)
-                    if (other[0] - end[0], other[1] - end[1]) == (end[0] - prev[0], end[1] - prev[1]):
+                    if _direction(end, other) == _direction(prev, end):
                         nxt = (j, other)
                         break
                 if nxt is None:
@@ -466,7 +592,9 @@ def _wire_runs(lattice: LatticeCircuit) -> list[list[tuple[int, int]]]:
     return runs
 
 
-def _body(kind: str, s: float, style: Style, rng: random.Random):
+def _body(kind: str, s: float, style: Style, rng: random.Random, subtype: Optional[str] = None):
+    if kind == "other":
+        return _other_body(subtype or "diode", s, rng)
     if kind == "resistor":
         if style.resistor == "zigzag":
             return S.resistor_zigzag(s * rng.uniform(0.36, 0.46), s * rng.uniform(0.05, 0.075), rng.randint(3, 5), rounded=style.hand and rng.random() < 0.4)
@@ -486,6 +614,28 @@ def _body(kind: str, s: float, style: Style, rng: random.Random):
     if kind == "switch_closed":
         return S.switch_closed(s * rng.uniform(0.3, 0.38), s * 0.015)
     raise ValueError(kind)
+
+
+def _other_body(subtype: str, s: float, rng: random.Random):
+    """Symbols the app cannot solve: drawn so the tracer learns to flag them."""
+    if subtype == "ac_source":
+        r = s * rng.uniform(0.1, 0.13)
+        wave = [(-0.6 * r + 1.2 * r * i / 16, -0.35 * r * math.sin(2 * math.pi * i / 16)) for i in range(17)]
+        return [S.circle(r), wave], r, r
+    h, a = s * rng.uniform(0.11, 0.14), s * rng.uniform(0.08, 0.11)
+    lines = [[(-h, -a), (-h, a), (h, 0.0), (-h, -a)], [(h, -a), (h, a)]]
+    if subtype == "zener":
+        lines.append([(h, -a), (h - 0.35 * a, -a)])
+        lines.append([(h, a), (h + 0.35 * a, a)])
+        return lines, h + 0.35 * a, a
+    if subtype == "led":
+        for k in (0.0, 0.45 * a):
+            x0, y0 = -0.2 * h + k, -a - 0.2 * a
+            lines.append([(x0, y0), (x0 + 0.5 * a, y0 - 0.5 * a)])
+            lines.append([(x0 + 0.5 * a, y0 - 0.5 * a), (x0 + 0.25 * a, y0 - 0.5 * a)])
+            lines.append([(x0 + 0.5 * a, y0 - 0.5 * a), (x0 + 0.5 * a, y0 - 0.25 * a)])
+        return lines, h, a * 1.7
+    return lines, h, a
 
 
 def _marks(kind: str, s: float, style: Style, rng: random.Random) -> list[list[Point]]:

@@ -19,7 +19,7 @@ import torch.nn as nn
 
 from ..classes import POLARITY, TRACER_CLASSES
 from .model import IMAGENET_MEAN, IMAGENET_STD, ExportWrapper
-from .train import load_checkpoint
+from .checkpoint import load_checkpoint
 
 
 class WithNormalisation(nn.Module):

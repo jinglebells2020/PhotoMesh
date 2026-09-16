@@ -44,10 +44,12 @@ pytest -q
 ## 1. Data
 
 **Synthetic (unlimited, exact).** Random one-to-six-window textbook DC circuits with every element
-kind the app solves, drawn in a hand-drawn style (wobble, handwriting fonts, lined/grid paper,
-pencil) or a printed style, then photographed (perspective, lighting, shadows, blur, JPEG). Each
-sample carries the app's JSON, symbol boxes with polarity and terminal points, junctions, text boxes
-with strings and a wire-ink mask.
+kind the app solves, wire crossovers (hops and plain crossings), node letters, and now and then a
+symbol the app cannot solve (diode, LED, zener, AC source) so the reader learns to flag it. Drawn
+in a hand-drawn style (wobble, handwriting fonts, lined/grid paper, pencil) or a printed style,
+then photographed (perspective, lighting, shadows, blur, JPEG). Each sample carries the app's JSON,
+symbol boxes with polarity and terminal points, junctions, text boxes with strings and a wire-ink
+mask.
 
 ```bash
 python -m photomesh_ml.synth.generate --out data/synth --count 20000 --seed 0 --workers 8
@@ -73,23 +75,38 @@ What each source supervises (everything else is masked in the loss):
 | Digitize-HCD full images | ✓ (17 → app classes + `other`) | axis only | – | – | – | ✓ | via teacher |
 | Digitize-HCD port crops (~100k) | ✓ | ✓ for V-DC / I-DC | ✓ | – | – | – | – |
 | CGHD | ✓ (59 → app classes + `other`) | ✓ from rotation | ✓ near-axis symbols | ✓ dots | ✓ from stroke maps (284 images) | ✓ | via teacher |
-| app scans (opt-in) | – | – | – | – | – | – | ✓ corrected netlists |
+| app scans (opt-in, `data/scans.py`) | ✓ from the app's placements | axis only | – | – | – | – | ✓ corrected (gold) / accepted (silver) |
 
 ## 2. On-device tracer (CircuitNet)
 
 ```bash
 python -m photomesh_ml.tracer.train --train data/records/train.jsonl --val data/records/val.jsonl \
-    --backbone mobilenet_v3_large --size 640 --epochs 40 --batch 16 --out runs/tracer
+    --backbone mobilenet_v3_large --size 640 --epochs 40 --batch 16 --out runs/tracer \
+    --source-weights synthetic=1,cghd=3,digitize_hcd=2,mosaic=1 --e2e-records data/records/val.jsonl
+python -m photomesh_ml.tracer.evaluate --checkpoint runs/tracer/last.pt --records data/records/test.jsonl --ocr gt --tta --out results/tracer_test
+python -m photomesh_ml.tracer.infer --checkpoint runs/tracer/last.pt --image photo.jpg --ocr ocr.json --tta --debug overlay.png
 python -m photomesh_ml.tracer.export_coreml --checkpoint runs/tracer/last.pt --size 640 --out CircuitNet.mlpackage
+bash scripts/reproduce.sh      # the whole recipe with one command
 ```
 
+Training keeps an EMA of the weights (warm-up so early evaluations are meaningful), samples sources
+with configurable weights, applies small random rotations, and reports per-class mAP@0.5, wire IoU
+and, with `--e2e-records`, the end-to-end netlist accuracy on held-out synthetic circuits after
+every epoch. `tracer.infer` runs the whole on-device path (letterbox → maps → assembler → JSON);
+with `--tta` it reads the photo at three scales, keeps the reading the others agree with (solver
+checked) and scales the confidence by that agreement, which is what gates cloud escalation.
+`tracer.evaluate` scores a labelled set with bootstrap confidence intervals, per-style breakdowns,
+symbol mAP and the coverage the confidence gate reaches at 95 % precision.
+
 Outputs at stride 4: `symbol_heat` [13 classes], `symbol_size`, `symbol_off`, `polarity` [right/up/left/down],
-`wire`, `junction`, `terminal`. The Core ML contract is documented in `tracer/export_coreml.py`.
+`wire`, `junction`, `terminal`. The Core ML contract and the step-by-step assembler specification
+for the Swift port are in [`docs/on-device.md`](docs/on-device.md).
 `tracer/assemble.py` turns the maps plus OCR strings into the app's JSON and is the reference for
 the Swift port (steps: decode peaks → wire mask minus symbols → connected components → terminals
-join components → crossovers bridge → ground names node 0 → OCR values/names/question → JSON +
-confidence). On perfect maps from the generator it reproduces 100 % of topologies and 94 % of
-complete answers on 100 random circuits (`tests/test_assembler_e2e.py`); the rest is label
+join components (snapped to terminal-heat peaks) → crossovers bridge → ground names node 0 → OCR
+values/names/question → JSON + confidence). On perfect maps from the generator, crossovers and
+unsupported symbols included, it reproduces 96 % of topologies and 90 % of complete answers on 160
+random circuits (95 % bootstrap interval 0.85–0.94, `docs/experiments.md`); the rest is label
 ambiguity in dense drawings.
 
 A 40-epoch run on 20k synthetic + both real sets takes roughly 3–4 h on one L4 (estimate). The
@@ -113,8 +130,9 @@ python -m photomesh_ml.vlm.infer --model runs/vlm-qwen3-2b/merged --jsonl data/v
 python -m photomesh_ml.eval.benchmark --jsonl data/vlm/val.jsonl --predictions results/student.jsonl
 ```
 
-Serving (`photomesh_ml/serve`): vLLM hosts the merged model; a small FastAPI front validates every
-answer like the app does, escalates once to the cloud model when the small one fails or is unsure,
+Serving (`photomesh_ml/serve`): vLLM hosts the merged model with decoding constrained to the output
+schema (`vlm/output_schema.json`, so the small model never returns malformed JSON); a small FastAPI
+front validates every answer like the app does, escalates once to the cloud model when the small one fails or is unsure,
 and speaks `/v1/chat/completions` so the app only needs a different endpoint URL (Settings →
 Recognition → Models → Endpoint, developer builds). `Dockerfile` for your own GPU box,
 `modal_app.py` for scale-to-zero.
@@ -125,6 +143,10 @@ scan when busy, and $0 idle on Modal/RunPod-style serverless (cold start ~40–6
 AWQ 4-bit weights at roughly half the speed. Compare: the current cloud path costs ~$0.002–0.009
 per scan.
 
+Self-training loop (rejection-sampling fine-tuning): point `vlm.distill --endpoint` at the student's
+own vLLM server with `--samples 2`; only answers that validate, agree with the datasets' boxes and
+solve identically twice are kept, then rebuild the dataset and fine-tune again.
+
 ## 4. What "correct" means
 
 `eval/metrics.py` scores a prediction the way the user experiences it: every element found with
@@ -132,7 +154,9 @@ its kind and value (matched by position), the same currents and voltages on ever
 solving both netlists (so polarity and connectivity errors are caught even when node names differ),
 labels that appear in the drawing kept as ids, the reference node and the question's unknowns the
 same, and the asked quantities equal. `summarize()` reports `correct`, `topology_ok`, `answer_ok`,
-component precision/recall, kind and value accuracy.
+component precision/recall, kind and value accuracy, with bootstrap 95 % intervals and per-group
+breakdowns; `eval/detection.py` adds per-class AP@0.5. The full protocol, baselines and result
+tables live in [`docs/experiments.md`](docs/experiments.md).
 
 ## 5. Status
 
