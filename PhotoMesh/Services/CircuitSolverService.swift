@@ -61,8 +61,9 @@ struct VLMCircuitSolver: CircuitSolverService {
     }
 
     private func recognizeWithEscalation(_ image: UIImage, progress: @escaping (String) -> Void) async throws -> SolveInput {
-        if metered {
+        if metered, !Subscriptions.isProCached {
             // Caps are checked before spending anything; the error text says when to try again.
+            // Plus subscribers skip the beta allowance entirely.
             do {
                 try UsageAllowance.shared.consume()
             } catch {
@@ -95,7 +96,7 @@ struct VLMCircuitSolver: CircuitSolverService {
             if let result = firstResult { return input(from: result) }
             throw firstError ?? CircuitPayload.PayloadError.noCircuit
         }
-        if metered, !UsageAllowance.shared.tryConsume() {
+        if metered, !Subscriptions.isProCached, !UsageAllowance.shared.tryConsume() {
             // Out of allowance for a second read: return the first result rather than fail.
             RecognitionLog.shared.record("escalation skipped: beta allowance used up")
             if let result = firstResult { return input(from: result) }

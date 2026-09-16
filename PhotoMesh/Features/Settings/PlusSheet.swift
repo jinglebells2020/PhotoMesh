@@ -1,10 +1,39 @@
 import SwiftUI
+import RevenueCat
+import RevenueCatUI
 
-/// Upsell screen. Purchases are not wired up yet – this is the layout only.
+/// PhotoMesh Plus. Subscribers see what they have; everyone else sees the RevenueCat paywall,
+/// so the plans, prices and copy are whatever the dashboard's current offering says.
 struct PlusSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @State private var presentingCustomerCenter = false
+
+    private var store: Subscriptions { Subscriptions.shared }
 
     var body: some View {
+        Group {
+            if store.isPro {
+                subscribed
+            } else {
+                // Handles its own loading, purchase and restore flows.
+                PaywallView(displayCloseButton: true)
+            }
+        }
+        .onPurchaseCompleted { _ in
+            Haptics.notify(.success)
+            Analytics.shared.track("purchase_completed")
+            dismiss()
+        }
+        .onRestoreCompleted { info in
+            // The paywall closes itself when the entitlement is active; this is just for the log.
+            Analytics.shared.track("purchase_restored", [
+                "active": .string(info.entitlements[Subscriptions.entitlement]?.isActive == true ? "yes" : "no")
+            ])
+        }
+        .task { await store.refresh() }
+    }
+
+    private var subscribed: some View {
         VStack(spacing: 0) {
             HStack {
                 Spacer()
@@ -15,27 +44,25 @@ struct PlusSheet: View {
 
             Spacer(minLength: 12)
 
-            PlusIllustration()
-                .frame(height: 220)
-                .padding(.horizontal, 24)
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 56))
+                .foregroundStyle(PMTheme.plusOrange)
+                .padding(.bottom, 18)
 
-            VStack(alignment: .leading, spacing: 22) {
-                FeatureRow(title: "Step-by-step mesh & nodal analysis", subtitle: "see every KVL and KCL equation, not just the answer")
-                FeatureRow(title: "Unlimited scans", subtitle: "no daily limit on camera solves")
-                FeatureRow(title: "Export to SPICE", subtitle: "send the recognized netlist straight to your simulator")
-            }
-            .padding(.horizontal, 32)
-            .padding(.top, 34)
+            Text("You have PhotoMesh Plus")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(PMTheme.ink)
+            Text(store.status.detail)
+                .font(.system(size: 14))
+                .foregroundStyle(PMTheme.secondaryText)
+                .padding(.top, 4)
 
             Spacer(minLength: 12)
 
             VStack(spacing: 14) {
-                Button("Unlock Plus") {
-                    Haptics.notify(.warning)
-                }
-                .buttonStyle(PMBlackButtonStyle())
-
-                Button("Not now") { dismiss() }
+                Button("Manage subscription") { presentingCustomerCenter = true }
+                    .buttonStyle(PMBlackButtonStyle())
+                Button("Done") { dismiss() }
                     .font(.system(size: 13))
                     .foregroundStyle(PMTheme.secondaryText)
             }
@@ -43,72 +70,9 @@ struct PlusSheet: View {
             .padding(.bottom, 20)
         }
         .background(Color.white)
-    }
-}
-
-private struct FeatureRow: View {
-    let title: String
-    let subtitle: String
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            Image(systemName: "checkmark")
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(PMTheme.plusOrange)
-                .padding(.top, 2)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(PMTheme.ink)
-                Text(subtitle)
-                    .font(.system(size: 13))
-                    .foregroundStyle(PMTheme.secondaryText)
-            }
-        }
-    }
-}
-
-private struct PlusIllustration: View {
-    var body: some View {
-        ZStack {
-            // open "book" pages
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color(white: 0.96))
-                .frame(width: 210, height: 150)
-                .rotationEffect(.degrees(-6))
-                .offset(x: -30, y: 16)
-                .shadow(color: .black.opacity(0.12), radius: 10, y: 6)
-            RoundedRectangle(cornerRadius: 10)
-                .fill(PMTheme.accent)
-                .frame(width: 22, height: 150)
-                .rotationEffect(.degrees(-6))
-                .offset(x: -132, y: 22)
-
-            // phone with solution card
-            ZStack {
-                RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Color.black)
-                RoundedRectangle(cornerRadius: 20, style: .continuous).fill(Color.white).padding(6)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("SOLVING STEPS").font(.system(size: 6, weight: .semibold)).foregroundStyle(PMTheme.secondaryText)
-                    Text("Find the loop current").font(.system(size: 9, weight: .bold))
-                    MeshLoopGlyph()
-                        .stroke(PMTheme.ink, lineWidth: 1.4)
-                        .frame(width: 60, height: 34)
-                        .padding(.vertical, 4)
-                    HStack(spacing: 0) {
-                        Rectangle().fill(PMTheme.accent).frame(width: 2)
-                        Text("I = 37.5 mA").font(.system(size: 10, weight: .bold)).padding(.leading, 6)
-                    }
-                    Spacer()
-                    HStack { Spacer(); Circle().fill(PMTheme.accent).frame(width: 16, height: 16); Spacer() }
-                }
-                .padding(14)
-            }
-            .frame(width: 110, height: 200)
-            .rotationEffect(.degrees(8))
-            .offset(x: 60, y: -4)
-            .shadow(color: .black.opacity(0.2), radius: 12, y: 8)
-        }
+        .presentCustomerCenter(isPresented: $presentingCustomerCenter, onDismiss: {
+            presentingCustomerCenter = false
+        })
     }
 }
 

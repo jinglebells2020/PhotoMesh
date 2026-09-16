@@ -18,6 +18,8 @@ struct SettingsSheet: View {
     var body: some View {
         NavigationStack {
             List {
+                SubscriptionSettingsSection()
+
                 Section {
                     SettingsRow(title: "Resistor symbol", value: resistorStyle.title) {
                         OptionPickerView(title: "Resistor symbol", selection: $resistorStyle)
