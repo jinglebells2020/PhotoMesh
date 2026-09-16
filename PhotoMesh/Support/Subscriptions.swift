@@ -15,11 +15,6 @@ final class Subscriptions {
     /// Entitlement configured in the RevenueCat dashboard; grants everything paid.
     static let entitlement = "photocircuits_pro"
 
-    /// Offering identifiers are dashboard-side; packages come from the current offering.
-    enum Plan: String, CaseIterable {
-        case monthly, threeMonth = "three_month", yearly
-    }
-
     enum Status: Equatable {
         case unknown            // before the first customer info arrives
         case free
@@ -30,6 +25,14 @@ final class Subscriptions {
     private(set) var offerings: Offerings?
     /// Last purchase/restore failure worth showing; the paywall handles its own errors.
     private(set) var lastError: String?
+    /// Why there is nothing to sell. Empty offerings are nearly always a dashboard or
+    /// App Store Connect configuration problem rather than a device issue, so say so.
+    private(set) var offeringProblem: String?
+
+    /// Packages in the current offering, in the order the dashboard lists them.
+    var availablePackages: [Package] {
+        offerings?.current?.availablePackages ?? []
+    }
 
     var isPro: Bool {
         if case .pro = status { return true }
@@ -73,9 +76,18 @@ final class Subscriptions {
             lastError = error.localizedDescription
         }
         do {
-            offerings = try await Purchases.shared.offerings()
+            let fetched = try await Purchases.shared.offerings()
+            offerings = fetched
+            if fetched.current == nil {
+                offeringProblem = "No current offering. Set one as current in RevenueCat → Offerings."
+            } else if fetched.current?.availablePackages.isEmpty ?? true {
+                offeringProblem = "The current offering has no packages, or its products are not ready in App Store Connect."
+            } else {
+                offeringProblem = nil
+            }
         } catch {
             offerings = nil
+            offeringProblem = error.localizedDescription
         }
     }
 
@@ -100,16 +112,6 @@ final class Subscriptions {
     }
 
     // MARK: Purchases
-
-    /// The package for a plan in the current offering, if the dashboard offers it.
-    func package(for plan: Plan) -> Package? {
-        guard let current = offerings?.current else { return nil }
-        switch plan {
-        case .monthly: return current.monthly
-        case .threeMonth: return current.threeMonth
-        case .yearly: return current.annual
-        }
-    }
 
     /// Buys a package. Returns true when the entitlement is active afterwards.
     /// A cancelled purchase is not an error and returns false without setting `lastError`.
