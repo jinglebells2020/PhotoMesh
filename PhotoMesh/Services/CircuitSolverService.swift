@@ -29,8 +29,9 @@ enum SolverProvider {
     static func make() -> any CircuitSolverService {
         if APIConfiguration.useSampleCircuit { return SampleCircuitSolver() }
         if let key = APIConfiguration.apiKey, !key.isEmpty {
-            let primary = OpenRouterClient.Configuration(apiKey: key, model: APIConfiguration.model, fastReasoning: APIConfiguration.fastRecognition)
-            let fallback = APIConfiguration.fallbackModel.map { OpenRouterClient.Configuration(apiKey: key, model: $0, fastReasoning: false) }
+            let endpoint = APIConfiguration.endpoint
+            let primary = OpenRouterClient.Configuration(apiKey: key, model: APIConfiguration.model, endpoint: endpoint, fastReasoning: APIConfiguration.fastRecognition)
+            let fallback = APIConfiguration.fallbackModel.map { OpenRouterClient.Configuration(apiKey: key, model: $0, endpoint: endpoint, fastReasoning: false) }
             return VLMCircuitSolver(primary: primary, fallback: fallback, metered: APIConfiguration.usesBuiltInKey)
         }
         let reason = DeveloperOptions.enabled

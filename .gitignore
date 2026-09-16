@@ -20,3 +20,14 @@ build/
 *.p12
 *.p8
 *.mobileprovision
+
+# ML (ml/)
+ml/.venv/
+ml/data/
+ml/runs/
+ml/results/
+ml/*.mlpackage
+ml/*.onnx
+ml/**/__pycache__/
+ml/.pytest_cache/
+ml/*.egg-info/

@@ -1,0 +1,29 @@
+{
+  "text": [],
+  "voltage.dc": [{"name": "negative", "position": [0.5, 1]}, {"name": "positive", "position": [0.5, 0]}],
+  "voltage.ac": [{"name": "connector", "position": [0.5, 1]}, {"name": "connector", "position": [0.5, 0]}],
+  "voltage.battery": [{"name": "negative", "position": [0.5, 1]}, {"name": "positive", "position": [0.5, 0]}],
+
+  "resistor": [{"name": "connector", "position": [0, 0.5]}, {"name": "connector", "position": [1, 0.5]}],
+
+  "capacitor.unpolarized": [{"name": "connector", "position": [0, 0.5]}, {"name": "connector", "position": [1, 0.5]}],
+  "capacitor.polarized": [{"name": "negative", "position": [1, 0.5]}, {"name": "positive", "position": [0, 0.5]}],
+
+  "inductor": [{"name": "connector", "position": [0, 0.5]}, {"name": "connector", "position": [1, 0.5]}],
+
+  "diode":[{"name": "cathode", "position": [1, 0.5]}, {"name": "anode", "position": [0, 0.5]}],
+  "diode.light_emitting": [{"name": "cathode", "position": [1, 0.5]}, {"name": "anode", "position": [0, 0.5]}],
+  "diode.thyrector": [{"name": "cathode", "position": [1, 0.5]}, {"name": "anode", "position": [0, 0.5]}],
+  "diode.zener":[{"name": "cathode", "position": [1, 0.5]}, {"name": "anode", "position": [0, 0.5]}],
+
+  "transistor.bjt":[{"name": "base", "position": [0, 0.5]}, {"name": "collector", "position": [0.7, 1]}, {"name": "emitter", "position": [0.7, 0]}],
+  "transistor.fet":[{"name": "gate", "position": [0, 0.5]}, {"name": "source", "position": [0.5, 1]}, {"name": "drain", "position": [0.5, 0]}],
+  "transistor.photo":[{"name": "emitter", "position": [0.5, 1]}, {"name": "collector", "position": [0.5, 0]}],
+
+  "xor": [{"name": "output", "position": [1, 0.5]}, {"name": "input", "position": [0, 0.25]}, {"name": "input", "position": [0, 0.75]}],
+  "and": [{"name": "output", "position": [1, 0.5]}, {"name": "input", "position": [0, 0.25]}, {"name": "input", "position": [0, 0.75]}],
+  "or": [{"name": "output", "position": [1, 0.5]}, {"name": "input", "position": [0, 0.25]}, {"name": "input", "position": [0, 0.75]}],
+  "not": [{"name": "output", "position": [1, 0.5]}, {"name": "input", "position": [0, 0.5]}],
+  "nand": [{"name": "output", "position": [1, 0.5]}, {"name": "input", "position": [0, 0.25]}, {"name": "input", "position": [0, 0.75]}],
+  "nor": [{"name": "output", "position": [1, 0.5]}, {"name": "input", "position": [0, 0.25]}, {"name": "input", "position": [0, 0.75]}]
+}

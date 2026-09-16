@@ -17,6 +17,7 @@ enum SettingsKeys {
     static let fastRecognition = "recognition.fast"
     static let fallbackModel = "recognition.fallbackModel"
     static let escalate = "recognition.escalate"
+    static let recognitionEndpoint = "recognition.endpoint"
     static let analyticsEndpoint = "analytics.endpoint"
     static let analyticsEndpointKey = "analytics.endpointKey"
 }

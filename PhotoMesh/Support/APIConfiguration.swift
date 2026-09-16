@@ -28,11 +28,26 @@ enum APIConfiguration {
     /// Stronger model used only when the first pass fails validation or the two methods disagree.
     static let defaultFallbackModel = "google/gemini-3.6-flash"
     static let keychainAccount = "openrouter.apiKey"
+    /// OpenRouter's chat-completions endpoint; a self-hosted PhotoMesh recognition server speaks the same protocol.
+    static let defaultEndpoint = URL(string: "https://openrouter.ai/api/v1/chat/completions")!
+
+    /// Where recognition requests go. Developers can point the app at a self-hosted server
+    /// (`ml/photomesh_ml/serve`, which fronts the fine-tuned model and escalates to the cloud itself).
+    static var endpoint: URL {
+        guard DeveloperOptions.enabled else { return defaultEndpoint }
+        let stored = (UserDefaults.standard.string(forKey: SettingsKeys.recognitionEndpoint) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !stored.isEmpty, let url = URL(string: stored), url.scheme != nil, url.host != nil else { return defaultEndpoint }
+        return url
+    }
+
+    static var usesCustomEndpoint: Bool { endpoint != defaultEndpoint }
 
     static var apiKey: String? {
         if let env = ProcessInfo.processInfo.environment["OPENROUTER_API_KEY"], !env.isEmpty { return env }
         if let personal = KeychainStore.read(account: keychainAccount), !personal.isEmpty { return personal }
-        return BuiltinKey.openRouter
+        if let builtIn = BuiltinKey.openRouter { return builtIn }
+        // A self-hosted server may not require a key; the client only insists on a non-empty bearer token.
+        return usesCustomEndpoint ? "photomesh-local" : nil
     }
 
     static var keySource: KeySource {

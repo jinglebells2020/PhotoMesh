@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "photomesh-ml"
+version = "0.1.0"
+description = "Training, evaluation and serving for PhotoMesh circuit recognition (on-device tracer + cloud VLM)"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "pillow>=10",
+]
+
+[project.optional-dependencies]
+# Synthetic data generation and the data converters need nothing beyond the base deps.
+tracer = ["torch>=2.1", "torchvision>=0.16"]
+export = ["coremltools>=8.0", "onnx>=1.15", "onnxscript"]
+vlm = ["torch>=2.1", "transformers>=4.57,<6", "peft>=0.13", "datasets>=2.19", "accelerate>=0.30", "requests>=2.31"]
+serve = ["fastapi>=0.110", "uvicorn>=0.29", "requests>=2.31"]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+include = ["photomesh_ml*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -357,6 +357,7 @@ private struct APIKeyView: View {
 private struct ModelView: View {
     @AppStorage(SettingsKeys.openRouterModel) private var model = ""
     @AppStorage(SettingsKeys.fallbackModel) private var fallbackModel = ""
+    @AppStorage(SettingsKeys.recognitionEndpoint) private var endpoint = ""
 
     private let suggestions = [
         "google/gemini-3.5-flash-lite",
@@ -386,6 +387,17 @@ private struct ModelView: View {
                 Text("SECOND PASS")
             } footer: {
                 Text("Used only when the first read fails validation, finds no circuit, or the two solving methods disagree.")
+            }
+            Section {
+                TextField(APIConfiguration.defaultEndpoint.absoluteString, text: $endpoint)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                    .font(.system(size: 13, design: .monospaced))
+            } header: {
+                Text("ENDPOINT")
+            } footer: {
+                Text("Chat-completions URL the scans are sent to. Leave empty for OpenRouter, or enter the URL of a self-hosted PhotoMesh recognition server (it runs the fine-tuned model and escalates to the cloud itself). The model fields above are passed through as-is.")
             }
             Section("SUGGESTIONS") {
                 ForEach(suggestions, id: \.self) { candidate in
