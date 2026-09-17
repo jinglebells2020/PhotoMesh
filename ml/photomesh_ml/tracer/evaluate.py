@@ -55,7 +55,7 @@ def evaluate_records(tracer: Tracer, records: list[Record], jsonl_dir: Optional[
     scores: list[Score] = []
     details: list[dict] = []
     det_sets: list[DetectionSet] = []
-    styles, photos = [], []
+    styles, photos, sizes = [], [], []
     for i, record in enumerate(rows):
         image = Image.open(resolve_path(record.image, jsonl_dir))
         texts = ocr_from_record(record) if ocr == "gt" else None
@@ -65,6 +65,8 @@ def evaluate_records(tracer: Tracer, records: list[Record], jsonl_dir: Optional[
         scores.append(s)
         styles.append(record.meta.get("style", record.source))
         photos.append("photo" if record.meta.get("photo") else "flat")
+        n = len(truth.components) if truth else 0
+        sizes.append("1-3 elements" if n <= 3 else ("4-5 elements" if n <= 5 else "6+ elements"))
         det_sets.append(DetectionSet(
             predictions=[(d.cls, list(d.box), d.score) for d in result.detections],
             truths=[(sym.cls, list(sym.box)) for sym in record.symbols],
@@ -80,6 +82,7 @@ def evaluate_records(tracer: Tracer, records: list[Record], jsonl_dir: Optional[
         "confusion": confusion,
         "by_style": summarize_by(scores, styles),
         "by_photo": summarize_by(scores, photos),
+        "by_size": summarize_by(scores, sizes),
         "detection": mean_average_precision(det_sets, TRACER_CLASSES),
         "mean_latency_s": sum(d["latency"] for d in details) / max(1, len(details)),
     }

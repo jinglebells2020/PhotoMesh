@@ -62,10 +62,35 @@ letters attached to the wrong wire; both are targets for the next generator/asse
 
 ## Tracer trained on synthetic data only (this repository, CPU)
 
-See the "Results" section below; the run is `tiny` backbone, 320 px, 720 training images, 24
-epochs on 4 CPU cores, evaluated on 180 held-out synthetic images with GT OCR. It is a pipeline
-proof, not the target model: the target run is MobileNetV3-Large at 640 px on 20k synthetic images
-plus both real datasets.
+A pipeline proof on a 4-core CPU box, not the target model. Setup:
+
+| item | value |
+| --- | --- |
+| data | 900 synthetic images (`generate --count 900 --seed 100`), split by seed bucket: 720 train / 90 val / 90 test |
+| model | CircuitNet, `tiny` backbone, width 48, input 320 px (about 0.9 M parameters) |
+| training | 24 epochs, batch 8, AdamW lr 2e-3 cosine with warm-up, EMA 0.998 (warm-up), rotation ±4°, no port mosaics |
+| evaluation | `tracer.evaluate` on the 90 test images with ground-truth text, symbol threshold 0.3, wire threshold 0.4 |
+| calibration | `tracer.calibrate` on the 90 val images, reported on test |
+
+Interim checkpoint (epoch 7 EMA weights, 90 test images) used for the assembler ablations:
+
+| assembler setting | correct | topology | kind acc |
+| --- | --- | --- | --- |
+| unit-based kind correction off | 0.422 | 0.433 | 0.913 |
+| unit-based kind correction, unguarded | 0.567 | 0.567 | 0.974 |
+| unit-based kind correction, guarded by distance and detector certainty (default) | 0.522 | 0.511 | 0.953 |
+
+The unguarded rule regressed the perfect-map test (a resistor label attached to a nearby voltage
+source turned the source into a resistor), which is why the guarded version is the default.
+The confusion matrix of the interim model explains the remaining kind errors: current sources
+read as voltage sources (14/15), inductors as resistors (21/25), capacitors as batteries (4/4) and
+switches missed (17/18); rare, fine-detail classes at 320 px, hence `--balance-rare` and the
+rebalanced generator mix for the next runs.
+
+Domain gap, qualitatively: the same synthetic-only model on a real CGHD photo (test fixture,
+downscaled) finds text boxes and a few resistors and traces only part of the wiring. Real data in
+training (Digitize-HCD, CGHD, app scans) is not optional; the converters and loss masking exist for
+exactly that.
 
 ## Results
 
