@@ -58,6 +58,7 @@ class Score:
     ids_ok: bool = True            # labelled elements keep their labels
     ground_ok: bool = False
     topology_ok: bool = False      # same currents/voltages on every element after relabelling
+    structure_ok: bool = False     # same connectivity and polarity with all values set to 1 (independent of OCR)
     unknowns_ok: bool = False
     answer_ok: bool = False        # the asked quantities come out the same
     correct: bool = False          # everything the user sees is right
@@ -105,6 +106,7 @@ def score_prediction(pred: Optional[Circuit], truth: Circuit, labelled_ids: Opti
     # Same circuit? Relabel the prediction with the truth's ids and compare solutions.
     relabelled = Circuit(components=[Component(relabel.get(c.id, c.id), c.kind, c.value, c.node_a, c.node_b, c.box, c.orientation) for c in pred.components],
                          ground_node=pred.ground_node, unknowns=list(pred.unknowns), question=pred.question)
+    s.structure_ok = same_solution(_unit_values(relabelled), _unit_values(truth), rel=rel)
     try:
         sol_p, sol_t = solve(relabelled), solve(truth)
         s.solvable = True
@@ -123,6 +125,15 @@ def score_prediction(pred: Optional[Circuit], truth: Circuit, labelled_ids: Opti
         answers.append(a is not None and b is not None and abs(a - b) <= max(1e-9, rel * max(abs(a), abs(b))))
     s.answer_ok = all(answers) if answers else s.topology_ok
     return _finish(s)
+
+
+def _unit_values(circuit: Circuit) -> Circuit:
+    """The same wiring with every readable value replaced by 1, so structure can be judged without OCR."""
+    out = circuit.renaming_nodes(lambda n: n)
+    for c in out.components:
+        if c.kind in ("resistor", "lamp", "voltage_source", "battery", "current_source"):
+            c.value = 1.0
+    return out
 
 
 def _finish(s: Score) -> Score:
@@ -194,6 +205,7 @@ def summarize(scores: list[Score], ci: bool = True) -> dict:
         "valid": sum(s.valid for s in scores) / n,
         "correct": sum(s.correct for s in scores) / n,
         "topology_ok": sum(s.topology_ok for s in scores) / n,
+        "structure_ok": sum(s.structure_ok for s in scores) / n,
         "answer_ok": sum(s.answer_ok for s in scores) / n,
         "component_recall": matched / truth if truth else None,
         "component_precision": matched / pred if pred else None,

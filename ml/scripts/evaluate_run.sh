@@ -30,8 +30,8 @@ for name, label in [("test_gt", "tracer, GT text"), ("test_gt_tta", "+ three-sca
     s = json.load(open(p)); o = s["overall"]
     ci = o.get("correct_ci95", ["", ""])
     gate = s.get("confidence_gate_95") or {}
-    rows.append(f"| {label} | {o['correct']:.3f} [{ci[0]}, {ci[1]}] | {o['topology_ok']:.3f} | {o['answer_ok']:.3f} | {o['kind_acc']:.3f} | {s['detection']['mAP']} | {gate.get('coverage', '')} | {s.get('confidence', {}).get('brier', '')} |")
-table = "| setting | correct [95% CI] | topology | answers | kind acc | mAP@0.5 | coverage@95% prec. | Brier |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n" + "\n".join(rows)
+    rows.append(f"| {label} | {o['correct']:.3f} [{ci[0]}, {ci[1]}] | {o['topology_ok']:.3f} | {o.get('structure_ok', 0):.3f} | {o['answer_ok']:.3f} | {o['kind_acc']:.3f} | {s['detection']['mAP']} | {gate.get('coverage', '')} | {s.get('confidence', {}).get('brier', '')} |")
+table = "| setting | correct [95% CI] | topology | structure | answers | kind acc | mAP@0.5 | coverage@95% prec. | Brier |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- |\n" + "\n".join(rows)
 (out / "summary.md").write_text(table + "\n")
 print(table)
 PYEOF

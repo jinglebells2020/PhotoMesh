@@ -137,7 +137,7 @@ def _confusion(det_sets: list[DetectionSet], iou_threshold: float = 0.5) -> dict
 def markdown_table(summary: dict) -> str:
     o = summary["overall"]
     lines = ["| metric | value |", "| --- | --- |"]
-    for key in ("n", "correct", "correct_ci95", "topology_ok", "topology_ci95", "answer_ok", "component_recall", "component_precision", "kind_acc", "value_acc", "ground_ok", "unsupported_ok"):
+    for key in ("n", "correct", "correct_ci95", "topology_ok", "topology_ci95", "structure_ok", "answer_ok", "component_recall", "component_precision", "kind_acc", "value_acc", "ground_ok", "unsupported_ok"):
         if key in o:
             v = o[key]
             lines.append(f"| {key} | {v if not isinstance(v, float) else round(v, 3)} |")

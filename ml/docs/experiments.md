@@ -94,6 +94,81 @@ exactly that.
 
 ## Results
 
-Filled in by `tracer.evaluate` (see `results/` in a run directory). Latest entries:
+Produced by `scripts/evaluate_run.sh`; the JSON/markdown behind each table is in `docs/results/`.
 
-RESULTS_PLACEHOLDER
+### CPU run, tiny backbone, synthetic only (90 held-out test images, ground-truth text unless noted)
+
+| setting | correct [95% CI] | topology | structure | answers | kind acc | mAP@0.5 | coverage@95% prec. | Brier |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| tracer, GT text | 0.689 [0.5889, 0.7778] | 0.689 | 0.689 | 0.700 | 0.968 | 0.6715 | 0.067 | 0.2488 |
+| + three-scale majority (TTA) | 0.711 [0.6222, 0.8] | 0.700 | 0.711 | 0.700 | 0.980 | 0.6811 | 0.056 | 0.2581 |
+| tracer, no text | 0.000 [0.0, 0.0] | 0.000 | 0.656 | 0.000 | 0.951 | 0.6715 |  | 0.0231 |
+| ablation: no unit-based kinds | 0.656 [0.5556, 0.7556] | 0.656 | 0.656 | 0.700 | 0.951 | 0.6715 | 0.078 | 0.2409 |
+| ablation: box removal, closing 1, wire 0.5 | 0.689 [0.5889, 0.7778] | 0.689 | 0.689 | 0.700 | 0.968 | 0.6715 | 0.067 | 0.2488 |
+| calibrated confidence (fit on val) | 0.689 [0.5889, 0.7778] | 0.689 | 0.689 | 0.700 | 0.968 | 0.6715 | 0.189 | 0.1563 |
+
+"structure" is topology with every value set to 1, so the "no text" row shows what the tracer
+gets right without any OCR (0.656) even though nothing solves without values. Three-scale majority
+voting adds about two points; the unit-based kind rule adds three; the assembler's body-removal
+and closing changes make no difference once the wire head is trained (they mattered for the
+epoch-4 model, 0.067 → 0.083). Calibration leaves accuracy unchanged by construction and lowers the
+Brier score from 0.249 to 0.156, which triples the coverage of the escalation gate at 95 %
+precision (0.067 → 0.189, fit on 90 validation images).
+
+Breakdowns (GT text): style hand: 0.65 (n=48) · print: 0.74 (n=42); capture flat: 0.68 (n=22) · photo: 0.69 (n=68); size 1-3 elements: 0.92 (n=12) · 4-5 elements: 0.65 (n=31) · 6+ elements: 0.66 (n=47).
+Small circuits are nearly solved; the loss on larger ones comes from a single wrong or missed
+symbol per drawing, which the "all elements must be right" definition of correct punishes fully.
+
+Remaining confusions of the final model (class-agnostic box matching, IoU ≥ 0.5):
+
+| truth | n | read as |
+| --- | --- | --- |
+| capacitor | 4 | battery 4 |
+| crossover | 7 | (missed) 1 |
+| current_source | 15 | voltage_source 5 |
+| ground | 48 | (missed) 1 |
+| inductor | 25 | resistor 12 |
+| resistor | 332 | inductor 1 |
+| switch_closed | 15 | (missed) 12 |
+| switch_open | 3 | (missed) 2, resistor 1 |
+| text | 937 | (missed) 66 |
+| voltage_source | 75 | current_source 2 |
+
+Reliability of the calibrated confidence on the test images:
+
+| confidence bin | n | mean confidence | accuracy |
+| --- | --- | --- | --- |
+| 0.0-0.2 | 8 | 0.052 | 0.0 |
+| 0.6-0.8 | 57 | 0.713 | 0.702 |
+| 0.8-1.0 | 25 | 0.868 | 0.88 |
+
+Per-image latency on this CPU: 25 ms for the network plus the assembler at 320 px.
+
+Training curve (EMA weights on 180 held-out images for mAP/IoU; end-to-end on 40 of them):
+
+| epoch | loss | heat | wire loss | mAP@0.5 | P | R | wire IoU | e2e correct | e2e topology | s/epoch |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | 9.742 | 3.733 | 0.720 | 0.032 | 0.330 | 0.087 | 0.591 | 0.000 | 0.000 | 108 |
+| 1 | 3.002 | 1.213 | 0.225 | 0.225 | 0.505 | 0.523 | 0.782 | 0.000 | 0.000 | 33 |
+| 2 | 2.127 | 0.874 | 0.154 | 0.311 | 0.574 | 0.644 | 0.839 | 0.125 | 0.150 | 78 |
+| 3 | 1.630 | 0.706 | 0.113 | 0.365 | 0.691 | 0.735 | 0.865 | 0.175 | 0.175 | 84 |
+| 4 | 1.415 | 0.602 | 0.110 | 0.391 | 0.741 | 0.763 | 0.881 | 0.250 | 0.275 | 34 |
+| 5 | 1.238 | 0.531 | 0.094 | 0.460 | 0.779 | 0.809 | 0.886 | 0.300 | 0.300 | 82 |
+| 6 | 1.142 | 0.496 | 0.087 | 0.452 | 0.742 | 0.787 | 0.892 | 0.225 | 0.225 | 35 |
+| 7 | 1.058 | 0.465 | 0.082 | 0.496 | 0.814 | 0.832 | 0.894 | 0.275 | 0.300 | 33 |
+| 8 | 0.995 | 0.434 | 0.076 | 0.482 | 0.789 | 0.818 | 0.894 | 0.275 | 0.275 | 115 |
+| 9 | 0.950 | 0.410 | 0.075 | 0.532 | 0.851 | 0.852 | 0.901 | 0.350 | 0.350 | 33 |
+| 10 | 0.889 | 0.390 | 0.071 | 0.538 | 0.833 | 0.849 | 0.904 | 0.350 | 0.350 | 150 |
+| 11 | 0.848 | 0.371 | 0.069 | 0.548 | 0.869 | 0.869 | 0.903 | 0.400 | 0.425 | 46 |
+| 12 | 0.808 | 0.349 | 0.065 | 0.576 | 0.865 | 0.877 | 0.909 | 0.400 | 0.400 | 42 |
+| 13 | 0.789 | 0.343 | 0.063 | 0.586 | 0.857 | 0.875 | 0.910 | 0.425 | 0.425 | 49 |
+| 14 | 0.735 | 0.321 | 0.061 | 0.595 | 0.868 | 0.879 | 0.912 | 0.425 | 0.425 | 139 |
+| 15 | 0.729 | 0.321 | 0.061 | 0.616 | 0.881 | 0.886 | 0.912 | 0.400 | 0.425 | 127 |
+| 16 | 0.690 | 0.300 | 0.058 | 0.626 | 0.879 | 0.894 | 0.914 | 0.425 | 0.450 | 44 |
+| 17 | 0.660 | 0.288 | 0.057 | 0.626 | 0.893 | 0.906 | 0.915 | 0.425 | 0.450 | 38 |
+| 18 | 0.649 | 0.281 | 0.056 | 0.653 | 0.902 | 0.915 | 0.916 | 0.500 | 0.525 | 56 |
+| 19 | 0.643 | 0.284 | 0.056 | 0.654 | 0.904 | 0.913 | 0.917 | 0.500 | 0.525 | 38 |
+| 20 | 0.604 | 0.267 | 0.054 | 0.653 | 0.912 | 0.918 | 0.917 | 0.525 | 0.550 | 34 |
+| 21 | 0.611 | 0.263 | 0.053 | 0.657 | 0.912 | 0.917 | 0.918 | 0.475 | 0.500 | 33 |
+| 22 | 0.600 | 0.267 | 0.053 | 0.656 | 0.914 | 0.917 | 0.918 | 0.500 | 0.500 | 33 |
+| 23 | 0.600 | 0.266 | 0.053 | 0.661 | 0.916 | 0.920 | 0.918 | 0.500 | 0.500 | 33 |

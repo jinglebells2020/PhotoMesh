@@ -168,12 +168,21 @@ tables live in [`docs/experiments.md`](docs/experiments.md).
 
 ## 5. Status
 
-Verified in this repository (CPU only, no GPU): the whole pipeline runs end to end on small data:
-unit tests, synthetic generation with previews, both converters on fixtures, tracer training steps
-with the tiny backbone and Core ML + ONNX export, the assembler on ground-truth maps, LoRA
-fine-tuning steps of SmolVLM-256M and its evaluation loop. Not yet done: the real training runs
-(need a GPU and the two dataset downloads), the teacher labelling (needs an OpenRouter key), the
-Swift port of the assembler and the Core ML integration in the app.
+Verified in this repository (CPU only, no GPU): unit tests (72), synthetic generation with previews,
+both converters on fixtures, the assembler on ground-truth maps (90 % fully correct, 96 % topology
+on 160 circuits with crossovers, unsupported symbols and current annotations), LoRA fine-tuning
+steps of SmolVLM-256M with its evaluation loop, Core ML + ONNX export, and one real training run:
+CircuitNet with the tiny backbone at 320 px on 720 synthetic images, 24 epochs on 4 CPU cores.
+On 90 held-out synthetic test images with ground-truth text it reads 69 % of circuits fully
+correctly (95 % CI 59–78), 71 % with three-scale voting, symbol mAP@0.5 0.67, 25 ms per image,
+and the calibrated confidence gate accepts 19 % of images at 95 % precision. Full tables,
+ablations, confusion matrix and reliability bins: [`docs/experiments.md`](docs/experiments.md).
+
+Not yet done: the target runs (MobileNetV3 at 640 px on 20k synthetic images plus Digitize-HCD,
+CGHD and app scans; need a GPU and the dataset downloads), the teacher labelling (needs an
+OpenRouter key), the Swift port of the assembler ([`docs/on-device.md`](docs/on-device.md)) and
+the Core ML integration in the app. The synthetic-only model does not transfer to real photos
+yet; real data in training is the next step, and every converter and loss mask for it exists.
 
 ## Licences
 
