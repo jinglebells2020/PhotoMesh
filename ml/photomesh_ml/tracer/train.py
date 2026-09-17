@@ -130,6 +130,7 @@ def main(argv: Optional[list[str]] = None) -> None:
     parser.add_argument("--rotate", type=float, default=4.0, help="max random rotation in degrees for training images")
     parser.add_argument("--ema", type=float, default=0.999, help="EMA decay for the evaluated/exported weights (0 = off)")
     parser.add_argument("--source-weights", default="", help="sampling weights per source, e.g. synthetic=1,cghd=3,digitize_hcd=2,mosaic=1")
+    parser.add_argument("--balance-rare", type=float, default=0.0, help="extra sampling weight per rare symbol kind in an image (e.g. 1.0)")
     parser.add_argument("--e2e-records", default=None, help="records with netlists (synthetic val) for an end-to-end check each epoch")
     parser.add_argument("--e2e-limit", type=int, default=100)
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
@@ -139,9 +140,15 @@ def main(argv: Optional[list[str]] = None) -> None:
     train_records, train_base = load_records(args.train)
     train_ds = TracerDataset(train_records, args.size, True, jsonl_dir=train_base, mosaic_ports=not args.no_mosaic, max_rotation=args.rotate)
     sampler = None
-    if args.source_weights:
-        weights_by_source = {k: float(v) for k, v in (kv.split("=") for kv in args.source_weights.split(",") if kv)}
-        item_weights = [weights_by_source.get(rec.source if rec is not None else "mosaic", 1.0) for kind, rec in train_ds.items]
+    if args.source_weights or args.balance_rare > 0:
+        weights_by_source = {k: float(v) for k, v in (kv.split("=") for kv in args.source_weights.split(",") if kv)} if args.source_weights else {}
+        rare = {"switch_open", "switch_closed", "capacitor", "current_source", "inductor", "lamp", "crossover", "other"}
+        item_weights = []
+        for kind, rec in train_ds.items:
+            w = weights_by_source.get(rec.source if rec is not None else "mosaic", 1.0)
+            if rec is not None and args.balance_rare > 0:
+                w *= 1.0 + args.balance_rare * len({s.cls for s in rec.symbols if s.cls in rare})
+            item_weights.append(w)
         sampler = WeightedRandomSampler(item_weights, num_samples=len(item_weights), replacement=True)
     train_loader = DataLoader(train_ds, args.batch, shuffle=sampler is None, sampler=sampler, num_workers=args.workers, collate_fn=collate, drop_last=True, persistent_workers=args.workers > 0)
     val_loader = None

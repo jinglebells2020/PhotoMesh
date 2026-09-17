@@ -102,3 +102,31 @@ def test_tracer_inference_and_evaluation(tmp_path):
     summary, details = evaluate_records(tracer, records, None, limit=2, tta=False, ocr="gt")
     assert summary["overall"]["n"] == 2 and "detection" in summary and len(details) == 2
     assert set(summary["by_style"]) <= {"hand", "print"}
+
+
+def test_logistic_calibration_recovers_signal():
+    import numpy as np
+    from photomesh_ml.tracer.calibrate import fit_logistic
+    rng = np.random.RandomState(0)
+    X = rng.uniform(0, 1, (400, 3))
+    y = (X[:, 0] + 0.5 * X[:, 1] + rng.normal(0, 0.2, 400) > 0.9).astype(float)
+    w, b = fit_logistic(X, y)
+    p = 1 / (1 + np.exp(-(X @ w + b)))
+    assert ((p > 0.5) == (y > 0.5)).mean() >= 0.8
+    assert w[0] > w[2]
+
+
+def test_name_prefix_compatibility():
+    from photomesh_ml.tracer.assemble import _name_fits
+    assert _name_fits("R1", "resistor") and not _name_fits("I1", "resistor")
+    assert _name_fits("Ia", "current_source") and _name_fits("Lp1", "lamp") and not _name_fits("Lp1", "inductor")
+    assert _name_fits("V2", "battery") and _name_fits("Vs", "voltage_source") and not _name_fits("C1", "resistor")
+
+
+def test_training_report(tmp_path):
+    from photomesh_ml.tracer.report import build_report
+    log = tmp_path / "log.jsonl"
+    log.write_text(json.dumps({"epoch": 0, "step": 10, "train": {"total": 3.2, "heat": 1.1, "wire": 0.5}, "val": {"detection": {"mAP": 0.4}, "all": {"precision": 0.7, "recall": 0.6}, "wire_iou": 0.8}, "seconds": 12.0}) + "\n"
+                   + json.dumps({"epoch": 0, "e2e": {"overall": {"correct": 0.25, "topology_ok": 0.3}}}) + "\n")
+    text = build_report(tmp_path)
+    assert "| 0 | 3.200 | 1.100 | 0.500 | 0.400 | 0.700 | 0.600 | 0.800 | 0.250 | 0.300 | 12 |" in text

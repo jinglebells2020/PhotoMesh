@@ -18,8 +18,8 @@ from ..solver import SolveError, solve
 LPoint = tuple[float, float]  # (row, col); jumper endpoints sit at half columns
 
 KIND_WEIGHTS = {
-    "resistor": 0.56, "voltage_source": 0.13, "current_source": 0.05, "battery": 0.06,
-    "capacitor": 0.05, "inductor": 0.05, "lamp": 0.05, "switch_open": 0.02, "switch_closed": 0.03,
+    "resistor": 0.50, "voltage_source": 0.12, "current_source": 0.07, "battery": 0.06,
+    "capacitor": 0.06, "inductor": 0.06, "lamp": 0.05, "switch_open": 0.04, "switch_closed": 0.04,
 }
 ID_PREFIX = {"resistor": "R", "voltage_source": "V", "current_source": "I", "battery": "E", "capacitor": "C",
              "inductor": "L", "lamp": "Lp", "switch_open": "S", "switch_closed": "S", "other": "D"}
@@ -327,7 +327,13 @@ def _try_generate(rng: random.Random, rows: int, cols: int) -> Optional[LatticeC
             keep.append(jumper)
             crossings.append(((1, c + 0.5), jumper, mid, rng.random() < 0.7))
 
-    # Elements. Sources prefer vertical edges (textbook: the source on the left rung).
+    # Elements. Sources prefer vertical edges (textbook: the source on the left rung). An element
+    # that is open at DC (capacitor, open switch) only goes where both ends stay connected without
+    # it, otherwise the circuit would be rejected as dangling and such kinds would become rare.
+    degree0: dict[LPoint, int] = {}
+    for e in keep:
+        degree0[e.a] = degree0.get(e.a, 0) + 1
+        degree0[e.b] = degree0.get(e.b, 0) + 1
     n_sources = 0
     n_current = 0
     p_comp = rng.uniform(0.45, 0.8)
@@ -377,6 +383,16 @@ def _try_generate(rng: random.Random, rows: int, cols: int) -> Optional[LatticeC
     for e in comps:
         if root_of[e.a] == root_of[e.b]:
             return None  # element in parallel with a wire
+    # An element that is open at DC must leave both of its nodes with two other elements, or the
+    # circuit would be rejected as dangling; otherwise it becomes a resistor instead.
+    for e in comps:
+        if e.kind not in ("capacitor", "switch_open"):
+            continue
+        for end in (e.a, e.b):
+            others = [o for o in comps if o is not e and o.kind not in ("capacitor", "switch_open") and root_of[end] in (root_of[o.a], root_of[o.b])]
+            if len(others) < 2:
+                e.kind = rng.choice(["resistor", "resistor", "inductor", "lamp"])
+                break
 
     # Ids: labelled elements are named per kind in reading order (batteries as E or V); unlabelled
     # ones get the reader's fallback names (R, V, I, C, L, Lp, S) numbered after the labelled ones.

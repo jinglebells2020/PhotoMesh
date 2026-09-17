@@ -29,6 +29,7 @@ class Detection:
     box: list[float]              # px in the analysed image
     polarity: str                 # right | up | left | down
     polarity_probs: Optional[np.ndarray] = None
+    class_probs: Optional[np.ndarray] = None   # symbol heat of every class at the peak cell
 
     @property
     def centre(self) -> Point:
@@ -54,6 +55,7 @@ class Assembly:
     detections: list[Detection]
     nodes_px: dict[str, list[Point]] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
+    attached_fraction: float = 0.0     # share of component terminals that found a wire
 
 
 # ---------------------------------------------------------------------------- decoding
@@ -80,7 +82,7 @@ def decode_symbols(heat: np.ndarray, size: np.ndarray, offset: np.ndarray, polar
         w = max(2.0, float(size[0, y, x]) * stride)
         h = max(2.0, float(size[1, y, x]) * stride)
         probs = polarity[:, y, x]
-        det = Detection(TRACER_CLASSES[k], float(scores[i]), [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], POLARITY[int(np.argmax(probs))], probs.copy())
+        det = Detection(TRACER_CLASSES[k], float(scores[i]), [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2], POLARITY[int(np.argmax(probs))], probs.copy(), heat[:, y, x].copy())
         # suppress duplicates: another detection whose centre lies inside this box (or vice versa) and overlaps a lot
         if any(_iou(det.box, d.box) > 0.55 for d in dets):
             continue
@@ -278,7 +280,7 @@ def _positive_index(det: Detection, terminals) -> int:
 def assemble(detections: list[Detection], wire_prob: np.ndarray, image_size: tuple[int, int], ocr: Optional[list[TextItem]] = None,  # noqa: C901
              junction_prob: Optional[np.ndarray] = None, wire_threshold: float = 0.5, min_component_px: int = 12,
              box_margin: float = 1.5, closing: int = -1, terminal_prob: Optional[np.ndarray] = None,
-             body_removal: str = "span") -> Assembly:
+             body_removal: str = "span", unit_kinds: bool = True) -> Assembly:
     W, H = image_size
     scale = max(W, H) / 640.0
     radii = tuple(int(round(r * scale)) for r in (3, 6, 10, 16, 24))
@@ -447,11 +449,13 @@ def assemble(detections: list[Detection], wire_prob: np.ndarray, image_size: tup
                     node_letters[roots[find(lab)]] = t.text.strip()
         used_values: set[int] = set()
         used_names: set[int] = set()
+        value_dist: dict[int, float] = {}
         for dist, ti, ci in sorted(value_candidates):
             if ti in used_values or ci in values or dist > 4.0:
                 continue
             used_values.add(ti)
             values[ci] = parsed_texts[ti].value
+            value_dist[ci] = dist
             if parsed_texts[ti].name and ci not in names:
                 names[ci] = parsed_texts[ti].name
                 used_names.add(ti)
@@ -486,6 +490,25 @@ def assemble(detections: list[Detection], wire_prob: np.ndarray, image_size: tup
                 renamed[root] = node_letter(i)
                 used.add(node_letter(i))
         roots = renamed
+
+    # A read unit outranks the detector's kind: "12 V" cannot sit on a current source. Within the
+    # unit's family, the class the detector scored highest is kept (voltage source vs battery).
+    family_kinds = {"resistance": ["resistor", "lamp"], "voltage": ["voltage_source", "battery"], "current": ["current_source"],
+                    "capacitance": ["capacitor"], "inductance": ["inductor"]}
+    for ci, value in (list(values.items()) if unit_kinds else []):
+        ti = next((t for t, parsed in enumerate(parsed_texts) if parsed.kind == "value" and parsed.value == value and parsed.family), None)
+        family = parsed_texts[ti].family if ti is not None else None
+        kinds = family_kinds.get(family or "")
+        d = comps[ci]
+        if not kinds or d.cls in kinds or d.class_probs is None:
+            continue   # no unit evidence, or a detector with no class distribution (ground truth) is trusted
+        dist = value_dist.get(ci, 4.0)
+        certainty = float(d.class_probs[TRACER_CLASSES.index(d.cls)])
+        # a label right next to the symbol outranks the detector; a far label only when the detector is unsure
+        if dist <= (1.8 if certainty >= 0.9 else 3.0):
+            best = max(kinds, key=lambda k: float(d.class_probs[TRACER_CLASSES.index(k)]))
+            comps[ci] = Detection(best, d.score, d.box, d.polarity, d.polarity_probs, d.class_probs)
+            notes.append(f"kind set by unit: {d.cls} -> {best}")
 
     # Ids in reading order per kind for unnamed components.
     prefix = {"resistor": "R", "voltage_source": "V", "current_source": "I", "battery": "V", "capacitor": "C", "inductor": "L", "lamp": "Lp", "switch_open": "S", "switch_closed": "S"}
@@ -580,7 +603,8 @@ def assemble(detections: list[Detection], wire_prob: np.ndarray, image_size: tup
         notes.append(f"validation: {exc}")
     circuit.confidence = round(conf, 3)
     circuit.notes = "; ".join(notes) if notes else None
-    return Assembly(circuit, conf, detections, {name: node_pixels.get(root, []) for root, name in roots.items()}, notes)
+    return Assembly(circuit, conf, detections, {name: node_pixels.get(root, []) for root, name in roots.items()}, notes,
+                    attached_fraction=(connected / total_terms if total_terms else 0.0))
 
 
 _NAME_PREFIX_KINDS = {

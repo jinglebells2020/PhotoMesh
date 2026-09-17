@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -27,6 +28,9 @@ from ..solver import same_solution
 from .assemble import Assembly, Detection, TextItem, assemble, decode_symbols
 from .checkpoint import load_checkpoint
 from .model import normalize
+
+# Features the calibrated confidence is computed from (see tracer/calibrate.py).
+FEATURE_NAMES = ["min_score", "mean_score", "attached", "values_missing", "valid", "n_components", "agreement", "unsupported"]
 
 
 @dataclass
@@ -53,11 +57,28 @@ class TracerResult:
     letterbox: Letterbox
     maps: dict[str, np.ndarray] = field(default_factory=dict)
     latency: float = 0.0
+    features: dict[str, float] = field(default_factory=dict)
+
+
+def assembly_features(assembly: Assembly, agreement: Optional[float]) -> dict[str, float]:
+    comps = [d for d in assembly.detections if d.cls not in ("text", "ground", "crossover", "other")]
+    scores = [d.score for d in comps]
+    notes = " ".join(assembly.notes)
+    return {
+        "min_score": min(scores) if scores else 0.0,
+        "mean_score": sum(scores) / len(scores) if scores else 0.0,
+        "attached": assembly.attached_fraction,
+        "values_missing": 1.0 if "values missing" in notes else 0.0,
+        "valid": 0.0 if "validation" in notes else 1.0,
+        "n_components": float(len(comps)),
+        "agreement": agreement if agreement is not None else 1.0,
+        "unsupported": 1.0 if assembly.circuit.unsupported else 0.0,
+    }
 
 
 class Tracer:
     def __init__(self, checkpoint: str | Path, device: str = "cpu", threshold: float = 0.3, wire_threshold: float = 0.4,
-                 closing: int = -1, body_removal: str = "span"):
+                 closing: int = -1, body_removal: str = "span", unit_kinds: bool = True):
         self.device = torch.device(device)
         self.model, ckpt = load_checkpoint(checkpoint, self.device)
         self.size = int(ckpt["config"].get("size", 640))
@@ -66,6 +87,8 @@ class Tracer:
         self.wire_threshold = wire_threshold
         self.closing = closing
         self.body_removal = body_removal
+        self.unit_kinds = unit_kinds
+        self.calibration = ckpt.get("calibration")
 
     # ------------------------------------------------------------------ preprocessing
     def letterbox(self, image: Image.Image, scale_mult: float = 1.0) -> tuple[torch.Tensor, Letterbox]:
@@ -103,7 +126,7 @@ class Tracer:
                 x1, y1 = box.to_input(t.box[2], t.box[3])
                 ocr_in.append(TextItem([x0, y0, x1, y1], t.text))
         assembly = assemble(dets, maps["wire"], (self.size, self.size), ocr_in, maps["junction"], wire_threshold=self.wire_threshold,
-                            terminal_prob=maps["terminal"], closing=self.closing, body_removal=self.body_removal)
+                            terminal_prob=maps["terminal"], closing=self.closing, body_removal=self.body_removal, unit_kinds=self.unit_kinds)
         return assembly, box, maps
 
     def recognize(self, image: Image.Image, ocr: Optional[list[TextItem]] = None, tta: bool = False) -> TracerResult:
@@ -120,10 +143,15 @@ class Tracer:
             assembly, box, maps = readings[best]
             agreement = votes[best] / (len(readings) - 1)
         circuit = _to_image_coords(assembly.circuit, box, image.size)
-        confidence = assembly.confidence * ((0.5 + 0.5 * agreement) if agreement is not None else 1.0)
+        features = assembly_features(assembly, agreement)
+        if self.calibration:
+            z = self.calibration["bias"] + sum(w * features[k] for w, k in zip(self.calibration["weights"], self.calibration["features"]))
+            confidence = 1.0 / (1.0 + math.exp(-z))
+        else:
+            confidence = assembly.confidence * ((0.5 + 0.5 * agreement) if agreement is not None else 1.0)
         circuit.confidence = round(confidence, 3)
         dets = [Detection(d.cls, d.score, [*box.to_image(d.box[0], d.box[1]), *box.to_image(d.box[2], d.box[3])], d.polarity, d.polarity_probs) for d in assembly.detections]
-        return TracerResult(circuit, confidence, agreement, dets, assembly, box, maps, time.time() - started)
+        return TracerResult(circuit, confidence, agreement, dets, assembly, box, maps, time.time() - started, features)
 
 
 def _to_image_coords(circuit: Circuit, box: Letterbox, image_size: tuple[int, int]) -> Circuit:

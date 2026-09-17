@@ -96,7 +96,15 @@ every epoch. `tracer.infer` runs the whole on-device path (letterbox â†’ maps â†
 with `--tta` it reads the photo at three scales, keeps the reading the others agree with (solver
 checked) and scales the confidence by that agreement, which is what gates cloud escalation.
 `tracer.evaluate` scores a labelled set with bootstrap confidence intervals, per-style breakdowns,
-symbol mAP and the coverage the confidence gate reaches at 95 % precision.
+symbol mAP, a class confusion matrix, confidence reliability bins and the coverage the confidence
+gate reaches at 95 % precision. `tracer.calibrate` fits a logistic model from assembly features
+(symbol scores, attached terminals, missing values, validation, multi-scale agreement) to
+"the reading was correct" and stores it in the checkpoint, so the phone compares a calibrated
+probability against its escalation threshold. `tracer.report` turns a run's log into a markdown
+table. The assembler also lets a read unit correct the detector's kind ("12 V" next to a symbol
+the detector called a current source), guarded by label distance and detector certainty; on the
+same checkpoint this raised fully-correct readings from 42 % to 57 % (`docs/experiments.md`).
+`--balance-rare` over-samples images with rare kinds (switches, capacitors, current sources).
 
 Outputs at stride 4: `symbol_heat` [13 classes], `symbol_size`, `symbol_off`, `polarity` [right/up/left/down],
 `wire`, `junction`, `terminal`. The Core ML contract and the step-by-step assembler specification

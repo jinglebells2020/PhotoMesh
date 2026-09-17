@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
 from PIL import Image
 
 from ..classes import TRACER_CLASSES
@@ -70,16 +71,26 @@ def evaluate_records(tracer: Tracer, records: list[Record], jsonl_dir: Optional[
         ))
         details.append({"image": record.image, "source": record.source, "style": styles[-1], "photo": photos[-1],
                         "confidence": result.confidence, "agreement": result.agreement, "latency": round(result.latency, 3),
-                        "prediction": result.circuit.to_json(3), "score": s.as_dict()})
+                        "features": result.features, "prediction": result.circuit.to_json(3), "score": s.as_dict()})
         if verbose and (i + 1) % 20 == 0:
             print(f"{i + 1}/{len(rows)} correct so far {sum(x.correct for x in scores) / len(scores):.3f}", flush=True)
+    confusion = _confusion(det_sets)
     summary = {
         "overall": summarize(scores),
+        "confusion": confusion,
         "by_style": summarize_by(scores, styles),
         "by_photo": summarize_by(scores, photos),
         "detection": mean_average_precision(det_sets, TRACER_CLASSES),
         "mean_latency_s": sum(d["latency"] for d in details) / max(1, len(details)),
     }
+    if scores:
+        confs = np.array([d["confidence"] for d in details], float)
+        ys = np.array([1.0 if s.correct else 0.0 for s in scores])
+        summary["confidence"] = {"brier": round(float(np.mean((confs - ys) ** 2)), 4), "calibrated": bool(tracer.calibration),
+                                 "reliability": [{"bin": f"{lo:.1f}-{lo + 0.2:.1f}", "n": int(((confs >= lo) & (confs < lo + 0.2 + (1e-9 if lo >= 0.8 else 0))).sum()),
+                                                  "mean_conf": round(float(confs[(confs >= lo) & (confs < lo + 0.2 + (1e-9 if lo >= 0.8 else 0))].mean()), 3) if ((confs >= lo) & (confs < lo + 0.2 + (1e-9 if lo >= 0.8 else 0))).any() else None,
+                                                  "accuracy": round(float(ys[(confs >= lo) & (confs < lo + 0.2 + (1e-9 if lo >= 0.8 else 0))].mean()), 3) if ((confs >= lo) & (confs < lo + 0.2 + (1e-9 if lo >= 0.8 else 0))).any() else None}
+                                                 for lo in (0.0, 0.2, 0.4, 0.6, 0.8)]}
     # Confidence as a gate: how well does it separate right from wrong readings?
     if scores:
         pairs = sorted(zip([d["confidence"] for d in details], [s.correct for s in scores]))
@@ -94,6 +105,30 @@ def evaluate_records(tracer: Tracer, records: list[Record], jsonl_dir: Optional[
                     best = {"threshold": round(thr, 3), "coverage": round(coverage, 3), "precision": round(precision, 3)}
         summary["confidence_gate_95"] = best
     return summary, details
+
+
+def _confusion(det_sets: list[DetectionSet], iou_threshold: float = 0.5) -> dict:
+    """truth class -> predicted class counts for box-matched pairs (class-agnostic matching), plus misses."""
+    from ..eval.detection import iou
+    table: dict[str, dict[str, int]] = {}
+    for ds in det_sets:
+        used = set()
+        for tcls, tbox in ds.truths:
+            best, best_iou = None, iou_threshold
+            for j, (pcls, pbox, score) in enumerate(ds.predictions):
+                if j in used:
+                    continue
+                v = iou(tbox, pbox)
+                if v >= best_iou:
+                    best, best_iou = j, v
+            row = table.setdefault(tcls, {})
+            if best is None:
+                row["(missed)"] = row.get("(missed)", 0) + 1
+            else:
+                used.add(best)
+                pcls = ds.predictions[best][0]
+                row[pcls] = row.get(pcls, 0) + 1
+    return {k: dict(sorted(v.items(), key=lambda kv: -kv[1])) for k, v in sorted(table.items())}
 
 
 def markdown_table(summary: dict) -> str:
@@ -121,6 +156,7 @@ def main() -> None:
     parser.add_argument("--wire-threshold", type=float, default=0.4)
     parser.add_argument("--body-removal", choices=["span", "box"], default="span")
     parser.add_argument("--closing", type=int, default=-1, help="closing radius in px (-1 = scaled with the input size)")
+    parser.add_argument("--no-unit-kinds", action="store_true", help="ablation: do not let OCR units correct symbol kinds")
     parser.add_argument("--out", default=None, help="prefix for .jsonl details, .summary.json and .md")
     parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
@@ -129,7 +165,7 @@ def main() -> None:
     for p in args.records:
         base = base or Path(p)
         records += read_jsonl(p)
-    tracer = Tracer(args.checkpoint, args.device, args.threshold, args.wire_threshold, args.closing, args.body_removal)
+    tracer = Tracer(args.checkpoint, args.device, args.threshold, args.wire_threshold, args.closing, args.body_removal, not args.no_unit_kinds)
     summary, details = evaluate_records(tracer, records, base, args.limit, args.tta, args.ocr, verbose=True)
     print(json.dumps(summary, indent=1))
     print(markdown_table(summary))
