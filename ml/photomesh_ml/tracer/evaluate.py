@@ -16,10 +16,9 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
-from PIL import Image
 
 from ..classes import TRACER_CLASSES
-from ..data.records import Record, read_jsonl, resolve_path
+from ..data.records import Record, open_record_image, read_jsonl
 from ..eval.detection import DetectionSet, mean_average_precision
 from ..eval.metrics import Score, score_prediction, summarize, summarize_by
 from ..schema import Circuit
@@ -57,7 +56,7 @@ def evaluate_records(tracer: Tracer, records: list[Record], jsonl_dir: Optional[
     det_sets: list[DetectionSet] = []
     styles, photos, sizes = [], [], []
     for i, record in enumerate(rows):
-        image = Image.open(resolve_path(record.image, jsonl_dir))
+        image = open_record_image(record, jsonl_dir)
         texts = ocr_from_record(record) if ocr == "gt" else None
         result: TracerResult = tracer.recognize(image, texts, tta=tta)
         truth = truth_from_record(record)

@@ -12,12 +12,25 @@ import hashlib
 from dataclasses import replace
 from pathlib import Path
 
-from PIL import Image, ImageOps
+import warnings
+from typing import Optional
 
-from .records import Record, read_jsonl, resolve_path, write_jsonl
+from PIL import Image
+
+from .orientation import oriented_size
+from .records import Record, open_record_image, read_jsonl, resolve_path, write_jsonl
 
 
-def downsize_record(record: Record, out_dir: Path, max_side: int, jsonl_dir: Path | None) -> Record:
+def downsize_record(record: Record, out_dir: Path, max_side: int, jsonl_dir: Path | None) -> Optional[Record]:
+    """The record with its photo shrunk to `max_side` (None when the photo cannot be read)."""
+    try:
+        return _downsize(record, out_dir, max_side, jsonl_dir)
+    except Exception as exc:   # one unreadable photo must not sink a 100k-record split
+        warnings.warn(f"{record.image}: {type(exc).__name__}: {exc}; record dropped")
+        return None
+
+
+def _downsize(record: Record, out_dir: Path, max_side: int, jsonl_dir: Path | None) -> Record:
     src = resolve_path(record.image, jsonl_dir)
     scale = max_side / max(record.width, record.height)
     if scale >= 1.0:
@@ -26,9 +39,14 @@ def downsize_record(record: Record, out_dir: Path, max_side: int, jsonl_dir: Pat
     (out_dir / "images").mkdir(parents=True, exist_ok=True)
     dst = out_dir / "images" / f"{name}.jpg"
     new_w, new_h = int(round(record.width * scale)), int(round(record.height * scale))
+    with Image.open(src) as probe:   # header only: the label frame must match the record before anything is scaled
+        frame = oriented_size(*probe.size, record.orientation)
+    if frame != (record.width, record.height):
+        raise ValueError(f"photo is {frame} in its label frame but the record says {(record.width, record.height)}")
     if not dst.exists():
-        img = ImageOps.exif_transpose(Image.open(src)).convert("RGB")
-        img.resize((new_w, new_h), Image.LANCZOS).save(dst, "JPEG", quality=90)
+        # Opened in the label frame (EXIF applied only when the record says the labels were drawn
+        # that way) and written upright, so the output record needs no orientation.
+        open_record_image(record, jsonl_dir).resize((new_w, new_h), Image.LANCZOS).save(dst, "JPEG", quality=90)
 
     def pt(p):
         return [p[0] * scale, p[1] * scale]
@@ -47,7 +65,8 @@ def downsize_record(record: Record, out_dir: Path, max_side: int, jsonl_dir: Pat
                 wire_mask = str(mdst)
             else:
                 ink_mask = str(mdst)
-    return replace(record, image=str(dst), width=new_w, height=new_h, symbols=symbols, junctions=junctions, wire_mask=wire_mask, ink_mask=ink_mask)
+    return replace(record, image=str(dst), width=new_w, height=new_h, symbols=symbols, junctions=junctions, wire_mask=wire_mask,
+                   ink_mask=ink_mask, orientation=1)
 
 
 def main() -> None:
@@ -67,9 +86,10 @@ def main() -> None:
             done = pool.map(partial(downsize_record, out_dir=out.parent, max_side=args.max_side, jsonl_dir=src.parent), records, chunksize=8)
     else:
         done = [downsize_record(r, out.parent, args.max_side, src.parent) for r in records]
-    n = write_jsonl(done, out)
-    changed = sum(1 for a, b in zip(records, done) if a.image != b.image)
-    print(f"{n} records written to {out}; {changed} images downsized")
+    kept = [r for r in done if r is not None]
+    n = write_jsonl(kept, out)
+    changed = sum(1 for a, b in zip(records, done) if b is not None and a.image != b.image)
+    print(f"{n} records written to {out}; {changed} images downsized; {len(done) - len(kept)} dropped")
 
 
 if __name__ == "__main__":

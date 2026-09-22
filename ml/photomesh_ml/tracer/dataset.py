@@ -13,7 +13,7 @@ from PIL import Image, ImageFilter
 from torch.utils.data import Dataset
 
 from ..classes import TRACER_CLASSES
-from ..data.records import Record, Symbol, resolve_path
+from ..data.records import Record, Symbol, open_record_image, resolve_path
 from .targets import build_targets
 
 MAX_OBJECTS = 96
@@ -92,7 +92,7 @@ class TracerDataset(Dataset):
 
     # ------------------------------------------------------------------ loading
     def _load_record(self, record: Record) -> tuple[Image.Image, Optional[np.ndarray]]:
-        img = Image.open(resolve_path(record.image, self.jsonl_dir)).convert("RGB")
+        img = open_record_image(record, self.jsonl_dir)
         mask: Optional[np.ndarray] = None
         if record.wire_mask:
             mask = np.asarray(Image.open(resolve_path(record.wire_mask, self.jsonl_dir)).convert("L"))
@@ -113,7 +113,7 @@ class TracerDataset(Dataset):
         symbols: list[Symbol] = []
         for i in range(n):
             rec = self.rng.choice(self.port_records)
-            crop = Image.open(resolve_path(rec.image, self.jsonl_dir)).convert("RGB")
+            crop = open_record_image(rec, self.jsonl_dir)
             size = int(cell * self.rng.uniform(0.45, 0.95))
             crop = crop.resize((size, size), Image.BILINEAR)
             cx = int((i % cols) * cell + self.rng.uniform(0, max(1, cell - size)))

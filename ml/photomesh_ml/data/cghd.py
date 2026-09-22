@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import json
 import math
+from dataclasses import replace
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional
 
+from .orientation import detect_label_orientation
 from .records import Record, Symbol, axis_candidates, direction_name
 
 CLASS_MAP = {
@@ -106,6 +108,12 @@ def parse_annotation(xml_path: Path, ports: dict) -> tuple[int, int, list[Symbol
     return width, height, symbols, junctions
 
 
+def _scaled(symbol: Symbol, sx: float, sy: float) -> Symbol:
+    x0, y0, x1, y1 = symbol.box
+    return replace(symbol, box=[x0 * sx, y0 * sy, x1 * sx, y1 * sy],
+                   terminals=[[x * sx, y * sy] for x, y in symbol.terminals] if symbol.terminals else None)
+
+
 def convert(root: Path, drafters: Optional[list[str]] = None) -> list[Record]:
     root = Path(root).resolve()
     ports = json.loads((root / "classes_ports.json").read_text(encoding="utf-8")) if (root / "classes_ports.json").exists() else {}
@@ -121,9 +129,21 @@ def convert(root: Path, drafters: Optional[list[str]] = None) -> list[Record]:
             image = next((p for p in (drafter_dir / "images").glob(stem + ".*") if p.suffix.lower() in (".jpg", ".jpeg", ".png")), None)
             if image is None:
                 continue
-            width, height, symbols, junctions = parse_annotation(xml_path, ports)
+            xml_w, xml_h, symbols, junctions = parse_annotation(xml_path, ports)
             seg = next(iter((drafter_dir / "segmentation").glob(stem + ".*")), None) if (drafter_dir / "segmentation").is_dir() else None
+            # Boxes are in pixels of whichever frame the labeller saw; the XML size is only a hint (two
+            # drafters ship 1000x1000 for 12 MP photos), so the frame is detected from the photo itself.
+            orientation, width, height = detect_label_orientation(image, (xml_w, xml_h), [s.box for s in symbols], seg)
+            if (width, height) != (xml_w, xml_h):
+                # A photo resized uniformly after labelling (boxes still fit the XML frame) is rescaled;
+                # a bogus XML size (boxes already in photo pixels) is simply ignored.
+                sx, sy = width / xml_w, height / xml_h
+                fits = all(s.box[2] <= xml_w + 1 and s.box[3] <= xml_h + 1 for s in symbols)
+                if fits and abs(sx - sy) <= 0.02 * max(sx, sy):
+                    symbols = [_scaled(s, sx, sy) for s in symbols]
+                    junctions = [[x * sx, y * sy] for x, y in junctions]
             records.append(Record(image=str(image), width=width, height=height, source="cghd", group=drafter_dir.name,
                                   symbols=symbols, junctions=junctions, wire_mask=None, ink_mask=str(seg) if seg else None,
-                                  texts_complete=True, meta={"circuit": stem.split("_")[0]}))
+                                  texts_complete=True, meta={"circuit": stem.split("_")[0], "xml_size": [xml_w, xml_h]},
+                                  orientation=orientation))
     return records

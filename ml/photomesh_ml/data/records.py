@@ -11,7 +11,10 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Iterable, Iterator, Optional
 
+from PIL import Image
+
 from ..classes import POLARITY, TRACER_CLASSES
+from .orientation import open_oriented
 
 
 @dataclass
@@ -59,6 +62,7 @@ class Record:
     texts_complete: bool = True                        # every text label is annotated
     circuit: Optional[dict] = None                     # the app's JSON when the netlist is known
     meta: dict = field(default_factory=dict)
+    orientation: int = 1                              # EXIF code mapping the stored pixels onto the label frame
 
     @property
     def has_wire_supervision(self) -> bool:
@@ -107,6 +111,11 @@ def resolve_path(record_path: str, jsonl_path: Optional[Path]) -> Path:
     if p.is_absolute() or jsonl_path is None:
         return p
     return (Path(jsonl_path).parent / p).resolve()
+
+
+def open_record_image(record: Record, jsonl_path: Optional[Path]) -> "Image.Image":
+    """The record's photo in the frame its labels were drawn in (EXIF applied when the record says so)."""
+    return open_oriented(resolve_path(record.image, jsonl_path), record.orientation)
 
 
 def axis_candidates(box: list[float], ratio: float = 1.3) -> Optional[list[str]]:
