@@ -155,6 +155,24 @@ Self-training loop (rejection-sampling fine-tuning): point `vlm.distill --endpoi
 own vLLM server with `--samples 2`; only answers that validate, agree with the datasets' boxes and
 solve identically twice are kept, then rebuild the dataset and fine-tune again.
 
+### Running the whole recipe on a RunPod GPU, unattended
+
+```bash
+export RUNPOD_API_KEY=...   OPENROUTER_API_KEY=...
+python scripts/runpod_control.py create --gpu "NVIDIA GeForce RTX 4090" --cloud COMMUNITY --disk 80 \
+    --env OPENROUTER_API_KEY=$OPENROUTER_API_KEY --env MAX_HOURS=5 --job scripts/runpod_job.sh --code ml
+python scripts/runpod_control.py log  POD_ID --token TOKEN --tail 40           # progress
+python scripts/runpod_control.py download POD_ID workspace/results.tar.gz results.tar.gz --token TOKEN
+python scripts/runpod_control.py terminate POD_ID; python scripts/runpod_control.py list   # nothing left running
+```
+
+`scripts/runpod_job.sh` generates the synthetic set, downloads Digitize-HCD and CGHD, converts and
+downsizes, trains and evaluates the tracer (calibration + Core ML export), distils teacher labels
+for real photos, fine-tunes the VLM with LoRA and benchmarks it against the teacher. It runs under
+a hard time cap, packs `results.tar.gz`, waits a grace window for the download and then terminates
+its own pod, so a forgotten pod cannot keep billing. The controller talks to the pod only over
+HTTPS (RunPod's API and the pod's Jupyter contents API), so it works from anywhere.
+
 ## 4. What "correct" means
 
 `eval/metrics.py` scores a prediction the way the user experiences it: every element found with
