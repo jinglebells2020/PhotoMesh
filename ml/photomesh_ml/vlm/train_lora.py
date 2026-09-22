@@ -112,6 +112,26 @@ def generate_text(model, processor, image: Image.Image, max_new_tokens: int = 10
     return processor.tokenizer.decode(new, skip_special_tokens=True)
 
 
+@torch.no_grad()
+def generate_texts(model, processor, images: list[Image.Image], max_new_tokens: int = 1024) -> list[str]:
+    """Batched greedy generation: prompts are left-padded so every sequence starts generating at
+    the same position; a batch of eight is several times faster than one image at a time."""
+    if len(images) == 1:
+        return [generate_text(model, processor, images[0], max_new_tokens)]
+    tok = processor.tokenizer
+    previous = tok.padding_side
+    tok.padding_side = "left"
+    try:
+        inputs = processor.apply_chat_template([build_messages(img) for img in images], add_generation_prompt=True, tokenize=True,
+                                               return_dict=True, return_tensors="pt", padding=True)
+    finally:
+        tok.padding_side = previous
+    inputs = {k: (v.to(model.device) if isinstance(v, torch.Tensor) else v) for k, v in inputs.items()}
+    out = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False, pad_token_id=tok.pad_token_id)
+    new = out[:, inputs["input_ids"].shape[1]:]
+    return [tok.decode(row, skip_special_tokens=True) for row in new]
+
+
 def evaluate(model, processor, ds: JsonlImageDataset, limit: int, max_new_tokens: int) -> dict:
     model.eval()
     scores = []

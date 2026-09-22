@@ -14,7 +14,7 @@ import torch
 from PIL import Image, ImageOps
 
 from .prompt import SYSTEM_PROMPT, USER_PROMPT
-from .train_lora import build_messages, configure_processor, generate_text
+from .train_lora import build_messages, configure_processor, generate_texts
 
 
 def _load_image(path: Path, max_side: int) -> Image.Image:
@@ -37,6 +37,7 @@ def main() -> None:
     parser.add_argument("--max-side", type=int, default=1280)
     parser.add_argument("--max-pixels", type=int, default=802816)
     parser.add_argument("--max-new-tokens", type=int, default=1024)
+    parser.add_argument("--batch", type=int, default=1, help="images per generate call (transformers path)")
     parser.add_argument("--vllm", action="store_true")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
@@ -77,13 +78,26 @@ def main() -> None:
             from peft import PeftModel
             model = PeftModel.from_pretrained(model, args.adapter)
         model.to(args.device).eval()
-        for name, path in images:
-            img = _load_image(path, args.max_side)
+        sink = None
+        if args.out:
+            Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+            sink = Path(args.out).open("w", encoding="utf-8")   # written as we go: a killed run keeps its predictions
+        for start in range(0, len(images), max(1, args.batch)):
+            chunk = images[start:start + max(1, args.batch)]
+            imgs = [_load_image(path, args.max_side) for _, path in chunk]
             t0 = time.time()
-            text = generate_text(model, processor, img, args.max_new_tokens)
-            results.append({"image": name, "text": text, "latency": round(time.time() - t0, 2)})
-            print(name, round(time.time() - t0, 2), "s", text[:160].replace("\n", " "))
-    if args.out:
+            texts = generate_texts(model, processor, imgs, args.max_new_tokens)
+            per = round((time.time() - t0) / len(chunk), 2)
+            for (name, _), text in zip(chunk, texts):
+                results.append({"image": name, "text": text, "latency": per})
+                print(name, per, "s", text[:160].replace("\n", " "), flush=True)
+                if sink is not None:
+                    sink.write(json.dumps(results[-1], ensure_ascii=False) + "\n")
+                    sink.flush()
+        if sink is not None:
+            sink.close()
+            print("wrote", args.out)
+    if args.out and args.vllm:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         with Path(args.out).open("w", encoding="utf-8") as f:
             for r in results:
