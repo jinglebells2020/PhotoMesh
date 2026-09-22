@@ -40,3 +40,12 @@ def test_train_cli_smoke(tmp_path):
     summary = json.loads((out / "detect.json").read_text())
     assert summary["synthetic"]["images"] == 2 and "mAP" in summary["synthetic"] and "polarity" in summary["synthetic"]
     assert (out / "detect.md").read_text().startswith("| source |")
+
+
+def test_detect_eval_merges_indistinguishable_classes():
+    from photomesh_ml.data.records import Record, Symbol
+    r = Record(image="x.jpg", width=10, height=10, source="cghd", group="d",
+               symbols=[Symbol(cls="switch_open", box=[0, 0, 1, 1], class_candidates=["switch_open", "switch_closed"]),
+                        Symbol(cls="resistor", box=[2, 2, 3, 3])])
+    assert detect_eval.merged_classes(r) == {"switch_open": "switch_closed|switch_open", "switch_closed": "switch_closed|switch_open"}
+    assert detect_eval.merged_classes(Record(image="y.jpg", width=1, height=1, source="s", group="g")) == {}

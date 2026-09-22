@@ -44,24 +44,41 @@ def polarity_matches(record: Record, detections, iou_threshold: float = 0.5) -> 
     return matched, correct
 
 
+def merged_classes(record: Record) -> dict[str, str]:
+    """Class names the annotation cannot tell apart (e.g. CGHD's one `switch` label, stored as
+    switch_open with both candidates) are scored as one merged class for that image."""
+    mapping: dict[str, str] = {}
+    for s in record.symbols:
+        if s.class_candidates and len(s.class_candidates) > 1:
+            merged = "|".join(sorted(s.class_candidates))
+            for c in s.class_candidates:
+                mapping[c] = merged
+    return mapping
+
+
 def evaluate_source(tracer: Tracer, records: list[Record], jsonl_dir: Optional[Path], tta: bool, bootstrap: int,
                     seed: int = 0) -> dict:
     sets: list[DetectionSet] = []
     matched = correct = 0
+    classes = list(TRACER_CLASSES)
     for record in records:
         result = tracer.recognize(open_record_image(record, jsonl_dir), None, tta=tta)
-        sets.append(DetectionSet(predictions=[(d.cls, list(d.box), d.score) for d in result.detections],
-                                 truths=[(s.cls, list(s.box)) for s in record.symbols]))
+        merge = merged_classes(record)
+        for name in merge.values():
+            if name not in classes:
+                classes.append(name)
+        sets.append(DetectionSet(predictions=[(merge.get(d.cls, d.cls), list(d.box), d.score) for d in result.detections],
+                                 truths=[(merge.get(s.cls, s.cls), list(s.box)) for s in record.symbols]))
         m, c = polarity_matches(record, result.detections)
         matched += m
         correct += c
-    summary = mean_average_precision(sets, TRACER_CLASSES)
+    summary = mean_average_precision(sets, classes)
     if bootstrap and sets:
         rng = random.Random(seed)
         maps = []
         for _ in range(bootstrap):
             sample = [sets[rng.randrange(len(sets))] for _ in sets]
-            v = mean_average_precision(sample, TRACER_CLASSES)["mAP"]
+            v = mean_average_precision(sample, classes)["mAP"]
             if v is not None:
                 maps.append(v)
         maps.sort()
