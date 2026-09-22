@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 import random
+import warnings
 from dataclasses import replace
 from pathlib import Path
 from typing import Optional, Sequence
@@ -16,7 +17,7 @@ from ..classes import TRACER_CLASSES
 from ..data.records import Record, Symbol, open_record_image, resolve_path
 from .targets import build_targets
 
-MAX_OBJECTS = 96
+MAX_OBJECTS = 256   # regression slots per image; dense CGHD photos carry 130+ boxes once text is counted
 
 
 def _affine_image(img: Image.Image, scale: float, tx: float, ty: float, size: int, resample, fill, angle: float = 0.0) -> Image.Image:
@@ -164,19 +165,20 @@ class TracerDataset(Dataset):
             img = self._photometric(img)
         targets = build_targets(record_t, (S, S), self.stride, mask)
         image = torch.from_numpy(np.asarray(img, np.uint8).copy()).permute(2, 0, 1)
-        n = len(targets.index)
+        n = min(len(targets.index), MAX_OBJECTS)
+        if len(targets.index) > MAX_OBJECTS:
+            # The heatmap still carries every centre; only the per-object regression slots are capped.
+            warnings.warn(f"{record.image}: {len(targets.index)} symbols, regression targets capped at {MAX_OBJECTS}")
         pad = MAX_OBJECTS - n
-        if pad < 0:
-            raise RuntimeError(f"more than {MAX_OBJECTS} symbols in one image")
         return {
             "image": image,
             "heat": torch.from_numpy(targets.heat), "heat_weight": torch.from_numpy(targets.heat_weight),
-            "size": torch.from_numpy(np.pad(targets.size, ((0, pad), (0, 0)))),
-            "offset": torch.from_numpy(np.pad(targets.offset, ((0, pad), (0, 0)))),
-            "index": torch.from_numpy(np.pad(targets.index, (0, pad))),
+            "size": torch.from_numpy(np.pad(targets.size[:n], ((0, pad), (0, 0)))),
+            "offset": torch.from_numpy(np.pad(targets.offset[:n], ((0, pad), (0, 0)))),
+            "index": torch.from_numpy(np.pad(targets.index[:n], (0, pad))),
             "reg_mask": torch.from_numpy(np.pad(np.ones(n, np.float32), (0, pad))),
-            "polarity": torch.from_numpy(np.pad(targets.polarity, ((0, pad), (0, 0)))),
-            "polarity_weight": torch.from_numpy(np.pad(targets.polarity_weight, (0, pad))),
+            "polarity": torch.from_numpy(np.pad(targets.polarity[:n], ((0, pad), (0, 0)))),
+            "polarity_weight": torch.from_numpy(np.pad(targets.polarity_weight[:n], (0, pad))),
             "wire": torch.from_numpy(targets.wire), "wire_weight": torch.tensor(targets.wire_weight),
             "junction": torch.from_numpy(targets.junction), "junction_weight": torch.tensor(targets.junction_weight),
             "terminal": torch.from_numpy(targets.terminal), "terminal_weight": torch.tensor(targets.terminal_weight),
