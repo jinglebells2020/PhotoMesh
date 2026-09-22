@@ -29,6 +29,11 @@ struct SolutionsSheet: View {
     @State private var showConsent = false
     /// A circuit whose DC steady state could not be solved but which can still be simulated.
     @State private var labOnly: CircuitAnalysis?
+    /// The last failure was the beta allowance, so the card can point at ways to earn bonus scans.
+    @State private var limited = false
+    @State private var showContribute = false
+    /// A thank-you line after a reward, shown above the cards.
+    @State private var rewardNote: String?
 
     var body: some View {
         NavigationStack {
@@ -42,11 +47,16 @@ struct SolutionsSheet: View {
                             .foregroundStyle(.white)
                             .padding(.top, 48)
 
+                        if let rewardNote {
+                            RewardNote(text: rewardNote)
+                                .transition(.move(edge: .top).combined(with: .opacity))
+                        }
+
                         switch state {
                         case .loading:
                             LoadingCard(phase: phase, image: sourceImage)
                         case .failed(let message):
-                            FailedCard(message: message, lab: labOnly) { Task { await load() } }
+                            FailedCard(message: message, lab: labOnly, earn: limited ? { showContribute = true } : nil) { Task { await load() } }
                         case .review(let circuit, let notes):
                             ReviewCard(circuit: circuit, notes: notes, image: sourceImage) {
                                 Analytics.shared.recordSample(image: sourceImage, model: reviewedModel, recognized: circuit, corrected: nil, accepted: true)
@@ -56,7 +66,7 @@ struct SolutionsSheet: View {
                                 showEditor = true
                             }
                             .transition(.move(edge: .bottom).combined(with: .opacity))
-                            if showConsent { ConsentCard { showConsent = false } }
+                            if showConsent { ConsentCard { granted in showConsent = false; noteReward(granted, "for sharing") } }
                         case .loaded(let analysis):
                             // The circuit first: what was solved, then how.
                             if analysis.circuit != nil {
@@ -67,7 +77,7 @@ struct SolutionsSheet: View {
                                 MethodCard(method: method, methodIndex: index, analysis: analysis, request: request)
                                     .transition(.move(edge: .bottom).combined(with: .opacity))
                             }
-                            if showConsent { ConsentCard { showConsent = false } }
+                            if showConsent { ConsentCard { granted in showConsent = false; noteReward(granted, "for sharing") } }
                         }
                     }
                     .padding(.horizontal, 16)
@@ -85,6 +95,7 @@ struct SolutionsSheet: View {
                     CircuitEditorView(circuit: editing) { corrected in
                         if let original = reviewed {
                             Analytics.shared.recordSample(image: sourceImage, model: reviewedModel, recognized: original, corrected: corrected, accepted: false)
+                            if AnalyticsConsent.scans, sourceImage != nil { noteReward(ScanCredits.award(.correction), "for the fix") }
                         }
                         solve(.circuit(corrected, notes: "Corrected by you.", needsReview: false, model: reviewedModel))
                     }
@@ -100,6 +111,13 @@ struct SolutionsSheet: View {
             }
         }
         .task { await load() }
+        .sheet(isPresented: $showContribute) { ContributeSheet() }
+    }
+
+    private func noteReward(_ granted: Int, _ what: String) {
+        guard granted > 0 else { return }
+        Haptics.notify(.success)
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { rewardNote = "+\(granted) bonus scans \(what). Thank you!" }
     }
 
     private var sourceImage: UIImage? {
@@ -122,6 +140,7 @@ struct SolutionsSheet: View {
 
     private func load() async {
         state = .loading
+        limited = false
         phase = "Reading the circuit…"
         startedAt = Date()
         let solver = SolverProvider.make()
@@ -145,6 +164,7 @@ struct SolutionsSheet: View {
         } catch {
             Haptics.notify(.error)
             Analytics.shared.track("solve_failed", ["source": .string(sourceName), "reason": .string(String(error.localizedDescription.prefix(120)))])
+            limited = error is UsageAllowance.LimitError
             state = .failed(error.localizedDescription)
         }
     }
@@ -429,6 +449,8 @@ private struct SkeletonLine: View {
 private struct FailedCard: View {
     let message: String
     var lab: CircuitAnalysis? = nil
+    /// Set when the beta allowance stopped the scan: opens the ways to earn bonus scans.
+    var earn: (() -> Void)? = nil
     let retry: () -> Void
     @State private var showLog = false
 
@@ -462,6 +484,21 @@ private struct FailedCard: View {
                 NavigationLink(value: SolutionDestination.circuit(lab)) {
                     HStack(spacing: 10) {
                         Text("Simulate in the lab")
+                        Image(systemName: "arrow.right").font(.system(size: 16, weight: .semibold))
+                    }
+                }
+                .buttonStyle(PMPrimaryButtonStyle())
+                .padding(.top, 6)
+            }
+            if let earn {
+                Text("Bonus scans get you past the beta limit right away. Earn them by rating a walkthrough, fixing a misread circuit or answering five questions.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(PMTheme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 4)
+                Button(action: earn) {
+                    HStack(spacing: 10) {
+                        Text("Earn bonus scans")
                         Image(systemName: "arrow.right").font(.system(size: 16, weight: .semibold))
                     }
                 }
@@ -632,33 +669,43 @@ private struct ReviewCard: View {
     }
 }
 
-/// One-time ask to share scans and usage; both stay off unless the user says yes.
+/// One-time ask to share scans and usage; both stay off unless the user says yes. Saying yes
+/// pays the sharing reward, and the callback receives how many bonus scans that was.
 private struct ConsentCard: View {
-    let onDone: () -> Void
+    let onDone: (Int) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Help Photocircuits read circuits better?")
-                .font(.system(size: 17, weight: .bold))
-                .foregroundStyle(PMTheme.ink)
-            Text("Share your scans and the corrections you make, plus anonymous usage statistics. No account, no names; the pictures are used only to improve recognition. You can change this any time in Settings → Privacy & data.")
+            HStack(alignment: .top, spacing: 10) {
+                Text("Help the reader learn, get \(ScanCredits.Reason.sharing.reward) bonus scans")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(PMTheme.ink)
+                Spacer(minLength: 0)
+                Text("+\(ScanCredits.Reason.sharing.reward)")
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(PMTheme.plusOrange))
+            }
+            Text("Share your scans and the corrections you make, plus anonymous usage statistics. No account, no names; the pictures are used only to improve recognition. You get \(ScanCredits.Reason.sharing.reward) bonus scans now and more each time you fix a misread circuit or rate a walkthrough. Change it any time in Settings → Privacy & data.")
                 .font(.system(size: 13))
                 .foregroundStyle(PMTheme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 12) {
                 Button("Not now") {
                     AnalyticsConsent.asked = true
-                    onDone()
+                    onDone(0)
                 }
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(PMTheme.secondaryText)
                 Spacer()
-                Button("Share") {
+                Button("Share and earn") {
                     AnalyticsConsent.usage = true
                     AnalyticsConsent.scans = true
                     AnalyticsConsent.asked = true
-                    Analytics.shared.track("consent_granted")
-                    onDone()
+                    Analytics.shared.track("consent_granted", ["from": .string("solve")])
+                    onDone(ScanCredits.award(.sharing))
                 }
                 .buttonStyle(PMPrimaryButtonStyle())
             }
@@ -666,5 +713,24 @@ private struct ConsentCard: View {
         .padding(16)
         .background(RoundedRectangle(cornerRadius: PMTheme.cardRadius, style: .continuous).fill(Color.white))
         .transition(.move(edge: .bottom).combined(with: .opacity))
+    }
+}
+
+/// "+2 bonus scans for the fix. Thank you!" above the cards.
+private struct RewardNote: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "sparkles")
+                .foregroundStyle(PMTheme.plusOrange)
+            Text(text)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(PMTheme.ink)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.white))
     }
 }

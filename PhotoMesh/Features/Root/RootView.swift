@@ -108,6 +108,8 @@ struct RootView: View {
         case .course:
             CourseSheet()
                 .presentationBackground(PMTheme.darkSheet)
+        case .contribute:
+            ContributeSheet()
         case .solutions(let request):
             SolutionsSheet(request: request)
                 .presentationBackground(PMTheme.darkSheet)

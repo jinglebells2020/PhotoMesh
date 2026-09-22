@@ -19,7 +19,9 @@ final class UsageAllowance {
         var remainingToday: Int
         /// When the next call becomes possible, if a limit is currently reached.
         var blockedUntil: Date?
-        var isBlocked: Bool { blockedUntil != nil }
+        /// Bonus scans that would be spent while a window is full.
+        var bonus: Int
+        var isBlocked: Bool { blockedUntil != nil && bonus == 0 }
     }
 
     enum LimitError: LocalizedError {
@@ -46,21 +48,33 @@ final class UsageAllowance {
         } else if lastHour.count >= Self.hourlyLimit, let oldest = lastHour.first {
             blockedUntil = oldest.addingTimeInterval(hour)
         }
-        return Status(usedThisHour: lastHour.count, usedToday: calls.count, remainingToday: max(0, Self.dailyLimit - calls.count), blockedUntil: blockedUntil)
+        return Status(usedThisHour: lastHour.count, usedToday: calls.count, remainingToday: max(0, Self.dailyLimit - calls.count), blockedUntil: blockedUntil, bonus: ScanCredits.balance)
     }
 
-    /// Records one call, or throws when a window is full.
+    /// Records one call, or throws when a window is full. A full window is covered by a bonus
+    /// scan when the user has earned one (the call is then not counted against the window).
     func consume() throws {
         let now = Date()
         let calls = recentCalls(now: now)
+        if let error = limitReached(calls, now: now) {
+            if ScanCredits.spend() {
+                RecognitionLog.shared.record("beta allowance full: spent a bonus scan, \(ScanCredits.balance) left")
+                return
+            }
+            throw error
+        }
+        save(calls + [now])
+    }
+
+    private func limitReached(_ calls: [Date], now: Date) -> LimitError? {
         if calls.count >= Self.dailyLimit, let oldest = calls.first {
-            throw LimitError.daily(until: oldest.addingTimeInterval(day))
+            return .daily(until: oldest.addingTimeInterval(day))
         }
         let lastHour = calls.filter { now.timeIntervalSince($0) < hour }
         if lastHour.count >= Self.hourlyLimit, let oldest = lastHour.first {
-            throw LimitError.hourly(until: oldest.addingTimeInterval(hour))
+            return .hourly(until: oldest.addingTimeInterval(hour))
         }
-        save(calls + [now])
+        return nil
     }
 
     /// Records one call if there is room; false (and nothing recorded) otherwise.

@@ -36,6 +36,7 @@ method to follow.
 | History of solved circuits (button right of the shutter) | Done |
 | Circuit lab (Plus): Tweak mode re-solves live as values are dragged and switches flipped; Simulate mode plays the circuit in time with plots, a scrubber and switch events | Done, `ExplorerModel`, `TransientSimulator` |
 | Exports (Plus): LTspice schematic (.asc) + SPICE netlist (.cir), PDF of any step-by-step solution | Done, `SpiceExport`, `StepsPDFExporter` |
+| Feedback loop: bonus scans for sharing, corrections, ratings and a survey; uploads to the collector baked into the build; worker with D1 stats and per-install deletion; dataset and report tools | Done, `ScanCredits`, `ContributeSheet`, `tools/telemetry-worker`, `tools/dataset` |
 | Circuits course (modules 1–2 free, rest Plus): 9 modules, 38 animated lessons with quizzes; opens with the water-in-pipes analogy and then follows the classic first-year syllabus | Done, `Features/Course` |
 | PhotoMesh Plus via RevenueCat (paywall, Customer Center, `photocircuits_pro` entitlement), feature gates in `PlusAccess` | Done |
 | AC solving, dependent sources | Next |
@@ -305,21 +306,42 @@ schematics (`scratchpad` script, seven images, answers checked by solving the ne
 The image costs a flat ~1,090 input tokens at any resolution; the prompt is ~1,200. Reasoning
 tokens (billed as output) dominate, which is why the fast first pass matters.
 
-### Data collection
+### Data collection and the feedback loop
 
 Off until the user opts in (a one-time card after the first solve, or Settings → Privacy & data):
 
-- **Anonymous usage**: events such as `app_open`, `capture`, `recognition` (model, tier, latency,
-  tokens, outcome), `solve`, `solve_failed`, `sketch_solve`, `feedback`, tagged with a random
-  install id, app version, OS version, device model and locale. No images.
+- **Anonymous usage**: events such as `first_open`, `app_open`, `app_background` (seconds active),
+  `capture`, `recognition` (model, tier, latency, tokens, outcome), `solve`, `solve_failed`,
+  `steps_opened`, `steps_completed`, `why_opened`, `explorer_mode`, `export`, `lesson_opened`,
+  `lesson_completed`, `plus_gate`, `paywall_shown`, `purchase_started/completed/failed`,
+  `credits_earned/spent`, `scan_accepted/corrected` (with a `CorrectionDiff`: how many parts were
+  added, removed, retyped, revalued or rewired). Every event carries a random install id, a session
+  id, app and OS version, device model, locale, whether Plus is active and the install's age. No images.
 - **Scans**: the picture (JPEG, ≤1280 px) with the recognized netlist and, when the user used
-  *Fix something*, the corrected netlist. These are the evaluation and training set.
+  *Fix something*, the corrected netlist plus the diff. These are the evaluation and training set.
+- **Feedback and the survey** are explicit submissions and always go out: a thumbs rating carries
+  the method, the question, reasons, comment and the circuit as a SPICE netlist so a report can be
+  reproduced; the five-question survey (role, stage, uses, wish, 0–10 recommendation) goes out once.
 
-Everything is stored locally (`Analytics`, Application Support/PhotoMesh/analytics), can be
-exported as one JSON file from Settings → Privacy & data → Collected data, and is uploaded when
-an HTTPS endpoint is configured there. `tools/telemetry-worker` is a ready-to-deploy Cloudflare
-Worker that stores each upload in an R2 bucket. `PrivacyInfo.xcprivacy` declares the collected
-data types and required-reason APIs for App Store review.
+**Bonus scans** thank people for helping (`ScanCredits`): +10 for turning scan sharing on, +2 per
+rated walkthrough (3 a day), +2 per corrected misread while sharing is on (5 a day), +5 for the
+survey, banked up to 60. A bonus scan is spent only when the beta allowance window is full
+(`UsageAllowance`), so it never costs a subscriber anything. The program lives in one screen,
+*Help & bonus scans* (side menu → Give feedback, Settings → Privacy & data, and the "limit reached"
+card), which also shows what was shared and offers *Delete my shared data*.
+
+**Pipeline.** Everything is stored locally first (`Analytics`, Application Support/PhotoMesh/analytics),
+can be exported as one JSON file, and uploads itself in batches under 6 MB (retry with backoff,
+event files rotated so an upload never races a write) to the collector baked into the build:
+the TestFlight workflow embeds the `TELEMETRY_ENDPOINT` and `TELEMETRY_KEY` secrets with
+`tools/embed-key.sh --telemetry`, next to the OpenRouter key. `tools/telemetry-worker` is the
+Cloudflare Worker: it files each upload per install in R2 (`installs/<id>/{events,samples,images}`),
+indexes it in D1, answers `GET /stats` (installs, solves per day, recognition outcomes by model,
+accept vs corrected rate, correction kinds, feedback helpful rate and reasons, survey by role with
+NPS, credits, the Plus funnel, session length) and honours `POST /forget`. `tools/dataset` syncs
+the bucket, builds `train/val.jsonl` split by install, writes every corrected scan as a fixture in
+the recognition benchmark's format, and prints the same report from the files without a database.
+`PrivacyInfo.xcprivacy` and `docs/privacy.html` describe all of it.
 
 ### Recognition setup
 

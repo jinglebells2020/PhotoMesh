@@ -10,6 +10,8 @@ struct FeedbackEntry: Identifiable, Codable, Hashable {
     var comment: String
     var question: String
     var method: String
+    /// The solved circuit as a SPICE netlist, so a report can be reproduced.
+    var netlist: String? = nil
 }
 
 enum FeedbackStore {
@@ -40,7 +42,10 @@ enum FeedbackStore {
         try? FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: fileURL, options: .atomic)
         RecognitionLog.shared.record("feedback: \(entry.helpful ? "helpful" : "not helpful") \(entry.reasons.joined(separator: ", ")) \(entry.comment)")
-        Analytics.shared.track("feedback", ["helpful": .init(entry.helpful), "reasons": .string(entry.reasons.joined(separator: "|")), "comment": .string(entry.comment), "method": .string(entry.method)])
+        Analytics.shared.submit("feedback", [
+            "helpful": .init(entry.helpful), "reasons": .string(entry.reasons.joined(separator: "|")), "comment": .string(entry.comment),
+            "method": .string(entry.method), "question": .string(String(entry.question.prefix(200))), "netlist": .string(String((entry.netlist ?? "").prefix(2000))),
+        ])
     }
 
     /// Opens Mail with the feedback pre-filled (no backend yet).
@@ -52,6 +57,8 @@ enum FeedbackStore {
         Method: \(entry.method)
         Reasons: \(entry.reasons.joined(separator: ", "))
         Comment: \(entry.comment)
+        Circuit:
+        \(entry.netlist ?? "(not available)")
 
         Diagnostics:
         \(RecognitionLog.shared.text.split(separator: "\n").suffix(12).joined(separator: "\n"))

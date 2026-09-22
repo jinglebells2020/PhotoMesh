@@ -39,6 +39,12 @@ struct SolvingStepsView: View {
             }
         }
         .background(PMTheme.groupedBackground.ignoresSafeArea())
+        .onAppear {
+            Analytics.shared.track("steps_opened", ["method": .string(solution.method.rawValue), "steps": .init(solution.steps.count)])
+        }
+        .onChange(of: isComplete) { _, done in
+            if done { Analytics.shared.track("steps_completed", ["method": .string(solution.method.rawValue), "steps": .init(solution.steps.count)]) }
+        }
         .navigationTitle("Solving Steps")
         .navigationBarTitleDisplayMode(analysis.layout == nil ? .large : .inline)
         .toolbar(.visible, for: .navigationBar)
@@ -96,9 +102,11 @@ struct SolvingStepsView: View {
                                     if expandedIndex == index { scroll(proxy, to: "step-\(index)") }
                                 },
                                 onWhy: {
+                                    let opening = whyIndex != index
                                     withAnimation(.easeOut(duration: 0.2)) {
-                                        whyIndex = (whyIndex == index) ? nil : index
+                                        whyIndex = opening ? index : nil
                                     }
+                                    if opening { Analytics.shared.track("why_opened", ["step": .init(index + 1), "method": .string(solution.method.rawValue)]) }
                                 },
                                 onNext: { advance(from: index, proxy: proxy) }
                             )
@@ -116,7 +124,7 @@ struct SolvingStepsView: View {
                             .id("solution")
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                             .onAppear { scroll(proxy, to: "solution") }
-                        FeedbackFlow(question: analysis.question, method: solution.method.title)
+                        FeedbackFlow(question: analysis.question, method: solution.method.title, circuit: analysis.circuit)
                             .padding(.top, 26)
                             .padding(.horizontal, 20)
                     }
@@ -429,6 +437,8 @@ private struct SolutionRow: View {
 private struct FeedbackFlow: View {
     let question: String
     let method: String
+    /// The solved circuit, sent with the feedback so a report can be reproduced.
+    var circuit: Circuit? = nil
 
     private enum Stage: Equatable { case ask, thanksPositive, rate, form, thanksNegative }
 
@@ -438,7 +448,20 @@ private struct FeedbackFlow: View {
     @State private var reasons: Set<String> = []
     @State private var comment = ""
     @State private var lastEntry: FeedbackEntry?
+    /// Bonus scans paid for this rating, if any.
+    @State private var granted = 0
     @FocusState private var commentFocused: Bool
+
+    private var netlist: String? { circuit.map { SpiceExport.netlist($0) } }
+
+    @ViewBuilder
+    private var rewardLine: some View {
+        if granted > 0 {
+            Text("+\(granted) bonus scans added. Thank you!")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(PMTheme.accent)
+        }
+    }
 
     var body: some View {
         VStack(spacing: 14) {
@@ -455,11 +478,13 @@ private struct FeedbackFlow: View {
                 Text("Glad it helped!")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(PMTheme.ink)
+                rewardLine
             case .rate:
                 card {
                     Text("Glad it helped!")
                         .font(.system(size: 17, weight: .bold))
                         .foregroundStyle(PMTheme.ink)
+                    rewardLine
                     Text("A quick rating on the App Store helps other students find Photocircuits.")
                         .font(.system(size: 14))
                         .foregroundStyle(PMTheme.secondaryText)
@@ -509,6 +534,7 @@ private struct FeedbackFlow: View {
                     Text("Thank you. We'll look into it.")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(PMTheme.ink)
+                    rewardLine
                     if let entry = lastEntry, let url = FeedbackStore.mailURL(for: entry) {
                         Button("Also send it by email") { openURL(url) }
                             .font(.system(size: 13, weight: .medium))
@@ -525,7 +551,8 @@ private struct FeedbackFlow: View {
         Button {
             Haptics.impact(.light)
             if up {
-                FeedbackStore.save(FeedbackEntry(id: UUID(), date: Date(), helpful: true, reasons: [], comment: "", question: question, method: method))
+                FeedbackStore.save(FeedbackEntry(id: UUID(), date: Date(), helpful: true, reasons: [], comment: "", question: question, method: method, netlist: netlist))
+                granted = ScanCredits.award(.feedback)
                 withAnimation { stage = FeedbackStore.shouldAskForRating ? .rate : .thanksPositive }
             } else {
                 withAnimation { stage = .form }
@@ -541,8 +568,9 @@ private struct FeedbackFlow: View {
     }
 
     private func submitNegative() {
-        let entry = FeedbackEntry(id: UUID(), date: Date(), helpful: false, reasons: Array(reasons), comment: comment.trimmingCharacters(in: .whitespacesAndNewlines), question: question, method: method)
+        let entry = FeedbackEntry(id: UUID(), date: Date(), helpful: false, reasons: Array(reasons), comment: comment.trimmingCharacters(in: .whitespacesAndNewlines), question: question, method: method, netlist: netlist)
         FeedbackStore.save(entry)
+        granted = ScanCredits.award(.feedback)
         lastEntry = entry
         commentFocused = false
         Haptics.notify(.success)

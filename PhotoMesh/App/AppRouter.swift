@@ -43,6 +43,7 @@ enum SheetRoute: Identifiable, Hashable {
     case plus
     case history
     case course
+    case contribute
     case solutions(SolutionRequest)
 
     var id: String {
@@ -55,6 +56,7 @@ enum SheetRoute: Identifiable, Hashable {
         case .plus: return "plus"
         case .history: return "history"
         case .course: return "course"
+        case .contribute: return "contribute"
         case .solutions(let request): return "solutions-\(request.id.uuidString)"
         }
     }

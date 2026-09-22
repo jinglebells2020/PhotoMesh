@@ -155,7 +155,24 @@ struct SettingsSheet: View {
                         }
                     }
                     .tint(PMTheme.accent)
-                    .onChange(of: shareScans) { _, on in if on { shareUsage = true } }
+                    .onChange(of: shareScans) { _, on in
+                        if on {
+                            shareUsage = true
+                            AnalyticsConsent.asked = true
+                            ScanCredits.award(.sharing)
+                        }
+                    }
+                    NavigationLink {
+                        ContributeView()
+                    } label: {
+                        HStack {
+                            Text("Help & bonus scans").foregroundStyle(PMTheme.ink)
+                            Spacer()
+                            Text("\(ScanCredits.balance)")
+                                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                                .foregroundStyle(PMTheme.accent)
+                        }
+                    }
                     NavigationLink {
                         DataView()
                     } label: {
@@ -164,7 +181,7 @@ struct SettingsSheet: View {
                 } header: {
                     Text("PRIVACY & DATA")
                 } footer: {
-                    Text("Nothing is shared until you turn these on. There is no account; a random install id groups your data. Feedback you send from a walkthrough is kept with it.")
+                    Text("Nothing is shared until you turn these on. There is no account; a random install id groups your data. Feedback and survey answers you send on purpose always reach us, with the circuit they are about.")
                 }
             }
             .listStyle(.insetGrouped)
@@ -221,6 +238,7 @@ private struct AllowanceRow: View {
             if DeveloperOptions.enabled {
                 Button("Reset") {
                     UsageAllowance.shared.reset()
+                    ScanCredits.reset()
                     status = UsageAllowance.shared.status
                 }
                 .font(.system(size: 13))
@@ -232,10 +250,13 @@ private struct AllowanceRow: View {
     }
 
     private var detail: String {
+        let bonus = status.bonus > 0 ? " · \(status.bonus) bonus" : ""
         if let until = status.blockedUntil {
-            return "Limit reached · scans again at \(UsageAllowance.timeText(until))"
+            return status.bonus > 0
+                ? "Windows full · bonus scans are being used\(bonus)"
+                : "Limit reached · scans again at \(UsageAllowance.timeText(until))"
         }
-        return "\(status.usedThisHour) of \(UsageAllowance.hourlyLimit) this hour · \(status.usedToday) of \(UsageAllowance.dailyLimit) today"
+        return "\(status.usedThisHour) of \(UsageAllowance.hourlyLimit) this hour · \(status.usedToday) of \(UsageAllowance.dailyLimit) today\(bonus)"
     }
 }
 
@@ -409,7 +430,7 @@ private struct ModelView: View {
 }
 
 /// What has been collected on this device, with export, upload settings and deletion.
-private struct DataView: View {
+struct DataView: View {
     @AppStorage(SettingsKeys.analyticsEndpoint) private var endpoint = ""
     @AppStorage(SettingsKeys.analyticsEndpointKey) private var endpointKey = ""
     @State private var summary = Analytics.shared.summary()
@@ -425,6 +446,16 @@ private struct DataView: View {
                 row("Install id", String(Analytics.installId.prefix(8)) + "…")
             } header: {
                 Text("ON THIS DEVICE")
+            } footer: {
+                Text("Waiting to upload. Uploads go out when the app opens, after each solve and when it goes to the background.")
+            }
+
+            Section {
+                row("Uploaded so far", "\(summary.uploadedEvents) events · \(summary.uploadedSamples) scans")
+                row("Last upload", summary.lastUploadAt.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "never")
+                row("Collector", summary.endpointConfigured ? (Analytics.usesBuiltInEndpoint ? "built into this build" : "developer setting") : "none: data stays on the device")
+            } header: {
+                Text("SENT")
             }
 
             Section {
@@ -471,7 +502,7 @@ private struct DataView: View {
             } header: {
                 Text("UPLOAD ENDPOINT (DEVELOPER)")
             } footer: {
-                Text("HTTPS URL that accepts a JSON POST; see tools/telemetry-worker in the repository for a ready-made collector. Pending data uploads on launch and after each solve.")
+                Text("Overrides the collector built into the build. HTTPS URL that accepts a JSON POST; see tools/telemetry-worker in the repository for the ready-made collector.")
             }
         }
         .listStyle(.insetGrouped)

@@ -17,9 +17,18 @@ struct PhotoMeshApp: App {
                 .tint(PMTheme.accent)
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active {
+            switch phase {
+            case .active:
+                if Analytics.shared.becameActive() { Analytics.shared.track("first_open") }
                 Analytics.shared.track("app_open")
                 Analytics.shared.flush()
+            case .background:
+                if let seconds = Analytics.shared.becameInactive() {
+                    Analytics.shared.track("app_background", ["active_seconds": .init(seconds)])
+                }
+                Analytics.shared.flush()
+            default:
+                break
             }
         }
     }

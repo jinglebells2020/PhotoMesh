@@ -12,6 +12,8 @@ name: TestFlight
 # Optional:
 #   OPENROUTER_TESTER_KEY      OpenRouter key baked into the build for testers (give it a credit
 #                              limit on openrouter.ai). Without it testers get the sample circuit.
+#   TELEMETRY_ENDPOINT         https URL of the deployed tools/telemetry-worker. With TELEMETRY_KEY it
+#   TELEMETRY_KEY              is baked in so opted-in feedback, usage and scans upload by themselves.
 #
 # Build numbers are 100 + the workflow run number, so they stay above the builds 1–5 that were
 # uploaded from a Mac before this workflow existed.
@@ -50,6 +52,17 @@ jobs:
             tools/embed-key.sh "$OPENROUTER_TESTER_KEY"
           else
             echo "OPENROUTER_TESTER_KEY is not set; this build will have no built-in key."
+          fi
+
+      - name: Embed the telemetry endpoint
+        env:
+          TELEMETRY_ENDPOINT: ${{ secrets.TELEMETRY_ENDPOINT }}
+          TELEMETRY_KEY: ${{ secrets.TELEMETRY_KEY }}
+        run: |
+          if [ -n "$TELEMETRY_ENDPOINT" ] && [ -n "$TELEMETRY_KEY" ]; then
+            tools/embed-key.sh --telemetry "$TELEMETRY_ENDPOINT" "$TELEMETRY_KEY"
+          else
+            echo "TELEMETRY_ENDPOINT / TELEMETRY_KEY are not set; this build will keep data on the device only."
           fi
 
       - name: Select Xcode

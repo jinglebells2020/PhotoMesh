@@ -37,6 +37,7 @@ struct PlusSheet: View {
             ])
         }
         .task { await store.refresh() }
+        .onAppear { Analytics.shared.track("paywall_shown", ["plus": .bool(PlusAccess.hasPlus)]) }
     }
 
     // MARK: Already subscribed
@@ -166,13 +167,16 @@ struct PlusSheet: View {
 
     private func buy(_ package: Package) {
         busyPackage = package
+        Analytics.shared.track("purchase_started", ["package": .string(package.identifier)])
         Task {
             let bought = await store.purchase(package)
             busyPackage = nil
             if bought {
                 Haptics.notify(.success)
-                Analytics.shared.track("purchase_completed")
+                Analytics.shared.track("purchase_completed", ["package": .string(package.identifier)])
                 dismiss()
+            } else {
+                Analytics.shared.track("purchase_failed", ["package": .string(package.identifier), "reason": .string(String((store.lastError ?? "cancelled").prefix(120)))])
             }
         }
     }

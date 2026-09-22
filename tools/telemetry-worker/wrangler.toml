@@ -1,7 +1,15 @@
-name = "photomesh-telemetry"
+name = "photocircuits-telemetry"
 main = "worker.js"
 compatibility_date = "2025-01-01"
 
 [[r2_buckets]]
 binding = "DATA"
 bucket_name = "photomesh-data"
+
+# Optional but recommended: the queryable index behind GET /stats.
+#   wrangler d1 create photocircuits-telemetry      → paste the printed database_id below
+#   wrangler d1 execute photocircuits-telemetry --remote --file schema.sql
+# [[d1_databases]]
+# binding = "DB"
+# database_name = "photocircuits-telemetry"
+# database_id = "00000000-0000-0000-0000-000000000000"
