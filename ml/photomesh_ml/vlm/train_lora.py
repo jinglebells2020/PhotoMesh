@@ -23,7 +23,6 @@ from PIL import Image, ImageOps
 from torch.utils.data import DataLoader, Dataset
 
 from ..eval.metrics import summarize
-from ..schema import Circuit, ValidationError
 from ..eval.benchmark import score_text
 from .prompt import SYSTEM_PROMPT, USER_PROMPT
 

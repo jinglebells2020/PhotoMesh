@@ -1,0 +1,27 @@
+{
+ "summary": {
+  "n": 120,
+  "valid": 0.75,
+  "correct": 0.2833333333333333,
+  "topology_ok": 0.26666666666666666,
+  "structure_ok": 0.3,
+  "answer_ok": 0.375,
+  "component_recall": 0.9591240875912409,
+  "component_precision": 0.9864864864864865,
+  "kind_acc": 0.9923896499238964,
+  "value_acc": 0.9345509893455098,
+  "ids_ok": 1.0,
+  "ground_ok": 0.48333333333333334,
+  "box_iou": 0.8663175913860185,
+  "unsupported_ok": 0.9666666666666667,
+  "correct_ci95": [
+   0.2083,
+   0.3667
+  ],
+  "topology_ci95": [
+   0.1917,
+   0.35
+  ]
+ },
+ "model": "/workspace/runs/vlm/preds_val.jsonl"
+}

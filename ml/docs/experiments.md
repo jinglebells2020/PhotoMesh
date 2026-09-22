@@ -237,10 +237,41 @@ Real photos, held-out drafters and volunteers, boxes only (`tracer.detect_eval`,
 
 Reading the real-photo numbers: Digitize-HCD is close to solved for boxes (0.98), but its split is by image id, so the same volunteers' styles appear in train and test; treat it as in-distribution. CGHD holds out whole drafters and is the honest number: 0.73 on the test drafters and 0.54 on the val drafters, who draw far denser pages (48 boxes per photo against 18); text AP drops from 0.97 to 0.65 there and dominates the count. Polarity on the sources and batteries whose rotation is annotated is 0.97–0.98. Switches score zero on real photos in this run: CGHD has one `switch` label, the converter stored it as switch_open with both candidates, and the target builder masked both channels, so the model only ever saw synthetic switches. Batteries (0.38) and lamps (0.19) on the val drafters are the other weak classes.
 
+#### Second pass: candidate-channel positives (three more epochs from the weights above)
+
+The target builder now puts the Gaussian on every candidate channel, so a real switch is a positive for both switch classes and synthetic data teaches the open/closed split. Three epochs at 5e-4 from the checkpoint above (`--init`), everything else unchanged.
+
+| setting | correct [95% CI] | topology | structure | answers | kind acc | mAP@0.5 | coverage@95% prec. | Brier |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| tracer v2, GT text | 0.887 [0.85, 0.92] | 0.920 | 0.927 | 0.900 | 0.999 | 0.9665 | 0.133 | 0.1629 |
+| + three-scale majority (TTA) | 0.883 [0.8433, 0.9167] | 0.923 | 0.930 | 0.903 | 1.000 | 0.9801 | 0.143 | 0.1665 |
+| tracer v2, no text | 0.000 [0.0, 0.0] | 0.000 | 0.927 | 0.000 | 0.999 | 0.9665 |  | 0.047 |
+| ablation: unit-based kinds on (gated on detector uncertainty) | 0.850 [0.8067, 0.8867] | 0.887 | 0.893 | 0.867 | 0.992 | 0.9665 | 0.067 | 0.166 |
+| calibrated confidence (fit on val) | 0.887 [0.85, 0.92] | 0.920 | 0.927 | 0.900 | 0.999 | 0.9665 | 0.07 | 0.1002 |
+
+| split | source | images | boxes | mAP@0.5 [95 % CI] | polarity acc. (n) | weakest classes (AP, n) |
+| --- | --- | --- | --- | --- | --- | --- |
+| test | cghd | 96 | 1740 | 0.807 [0.764, 0.849] | 0.9913 (115) | crossover (0.53, 124), switch_closed|switch_open (0.69, 16), inductor (0.69, 24) |
+| test | digitize_hcd | 64 | 1409 | 0.989 [0.983, 0.995] | n/a | capacitor (0.97, 103), crossover (0.98, 69), other (0.98, 244) |
+| test + TTA | cghd | 96 | 1740 | 0.792 [0.755, 0.828] | 1.0 (105) | switch_closed|switch_open (0.56, 16), crossover (0.57, 124), ground (0.67, 88) |
+| test + TTA | digitize_hcd | 64 | 1409 | 0.985 [0.975, 0.993] | n/a | crossover (0.97, 69), inductor (0.97, 105), current_source (0.97, 38) |
+| val | cghd | 288 | 13709 | 0.589 [0.553, 0.626] | 0.9468 (263) | lamp (0.21, 32), switch_closed|switch_open (0.42, 52), battery (0.43, 128) |
+| val | digitize_hcd | 128 | 3125 | 0.982 [0.973, 0.990] | n/a | current_source (0.93, 68), capacitor (0.98, 190), resistor (0.98, 346) |
+
+Switch AP on CGHD goes from 0.00 to 0.69 on the test drafters and 0.42 on the val drafters; CGHD mAP 0.728 → 0.807 (test), 0.542 → 0.589 (val), with the bootstrap intervals no longer overlapping on test; synthetic end-to-end 0.880 → 0.887 (both with the unit rule off), symbol mAP 0.9465 → 0.9665. Three extra epochs cost 8 minutes of GPU time. The calibrated gate is more conservative on this model (7.0 % coverage at 95 % precision, Brier 0.1002): the confidence features were fit on val where the v2 model is already near its ceiling, so the logistic fit has little signal to separate errors; refitting on real scans is the planned fix.
+
 #### Cloud tier: Qwen3-VL-2B LoRA on the same pod
 
-Teacher labelling (`vlm.distill`, google/gemini-3.6-flash, one sample, solver-checked): 0 real photos accepted, 0 rejected — . The rejections are mostly honest: Digitize-HCD and CGHD are full of op-amp, transistor and AC circuits that the app's DC scope refuses, and the OpenRouter account ran out of credit part-way (HTTP 402), which also skipped the teacher benchmark.
+Teacher labelling (`vlm.distill`, google/gemini-3.6-flash, one sample, solver-checked): 85 real photos accepted, 722 rejected — 382 requests refused (HTTP 402, no credit), 294 invalid netlists (unsupported elements, missing values), 26 boxes disagree with the annotation, 20 unsolvable. The rejections are mostly honest: Digitize-HCD and CGHD are full of op-amp, transistor and AC circuits that the app's DC scope refuses, and the OpenRouter account ran out of credit part-way (HTTP 402), which also skipped the teacher benchmark.
 
-_Student results pending._
+Student: Qwen3-VL-2B-Instruct with LoRA r=32 on 4,930 training samples (5,000 synthetic minus the val share, plus the accepted real photos), one epoch, batch 2 × accumulation 8, bf16, gradient checkpointing, 802,816 max pixels; the batch-4 setting from the recipe ran out of memory on 24 GB.
+
+| student on the held-out VLM val set | n | valid JSON | correct [95% CI] | topology | answers | comp. recall / precision | kind acc | value acc | reference node | unsupported_ok |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Qwen3-VL-2B + LoRA r=32, greedy | 120 | 0.75 | 0.283 [0.2083, 0.3667] | 0.267 | 0.375 | 0.96 / 0.99 | 0.992 | 0.935 | 0.48 | 0.97 |
+
+The student sees the components (recall 0.96, kinds and values right when found) but wires them wrongly in most images: node assignment, not symbol reading, is what one epoch on 4,930 mostly synthetic samples does not teach a 2B model. The val set is 155 samples of the same mix (synthetic plus distilled), so this is not a real-photo number either. The comparison against the cloud teacher is missing for lack of OpenRouter credit, so the student cannot be called a replacement for the cloud tier yet.
+
+Training-loop evaluation on 30 val samples agrees: correct 0.33 [0.1667, 0.5], component recall 0.96, kind accuracy 0.994, box IoU 0.85. LoRA training loss fell from 0.44 to 0.06 over the 308 optimizer steps (51 min).
 
 <!-- gpu-run:end -->

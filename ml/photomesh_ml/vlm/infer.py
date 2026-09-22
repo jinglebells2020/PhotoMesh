@@ -13,7 +13,6 @@ from pathlib import Path
 import torch
 from PIL import Image, ImageOps
 
-from .prompt import SYSTEM_PROMPT, USER_PROMPT
 from .train_lora import build_messages, configure_processor, generate_texts
 
 

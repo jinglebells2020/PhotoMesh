@@ -2,8 +2,8 @@
 
     python scripts/import_results.py results.tar.gz docs/results/runpod-4090-real
 
-Kept: tracer summaries and training report, calibration parameters, VLM training log, final
-eval and benchmark summaries, distillation counts. Weights, Core ML packages and per-image
+Kept, per run directory (runs/<run>/... -> <dest>/<run>/): tracer summaries and training reports,
+VLM training log, final eval and benchmark summaries, distillation counts. Weights, Core ML packages and per-image
 prediction files stay out of the repository (they are listed in MANIFEST.md instead).
 """
 from __future__ import annotations
@@ -42,7 +42,8 @@ def main() -> None:
             if name.suffix in KEEP_SUFFIXES or name.name in KEEP_NAMES:
                 if name.name == "log.jsonl" and m.size > 5_000_000:
                     continue
-                out = dest / ("vlm" if "runs/vlm" in m.name else "tracer") / name.name
+                run = m.name.split("runs/", 1)[1].split("/", 1)[0] if "runs/" in m.name else "misc"
+                out = dest / run / name.name
                 out.parent.mkdir(parents=True, exist_ok=True)
                 out.write_bytes(tar.extractfile(m).read())
     (dest / "distill.json").write_text(json.dumps(distill, indent=2) + "\n")

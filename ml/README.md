@@ -188,27 +188,30 @@ tables live in [`docs/experiments.md`](docs/experiments.md).
 
 ## 5. Status
 
-Done and measured (details and every table: [`docs/experiments.md`](docs/experiments.md), result files in
-`docs/results/`):
+Done and measured on a rented RTX 4090 (every table and the result files: [`docs/experiments.md`](docs/experiments.md),
+`docs/results/runpod-4090-real/`):
 
-- **CircuitNet on a GPU with real data** (MobileNetV3-Large, 640 px, 10 epochs on 12,000 synthetic images
-  plus Digitize-HCD and CGHD, 25 min on one RTX 4090). On 300 held-out synthetic test images with
-  ground-truth text it reads 88 % of circuits fully correctly (95 % CI 84–92; 84 % with the old
-  unit-based kind rule, which is now off by default), symbol mAP@0.5 0.95, 47 ms per image on the GPU host. On real photos from held-out
-  CGHD drafters symbol mAP@0.5 is 0.73 (test) and 0.54 (val, much denser pages), polarity 0.97–1.00;
-  Digitize-HCD 0.98 (its split is by image id, so in-distribution). Exported to a 6.6 MB Core ML package.
-- **Qwen3-VL-2B LoRA** fine-tuned on the same pod on 5,000 synthetic samples plus the 85 real photos
-  the teacher labelled before the OpenRouter account ran out of credit; student numbers in
-  `docs/experiments.md`.
+- **CircuitNet on real data.** MobileNetV3-Large at 640 px, trained on 12,000 synthetic images plus
+  Digitize-HCD and CGHD (10 epochs, then 3 more with the switch fix; 33 min of GPU in total). On 300
+  held-out synthetic test images with ground-truth text it reads 89 % of circuits fully correctly
+  (95 % CI 85–92), symbol mAP@0.5 0.97, 47 ms per image on the GPU host including the assembler. On
+  real photos from held-out CGHD drafters symbol mAP@0.5 is 0.81 on the test drafters (95 % CI 0.76–0.85)
+  and 0.59 on the much denser val drafters, polarity 0.95–0.99; Digitize-HCD 0.99 (its split is by
+  image id, so in-distribution). The Core ML package is in the repo: `models/CircuitNet-v2.mlpackage` (6.6 MB).
+- **Qwen3-VL-2B LoRA** on the same pod: one epoch on 4,930 samples (5,000 synthetic plus the 85 real
+  photos the teacher labelled before the OpenRouter account ran out of credit). On 120 held-out val
+  samples it finds the components (recall 0.96, kind accuracy 0.99) but wires only 28 % of circuits
+  correctly (95 % CI 21–37): not a replacement for the cloud tier yet; it needs more epochs, real
+  netlists and a teacher comparison.
 - Unit tests (78), the synthetic generator with previews, both converters with per-photo label-frame
   detection, the assembler on ground-truth maps (90 % fully correct, 96 % topology on 160 circuits),
-  Core ML + ONNX export, the unattended RunPod recipe.
+  Core ML + ONNX export, real-photo detection evaluation, the unattended RunPod recipe.
 
 Not yet done: the Swift port of the assembler ([`docs/on-device.md`](docs/on-device.md)) and the
 Core ML integration in the app; end-to-end numbers on real photos (they need real netlists: more
 teacher labelling once the OpenRouter account has credit, or corrected scans from the app); the
-teacher-versus-student benchmark (same reason); switches on real drawings (see the second pass in
-the experiments doc); the app-scan converter on real exports.
+teacher-versus-student benchmark (same reason); dense hand-drawn pages (the CGHD val drafters) and
+lamps/batteries on real drawings; the app-scan converter on real exports.
 
 ## Licences
 

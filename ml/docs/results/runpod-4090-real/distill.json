@@ -1,5 +1,10 @@
 {
-  "accepted": 0,
-  "rejected": 0,
-  "reasons": {}
+  "accepted": 85,
+  "rejected": 722,
+  "reasons": {
+    "invalid": 294,
+    "unsolvable": 20,
+    "boxes disagree with the annotation": 26,
+    "request": 382
+  }
 }

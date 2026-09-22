@@ -1,0 +1,28 @@
+{
+ "n": 30,
+ "valid": 0.7666666666666667,
+ "correct": 0.3333333333333333,
+ "topology_ok": 0.3333333333333333,
+ "structure_ok": 0.36666666666666664,
+ "answer_ok": 0.4,
+ "component_recall": 0.9642857142857143,
+ "component_precision": 0.9878048780487805,
+ "kind_acc": 0.9938271604938271,
+ "value_acc": 0.9444444444444444,
+ "ids_ok": 1.0,
+ "ground_ok": 0.5333333333333333,
+ "box_iou": 0.8473294056309781,
+ "unsupported_ok": 0.9666666666666667,
+ "correct_ci95": [
+  0.1667,
+  0.5
+ ],
+ "topology_ci95": [
+  0.1667,
+  0.5
+ ],
+ "samples": [
+  "{\"components\": [{\"id\": \"V1\", \"type\": \"voltage_source\", \"value\": 9.0, \"positive_node\": \"a\", \"negative_node\": \"c\", \"box\": [0.6, 0.13, 0.67, 0.24], \"orientation\": \"horizontal\"}, {\"id\": \"R1\", \"type\": \"resistor\", \"value\": 330.0, \"node_a\": \"0\", \"node_b\": \"b\", \"box\": [0.28, 0.54, 0.4, 0.61], \"orientation\":",
+  "{\"components\": [{\"id\": \"V1\", \"type\": \"voltage_source\", \"value\": 4.0, \"positive_node\": \"a\", \"negative_node\": \"0\", \"box\": [0.31, 0.16, 0.38, 0.27], \"orientation\": \"horizontal\"}, {\"id\": \"I1\", \"type\": \"current_source\", \"value\": 0.5, \"from_node\": \"b\", \"to_node\": \"0\", \"box\": [0.59, 0.17, 0.66, 0.26], \"ori"
+ ]
+}

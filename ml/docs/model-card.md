@@ -21,11 +21,13 @@ integrated circuits; those are reported as unsupported so the app can say so.
 ## Evaluation
 `docs/experiments.md` defines the metrics (user-facing correctness with bootstrap intervals,
 solver-checked topology, answers, symbol mAP, calibrated-confidence coverage at 95 % precision)
-and holds the result tables. The GPU run with real data (RTX 4090, MobileNetV3-Large at 640 px):
-88 % of held-out synthetic circuits fully correct with ground-truth text (95 % CI 84–92), symbol
-mAP@0.5 0.95 on synthetic test images, 0.73 on held-out CGHD test drafters, 0.54 on the denser CGHD
-val drafters, 0.98 on Digitize-HCD (in-distribution split). End-to-end correctness on real photos
-is not measured yet: real netlists exist only for the 85 teacher-labelled photos.
+and holds the result tables. The GPU run with real data (RTX 4090, MobileNetV3-Large at 640 px,
+second pass with the switch fix): 89 % of held-out synthetic circuits fully correct with ground-truth
+text (95 % CI 85–92), symbol mAP@0.5 0.97 on synthetic test images, 0.81 on held-out CGHD test
+drafters, 0.59 on the denser CGHD val drafters, 0.99 on Digitize-HCD (in-distribution split).
+End-to-end correctness on real photos is not measured yet: real netlists exist only for the 85
+teacher-labelled photos. The cloud-tier student (Qwen3-VL-2B LoRA, one epoch) wires 28 % of held-out
+val circuits correctly and is not deployed.
 
 ## Known limitations and failure modes
 - Kind confusions between visually similar symbols at low resolution (current vs voltage source,
@@ -42,7 +44,9 @@ is not measured yet: real netlists exist only for the 85 teacher-labelled photos
 - Dense hand-drawn pages (the CGHD val drafters average 48 labelled boxes per photo) halve the
   symbol mAP compared with sparser drafters; text boxes are the bulk of the loss.
 - Switches were never learnt from real drawings in the first GPU run (the source's single `switch`
-  label was masked out of both switch channels); the second pass supervises every candidate channel.
+  label was masked out of both switch channels); the second pass supervises every candidate channel
+  and lifts switch AP on CGHD from 0.00 to 0.69 (test) / 0.42 (val). Open versus closed on a real
+  drawing is still decided by which channel fires harder, not by any real label.
 - Digitize-HCD numbers are in-distribution: its split is by image id, so a volunteer's style can
   appear on both sides. CGHD holds out whole drafters and is the number to quote.
 

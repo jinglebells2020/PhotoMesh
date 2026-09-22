@@ -1,0 +1,340 @@
+{
+ "overall": {
+  "n": 300,
+  "valid": 0.0,
+  "correct": 0.0,
+  "topology_ok": 0.0,
+  "structure_ok": 0.9266666666666666,
+  "answer_ok": 0.0,
+  "component_recall": 1.0,
+  "component_precision": 1.0,
+  "kind_acc": 0.9993451211525868,
+  "value_acc": 0.11329404060248854,
+  "ids_ok": 0.6233333333333333,
+  "ground_ok": 0.0,
+  "box_iou": 0.8833356813739204,
+  "unsupported_ok": 1.0,
+  "correct_ci95": [
+   0.0,
+   0.0
+  ],
+  "topology_ci95": [
+   0.0,
+   0.0
+  ]
+ },
+ "confusion": {
+  "battery": {
+   "battery": 88,
+   "capacitor": 1
+  },
+  "capacitor": {
+   "capacitor": 22
+  },
+  "crossover": {
+   "crossover": 13,
+   "(missed)": 1
+  },
+  "current_source": {
+   "current_source": 87
+  },
+  "ground": {
+   "ground": 188
+  },
+  "inductor": {
+   "inductor": 94
+  },
+  "lamp": {
+   "lamp": 83
+  },
+  "other": {
+   "other": 20
+  },
+  "resistor": {
+   "resistor": 901
+  },
+  "switch_closed": {
+   "switch_closed": 36,
+   "(missed)": 7
+  },
+  "switch_open": {
+   "switch_open": 14
+  },
+  "text": {
+   "text": 2883,
+   "(missed)": 100
+  },
+  "voltage_source": {
+   "voltage_source": 194
+  }
+ },
+ "by_style": {
+  "hand": {
+   "n": 182,
+   "valid": 0.0,
+   "correct": 0.0,
+   "topology_ok": 0.0,
+   "structure_ok": 0.9395604395604396,
+   "answer_ok": 0.0,
+   "component_recall": 1.0,
+   "component_precision": 1.0,
+   "kind_acc": 1.0,
+   "value_acc": 0.11170784103114931,
+   "ids_ok": 0.6318681318681318,
+   "ground_ok": 0.0,
+   "box_iou": 0.8760552939960766,
+   "unsupported_ok": 1.0,
+   "correct_ci95": [
+    0.0,
+    0.0
+   ],
+   "topology_ci95": [
+    0.0,
+    0.0
+   ]
+  },
+  "print": {
+   "n": 118,
+   "valid": 0.0,
+   "correct": 0.0,
+   "topology_ok": 0.0,
+   "structure_ok": 0.9067796610169492,
+   "answer_ok": 0.0,
+   "component_recall": 1.0,
+   "component_precision": 1.0,
+   "kind_acc": 0.9983221476510067,
+   "value_acc": 0.11577181208053691,
+   "ids_ok": 0.6101694915254238,
+   "ground_ok": 0.0,
+   "box_iou": 0.8945647534312751,
+   "unsupported_ok": 1.0,
+   "correct_ci95": [
+    0.0,
+    0.0
+   ],
+   "topology_ci95": [
+    0.0,
+    0.0
+   ]
+  }
+ },
+ "by_photo": {
+  "flat": {
+   "n": 81,
+   "valid": 0.0,
+   "correct": 0.0,
+   "topology_ok": 0.0,
+   "structure_ok": 0.9259259259259259,
+   "answer_ok": 0.0,
+   "component_recall": 1.0,
+   "component_precision": 1.0,
+   "kind_acc": 1.0,
+   "value_acc": 0.11294117647058824,
+   "ids_ok": 0.6419753086419753,
+   "ground_ok": 0.0,
+   "box_iou": 0.85938135339603,
+   "unsupported_ok": 1.0,
+   "correct_ci95": [
+    0.0,
+    0.0
+   ],
+   "topology_ci95": [
+    0.0,
+    0.0
+   ]
+  },
+  "photo": {
+   "n": 219,
+   "valid": 0.0,
+   "correct": 0.0,
+   "topology_ok": 0.0,
+   "structure_ok": 0.9269406392694064,
+   "answer_ok": 0.0,
+   "component_recall": 1.0,
+   "component_precision": 1.0,
+   "kind_acc": 0.9990925589836661,
+   "value_acc": 0.11343012704174228,
+   "ids_ok": 0.6164383561643836,
+   "ground_ok": 0.0,
+   "box_iou": 0.8921955013109493,
+   "unsupported_ok": 1.0,
+   "correct_ci95": [
+    0.0,
+    0.0
+   ],
+   "topology_ci95": [
+    0.0,
+    0.0
+   ]
+  }
+ },
+ "by_size": {
+  "1-3 elements": {
+   "n": 66,
+   "valid": 0.0,
+   "correct": 0.0,
+   "topology_ok": 0.0,
+   "structure_ok": 0.9242424242424242,
+   "answer_ok": 0.0,
+   "component_recall": 1.0,
+   "component_precision": 1.0,
+   "kind_acc": 1.0,
+   "value_acc": 0.06521739130434782,
+   "ids_ok": 0.8181818181818182,
+   "ground_ok": 0.0,
+   "box_iou": 0.880125880712099,
+   "unsupported_ok": 1.0,
+   "correct_ci95": [
+    0.0,
+    0.0
+   ],
+   "topology_ci95": [
+    0.0,
+    0.0
+   ]
+  },
+  "4-5 elements": {
+   "n": 118,
+   "valid": 0.0,
+   "correct": 0.0,
+   "topology_ok": 0.0,
+   "structure_ok": 0.940677966101695,
+   "answer_ok": 0.0,
+   "component_recall": 1.0,
+   "component_precision": 1.0,
+   "kind_acc": 1.0,
+   "value_acc": 0.1320754716981132,
+   "ids_ok": 0.635593220338983,
+   "ground_ok": 0.0,
+   "box_iou": 0.8894284028344587,
+   "unsupported_ok": 1.0,
+   "correct_ci95": [
+    0.0,
+    0.0
+   ],
+   "topology_ci95": [
+    0.0,
+    0.0
+   ]
+  },
+  "6+ elements": {
+   "n": 116,
+   "valid": 0.0,
+   "correct": 0.0,
+   "topology_ok": 0.0,
+   "structure_ok": 0.9137931034482759,
+   "answer_ok": 0.0,
+   "component_recall": 1.0,
+   "component_precision": 1.0,
+   "kind_acc": 0.998769987699877,
+   "value_acc": 0.11193111931119311,
+   "ids_ok": 0.5,
+   "ground_ok": 0.0,
+   "box_iou": 0.8789641788854449,
+   "unsupported_ok": 1.0,
+   "correct_ci95": [
+    0.0,
+    0.0
+   ],
+   "topology_ci95": [
+    0.0,
+    0.0
+   ]
+  }
+ },
+ "detection": {
+  "mAP": 0.9665,
+  "per_class": {
+   "resistor": {
+    "ap": 1.0,
+    "n": 901
+   },
+   "voltage_source": {
+    "ap": 1.0,
+    "n": 194
+   },
+   "current_source": {
+    "ap": 1.0,
+    "n": 87
+   },
+   "battery": {
+    "ap": 0.9888,
+    "n": 89
+   },
+   "capacitor": {
+    "ap": 0.9842,
+    "n": 22
+   },
+   "inductor": {
+    "ap": 1.0,
+    "n": 94
+   },
+   "lamp": {
+    "ap": 1.0,
+    "n": 83
+   },
+   "switch_open": {
+    "ap": 1.0,
+    "n": 14
+   },
+   "switch_closed": {
+    "ap": 0.7583,
+    "n": 43
+   },
+   "ground": {
+    "ap": 1.0,
+    "n": 188
+   },
+   "crossover": {
+    "ap": 0.8724,
+    "n": 14
+   },
+   "text": {
+    "ap": 0.9608,
+    "n": 2983
+   },
+   "other": {
+    "ap": 1.0,
+    "n": 20
+   }
+  }
+ },
+ "mean_latency_s": 0.048856666666666625,
+ "confidence": {
+  "brier": 0.047,
+  "calibrated": false,
+  "reliability": [
+   {
+    "bin": "0.0-0.2",
+    "n": 112,
+    "mean_conf": 0.168,
+    "accuracy": 0.0
+   },
+   {
+    "bin": "0.2-0.4",
+    "n": 188,
+    "mean_conf": 0.24,
+    "accuracy": 0.0
+   },
+   {
+    "bin": "0.4-0.6",
+    "n": 0,
+    "mean_conf": null,
+    "accuracy": null
+   },
+   {
+    "bin": "0.6-0.8",
+    "n": 0,
+    "mean_conf": null,
+    "accuracy": null
+   },
+   {
+    "bin": "0.8-1.0",
+    "n": 0,
+    "mean_conf": null,
+    "accuracy": null
+   }
+  ]
+ },
+ "confidence_gate_95": null
+}
