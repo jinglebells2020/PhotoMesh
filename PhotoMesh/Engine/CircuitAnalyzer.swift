@@ -64,11 +64,33 @@ enum CircuitAnalyzer {
 
         return CircuitAnalysis(
             circuit: presented,
+            drawn: original,
             question: presented.question ?? defaultQuestion(for: presented),
             methods: methods,
             methodsAgree: agree(methods),
             recognitionNotes: recognitionNotes,
             layout: layout
+        )
+    }
+
+    /// True when the failure is the DC redraw leaving no closed path (a series capacitor, an
+    /// open switch): the circuit still has a perfectly good time response to look at.
+    static func isTransientOnlyFailure(_ error: Error) -> Bool {
+        (error.localizedDescription).contains("At DC steady state")
+    }
+
+    /// An analysis with no method results, enough for the lab to draw and simulate a circuit
+    /// whose steady state cannot be solved.
+    static func labOnly(_ raw: Circuit) -> CircuitAnalysis? {
+        guard let circuit = try? raw.validated() else { return nil }
+        return CircuitAnalysis(
+            circuit: circuit,
+            drawn: circuit,
+            question: circuit.question ?? "Watch the circuit in time",
+            methods: [],
+            methodsAgree: true,
+            recognitionNotes: nil,
+            layout: SchematicLayoutEngine.layout(for: circuit)
         )
     }
 

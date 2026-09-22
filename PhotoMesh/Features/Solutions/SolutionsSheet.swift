@@ -27,6 +27,8 @@ struct SolutionsSheet: View {
     @State private var reviewedModel = "none"
     @State private var startedAt = Date()
     @State private var showConsent = false
+    /// A circuit whose DC steady state could not be solved but which can still be simulated.
+    @State private var labOnly: CircuitAnalysis?
 
     var body: some View {
         NavigationStack {
@@ -44,7 +46,7 @@ struct SolutionsSheet: View {
                         case .loading:
                             LoadingCard(phase: phase, image: sourceImage)
                         case .failed(let message):
-                            FailedCard(message: message) { Task { await load() } }
+                            FailedCard(message: message, lab: labOnly) { Task { await load() } }
                         case .review(let circuit, let notes):
                             ReviewCard(circuit: circuit, notes: notes, image: sourceImage) {
                                 Analytics.shared.recordSample(image: sourceImage, model: reviewedModel, recognized: circuit, corrected: nil, accepted: true)
@@ -149,6 +151,7 @@ struct SolutionsSheet: View {
 
     private func solve(_ input: SolveInput) {
         phase = "Solving…"
+        labOnly = nil
         do {
             let analysis = try SolveRunner.analyze(input)
             withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
@@ -168,6 +171,9 @@ struct SolutionsSheet: View {
         } catch {
             Haptics.notify(.error)
             Analytics.shared.track("solve_failed", ["source": .string(sourceName), "reason": .string(String(error.localizedDescription.prefix(120)))])
+            if case .circuit(let circuit, _, _, _) = input, CircuitAnalyzer.isTransientOnlyFailure(error) {
+                labOnly = CircuitAnalyzer.labOnly(circuit)
+            }
             state = .failed(error.localizedDescription)
         }
     }
@@ -343,7 +349,7 @@ private struct RecognizedCircuitCard: View {
                 Spacer()
                 NavigationLink(value: SolutionDestination.circuit(analysis)) {
                     HStack(spacing: 10) {
-                        Text("Explore Circuit")
+                        Text("Explore & Simulate")
                         Image(systemName: "arrow.right").font(.system(size: 16, weight: .semibold))
                     }
                 }
@@ -422,6 +428,7 @@ private struct SkeletonLine: View {
 
 private struct FailedCard: View {
     let message: String
+    var lab: CircuitAnalysis? = nil
     let retry: () -> Void
     @State private var showLog = false
 
@@ -446,9 +453,31 @@ private struct FailedCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(RoundedRectangle(cornerRadius: 8).fill(PMTheme.groupedBackground))
             }
-            Button("Try again", action: retry)
+            if let lab {
+                Text("There is no steady state to solve, but the circuit has a time response: watch the capacitor charge or the coil's current build up in the lab.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(PMTheme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 4)
+                NavigationLink(value: SolutionDestination.circuit(lab)) {
+                    HStack(spacing: 10) {
+                        Text("Simulate in the lab")
+                        Image(systemName: "arrow.right").font(.system(size: 16, weight: .semibold))
+                    }
+                }
                 .buttonStyle(PMPrimaryButtonStyle())
                 .padding(.top, 6)
+            }
+            if lab == nil {
+                Button("Try again", action: retry)
+                    .buttonStyle(PMPrimaryButtonStyle())
+                    .padding(.top, 6)
+            } else {
+                Button("Try again", action: retry)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(PMTheme.accent)
+                    .padding(.top, 4)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)

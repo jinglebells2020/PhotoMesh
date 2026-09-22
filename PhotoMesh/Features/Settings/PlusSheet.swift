@@ -17,7 +17,7 @@ struct PlusSheet: View {
 
     var body: some View {
         Group {
-            if store.isPro {
+            if PlusAccess.hasPlus {
                 subscribed
             } else if store.offerings?.current != nil {
                 // Handles its own loading, purchase and restore flows.
@@ -60,6 +60,22 @@ struct PlusSheet: View {
                 .foregroundStyle(PMTheme.secondaryText)
                 .padding(.top, 4)
 
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(PlusFeature.allCases) { feature in
+                    HStack(spacing: 12) {
+                        Image(systemName: feature.systemImage)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(PMTheme.accent)
+                            .frame(width: 22)
+                        Text(feature.title)
+                            .font(.system(size: 15))
+                            .foregroundStyle(PMTheme.ink)
+                    }
+                }
+            }
+            .padding(.top, 22)
+            .padding(.horizontal, 36)
+
             Spacer(minLength: 12)
 
             VStack(spacing: 14) {
@@ -84,14 +100,18 @@ struct PlusSheet: View {
         VStack(spacing: 0) {
             header
 
-            VStack(alignment: .leading, spacing: 18) {
-                FeatureRow(title: "Unlimited scans", subtitle: "no hourly or daily limit on camera solves")
-                FeatureRow(title: "Every solving method", subtitle: "nodal, mesh and series/parallel, step by step")
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    ForEach(PlusFeature.allCases) { feature in
+                        FeatureRow(title: feature.title, subtitle: feature.detail, systemImage: feature.systemImage)
+                    }
+                }
+                .padding(.horizontal, 28)
+                .padding(.top, 22)
+                .padding(.bottom, 12)
             }
-            .padding(.horizontal, 32)
-            .padding(.top, 26)
 
-            Spacer(minLength: 16)
+            Spacer(minLength: 8)
 
             if store.availablePackages.isEmpty {
                 VStack(spacing: 10) {
@@ -212,13 +232,15 @@ private struct PackageButton: View {
 private struct FeatureRow: View {
     let title: String
     let subtitle: String
+    var systemImage = "checkmark"
 
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
-            Image(systemName: "checkmark")
-                .font(.system(size: 15, weight: .bold))
+            Image(systemName: systemImage)
+                .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(PMTheme.plusOrange)
-                .padding(.top, 2)
+                .frame(width: 24)
+                .padding(.top, 1)
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.system(size: 15, weight: .semibold))

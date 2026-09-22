@@ -53,6 +53,9 @@ struct StepFocus: Hashable {
     var showPolarity = false
     /// Groups of nodes to draw a dashed boundary around, with the sources tying them together.
     var supernodes: [Supernode] = []
+    /// Current that moves the dots at full speed. Nil scales to the largest current in the
+    /// picture; a simulation passes its overall peak so the motion slows as currents die away.
+    var flowReference: Double? = nil
 
     var isEmpty: Bool { nodes.isEmpty && elements.isEmpty && loops.isEmpty }
 }
@@ -113,7 +116,10 @@ struct MethodSolution: Identifiable, Hashable {
 
 /// Everything the UI needs after a solve.
 struct CircuitAnalysis: Hashable {
+    /// The circuit the steps talk about (at DC, nodes joined by an inductor or a closed switch are one).
     var circuit: Circuit?
+    /// The circuit exactly as drawn, every node separate; what the lab tweaks and simulates.
+    var drawn: Circuit? = nil
     var question: String
     var methods: [MethodSolution]
     /// True when every method agrees on the element currents.

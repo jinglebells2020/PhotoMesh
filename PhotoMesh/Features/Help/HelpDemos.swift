@@ -6,12 +6,21 @@ import SwiftUI
 struct DemoPlayer<Content: View>: View {
     /// Length of one loop in seconds.
     let duration: Double
+    /// Start moving as soon as the player appears (lessons); Help cards wait for a tap.
+    var autoplay = false
     @ViewBuilder let content: (_ phase: Double, _ playing: Bool) -> Content
 
-    @State private var playing = false
+    @State private var playing: Bool
     @State private var startedAt = Date()
     @State private var pausedPhase = 0.0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(duration: Double, autoplay: Bool = false, @ViewBuilder content: @escaping (_ phase: Double, _ playing: Bool) -> Content) {
+        self.duration = duration
+        self.autoplay = autoplay
+        self.content = content
+        _playing = State(initialValue: autoplay)
+    }
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !playing)) { timeline in

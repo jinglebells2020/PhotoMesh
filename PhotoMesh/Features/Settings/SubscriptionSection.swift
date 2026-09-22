@@ -28,6 +28,18 @@ struct SubscriptionSettingsSection: View {
                 }
             }
 
+            if DeveloperOptions.enabled {
+                Toggle(isOn: Binding(get: { PlusAccess.pretendPlus }, set: { PlusAccess.pretendPlus = $0 })) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Pretend Plus (developer)").foregroundStyle(PMTheme.ink)
+                        Text("Unlock the paid features on this device without a purchase, to test them.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(PMTheme.secondaryText)
+                    }
+                }
+                .tint(PMTheme.accent)
+            }
+
             if store.isPro {
                 Button("Manage subscription") { presentingCustomerCenter = true }
                     .foregroundStyle(PMTheme.accent)
@@ -50,7 +62,7 @@ struct SubscriptionSettingsSection: View {
         } header: {
             Text("SUBSCRIPTION")
         } footer: {
-            Text(restoreMessage ?? "Plus removes the beta scan limit and unlocks every solving method. Subscriptions renew through your Apple Account until cancelled.")
+            Text(restoreMessage ?? "Plus removes the beta scan limit and unlocks the circuit lab (tweak values, flip switches, simulate in time), the full animated course, and LTspice and PDF exports. Subscriptions renew through your Apple Account until cancelled.")
                 .foregroundStyle(restoreMessage == nil ? PMTheme.secondaryText : PMTheme.whyOrange)
         }
         .task { await store.refresh() }

@@ -80,7 +80,7 @@ struct FlowField: Equatable {
         }
         let elementCurrents = focus.elementCurrents
         if !elementCurrents.isEmpty {
-            let largest = elementCurrents.values.map(abs).max() ?? 1
+            let largest = focus.flowReference ?? (elementCurrents.values.map(abs).max() ?? 1)
             let dimmed = !focusedElements.isEmpty
             for (index, current) in layout.wireCurrents(elementCurrents: elementCurrents) {
                 guard abs(current) > 1e-9 * largest, index < layout.wires.count else { continue }

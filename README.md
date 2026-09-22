@@ -34,7 +34,11 @@ method to follow.
 | Step equations typeset as LaTeX (fractions, subscripts, units) | Done |
 | "Check the circuit" step after a scan with an editor for parts, values, nodes, ground and the question | Done |
 | History of solved circuits (button right of the shutter) | Done |
-| AC / dependent sources, more methods | Next |
+| Circuit lab (Plus): Tweak mode re-solves live as values are dragged and switches flipped; Simulate mode plays the circuit in time with plots, a scrubber and switch events | Done, `ExplorerModel`, `TransientSimulator` |
+| Exports (Plus): LTspice schematic (.asc) + SPICE netlist (.cir), PDF of any step-by-step solution | Done, `SpiceExport`, `StepsPDFExporter` |
+| Circuits course (module 1 free, rest Plus): 8 modules, 30 animated lessons with quizzes, following the classic first-year syllabus | Done, `Features/Course` |
+| PhotoMesh Plus via RevenueCat (paywall, Customer Center, `photocircuits_pro` entitlement), feature gates in `PlusAccess` | Done |
+| AC solving, dependent sources | Next |
 
 The camera runs on device only. In the Simulator the home screen shows a neutral
 backdrop and the shutter still runs the full capture → solutions flow. Without an API key
@@ -85,6 +89,42 @@ circuit through the real engine, so every screen can be exercised without hardwa
 4. **Present** – one card per method on the Solutions sheet, each opening its own walkthrough.
 
 Values are formatted with engineering prefixes (37.5 mA, 4.7 kΩ) following the settings.
+
+### PhotoMesh Plus: what the subscription unlocks
+
+The free app scans (rate-limited on the shared key), draws, solves and explains. Plus adds
+the parts that turn it from an answer key into a lab and a course; `PlusFeature` lists them
+and every gate goes through `PlusAccess.allows(_:)` (Settings → Subscription has a developer
+"Pretend Plus" toggle for testing):
+
+- **Unlimited scans.** No hourly or daily cap.
+- **Circuit lab.** The explorer has three modes. *Inspect* is the old tap-to-read view.
+  *Tweak* shows a slider per element (a hundredfold either way for R, C, L; zero to double
+  for sources) and a toggle per switch; the schematic re-solves through the normal engine
+  after every change, the currents keep moving, and the question's answer is shown before and
+  after. *Simulate* runs `TransientSimulator` (backward-Euler nodal analysis with companion
+  models for capacitors and inductors, switches as 1 mΩ / 1 GΩ, an automatic window of five
+  time constants) and plays the result: the schematic shows the instantaneous voltages and
+  currents, the dots slow down as currents die away, plots of chosen node voltages and element
+  currents carry a cursor, and a switch can be flipped at the playhead, which re-runs the
+  simulation with that event. A circuit with no DC steady state (a source, a resistor and a
+  capacitor in one loop) cannot be solved by the step methods, so the Solutions screen offers
+  "Simulate in the lab" instead of a dead end.
+- **The course.** Eight modules in the order of Alexander & Sadiku / Nilsson & Riedel:
+  foundations (charge, current, voltage, power), basic laws (Ohm, KCL, KVL, series and parallel,
+  dividers, Y–Δ), methods (nodal, supernodes, mesh, supermeshes), theorems (superposition,
+  source transformation, Thévenin, Norton, maximum power), capacitors and inductors, first-order
+  transients, second-order circuits, and an AC introduction (sinusoids, phasors, impedance, AC
+  power). Every circuit in a lesson is solved live by the engine and drawn with the same
+  schematic as a scan, lit up keyframe by keyframe; the method lessons auto-play the engine's
+  own solving steps; the transient lessons run the simulator; the concept animations
+  (`ConceptAnimations.swift`) are drawn on a Canvas. Each lesson ends with a quiz that explains
+  every answer; progress and best scores are kept on the device. Module 1 and the first lesson
+  of every other module are free.
+- **Exports.** From the explorer, an LTspice schematic laid out like the drawing (symbols on
+  the 16 px grid, nets named after the nodes, wires split at every junction) plus a plain SPICE
+  netlist, with element names given the letter SPICE expects; from the steps screen, an A4 PDF
+  of the walkthrough with the equations typeset by SwiftMath and the solved schematic on page one.
 
 ### The visual companion
 
@@ -304,6 +344,15 @@ agree. So "17·Vb − 2·Vc = 100" is checked against the real node voltages, "(
 division written above it. The last run verified about 1,150 such equalities with none wrong.
 A separate corpus check converts every produced line to LaTeX and rejects anything the
 typesetter could not render.
+
+Three more harnesses cover the Plus features: `simtest` compares the transient simulator with
+the closed-form RC, RL and RLC responses (charging, decay after a switch opens, a settled start,
+an underdamped overshoot of exactly 10·(1 + e^(−πζ/√(1−ζ²)))) to within a percent; `exporttest`
+re-derives the netlist from every generated LTspice schematic by joining coincident wire ends
+and pins, and requires it to match the circuit, with polarised parts the right way round and
+every coordinate on the grid; `demotest` runs every circuit embedded in the course through the
+solver (and the simulator where it applies) so a lesson can never show a circuit the engine
+would not accept.
 
 ## Project layout
 

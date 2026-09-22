@@ -10,6 +10,8 @@ struct SolvingStepsView: View {
     @State private var expandedIndex: Int? = 0
     @State private var whyIndex: Int?
     @State private var showExplorer = false
+    @State private var showExport = false
+    @State private var showPaywall = false
 
     private var isComplete: Bool { revealedCount > solution.steps.count }
 
@@ -41,8 +43,30 @@ struct SolvingStepsView: View {
         .navigationBarTitleDisplayMode(analysis.layout == nil ? .large : .inline)
         .toolbar(.visible, for: .navigationBar)
         .toolbarBackground(PMTheme.groupedBackground, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    if PlusAccess.allows(.exports) {
+                        showExport = true
+                    } else {
+                        PlusAccess.notedLockedTap(.exports)
+                        showPaywall = true
+                    }
+                } label: {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .foregroundStyle(PMTheme.accent)
+                .accessibilityLabel("Export the steps as PDF")
+            }
+        }
         .navigationDestination(isPresented: $showExplorer) {
             CircuitExplorerView(analysis: analysis, initialFocus: currentFocus)
+        }
+        .sheet(isPresented: $showExport) {
+            ExportSheet(kind: .stepsPDF(analysis: analysis, solution: solution))
+        }
+        .sheet(isPresented: $showPaywall) {
+            PlusSheet()
         }
     }
 

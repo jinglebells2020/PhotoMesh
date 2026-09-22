@@ -161,6 +161,20 @@ struct CameraScreen: View {
             }
 
             HStack(spacing: 30) {
+                Button {
+                    Haptics.selection()
+                    router.present(.course)
+                } label: {
+                    Image(systemName: "graduationcap")
+                        .font(.system(size: 21, weight: .regular))
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.4), radius: 2)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Learn circuits")
+
                 PhotosPicker(selection: $pickerItem, matching: .images, photoLibrary: .shared()) {
                     Image(systemName: "photo")
                         .font(.system(size: 21, weight: .regular))
