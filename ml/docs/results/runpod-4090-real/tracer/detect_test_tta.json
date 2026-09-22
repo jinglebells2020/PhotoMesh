@@ -1,0 +1,140 @@
+{
+  "cghd": {
+    "mAP": 0.7289,
+    "per_class": {
+      "resistor": {
+        "ap": 0.9678,
+        "n": 296
+      },
+      "voltage_source": {
+        "ap": 0.8905,
+        "n": 81
+      },
+      "current_source": {
+        "ap": null,
+        "n": 0
+      },
+      "battery": {
+        "ap": null,
+        "n": 0
+      },
+      "capacitor": {
+        "ap": 0.9514,
+        "n": 80
+      },
+      "inductor": {
+        "ap": 0.7434,
+        "n": 24
+      },
+      "lamp": {
+        "ap": null,
+        "n": 0
+      },
+      "switch_open": {
+        "ap": null,
+        "n": 0
+      },
+      "switch_closed": {
+        "ap": null,
+        "n": 0
+      },
+      "ground": {
+        "ap": 0.7125,
+        "n": 88
+      },
+      "crossover": {
+        "ap": 0.6041,
+        "n": 124
+      },
+      "text": {
+        "ap": 0.9499,
+        "n": 696
+      },
+      "other": {
+        "ap": 0.7403,
+        "n": 335
+      },
+      "switch_closed|switch_open": {
+        "ap": 0.0,
+        "n": 16
+      }
+    },
+    "mAP_ci95": [
+      0.6935,
+      0.7608
+    ],
+    "images": 96,
+    "truth_boxes": 1740,
+    "polarity": {
+      "matched": 109,
+      "accuracy": 1.0
+    }
+  },
+  "digitize_hcd": {
+    "mAP": 0.9835,
+    "per_class": {
+      "resistor": {
+        "ap": 1.0,
+        "n": 136
+      },
+      "voltage_source": {
+        "ap": 1.0,
+        "n": 51
+      },
+      "current_source": {
+        "ap": 0.9474,
+        "n": 38
+      },
+      "battery": {
+        "ap": null,
+        "n": 0
+      },
+      "capacitor": {
+        "ap": 0.9806,
+        "n": 103
+      },
+      "inductor": {
+        "ap": 0.9714,
+        "n": 105
+      },
+      "lamp": {
+        "ap": null,
+        "n": 0
+      },
+      "switch_open": {
+        "ap": null,
+        "n": 0
+      },
+      "switch_closed": {
+        "ap": null,
+        "n": 0
+      },
+      "ground": {
+        "ap": 1.0,
+        "n": 100
+      },
+      "crossover": {
+        "ap": 0.9865,
+        "n": 69
+      },
+      "text": {
+        "ap": 0.983,
+        "n": 563
+      },
+      "other": {
+        "ap": 0.9823,
+        "n": 244
+      }
+    },
+    "mAP_ci95": [
+      0.9721,
+      0.992
+    ],
+    "images": 64,
+    "truth_boxes": 1409,
+    "polarity": {
+      "matched": 0,
+      "accuracy": null
+    }
+  }
+}

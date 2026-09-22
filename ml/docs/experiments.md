@@ -83,7 +83,7 @@ Interim checkpoint (epoch 7 EMA weights, 90 test images) used for the assembler 
 | --- | --- | --- | --- |
 | unit-based kind correction off | 0.422 | 0.433 | 0.913 |
 | unit-based kind correction, unguarded | 0.567 | 0.567 | 0.974 |
-| unit-based kind correction, guarded by distance and detector certainty (default) | 0.522 | 0.511 | 0.953 |
+| unit-based kind correction, guarded by distance and detector certainty (the default until the GPU run) | 0.522 | 0.511 | 0.953 |
 
 The unguarded rule regressed the perfect-map test (a resistor label attached to a nearby voltage
 source turned the source into a resistor), which is why the guarded version is the default.
@@ -177,3 +177,69 @@ Training curve (EMA weights on 180 held-out images for mAP/IoU; end-to-end on 40
 | 21 | 0.611 | 0.263 | 0.053 | 0.657 | 0.912 | 0.917 | 0.918 | 0.475 | 0.500 | 33 |
 | 22 | 0.600 | 0.267 | 0.053 | 0.656 | 0.914 | 0.917 | 0.918 | 0.500 | 0.500 | 33 |
 | 23 | 0.600 | 0.266 | 0.053 | 0.661 | 0.916 | 0.920 | 0.918 | 0.500 | 0.500 | 33 |
+
+<!-- gpu-run:start -->
+### GPU run with real data: CircuitNet, MobileNetV3-Large at 640 px (one RTX 4090, 22 Sep 2026)
+
+The target configuration from the recipe, run unattended by `scripts/runpod_job.sh` on a rented RTX 4090
+(secure cloud, $0.74/h). Result files: `docs/results/runpod-4090-real/`.
+
+| item | value |
+| --- | --- |
+| data | 12,000 synthetic images (9,600 / 1,200 / 1,200 by seed bucket); Digitize-HCD 1,277 photos (1,085 / 128 / 64 by image-id bucket) and 69,759 port crops pasted into at most 3,000 mosaics per epoch; CGHD 3,293 photos (2,909 / 288 / 96, whole drafters held out). Photos downsized to 1,600 px; every photo opened in its label frame |
+| model | CircuitNet, MobileNetV3-Large backbone (ImageNet init), 640 px input, stride-4 heads, 6.6 MB as a Core ML package |
+| training | 10 epochs of 1,037 steps, batch 16, AdamW 1e-3 cosine with warm-up, EMA, source weights synthetic 1 / CGHD 3 / Digitize-HCD 2 / mosaics 1, rare-class balancing 1.0; 16,594 items per epoch, 141–152 s per epoch, 25 min in total |
+| evaluation | end-to-end on the first 300 held-out synthetic test images with ground-truth text (only synthetic and distilled records carry a netlist); real photos scored on boxes with `tracer.detect_eval`; confidence calibrated on val |
+
+Training curve (validation is the mixed val split: synthetic, Digitize-HCD, CGHD; end-to-end on 60 synthetic val images):
+
+| epoch | loss | heat | wire loss | mAP@0.5 | P | R | wire IoU | e2e correct | e2e topology | s/epoch |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | 3.592 | 1.344 | 0.174 | 0.712 | 0.815 | 0.830 | 0.902 | 0.617 | 0.700 | 152 |
+| 1 | 1.991 | 0.591 | 0.080 | 0.789 | 0.835 | 0.869 | 0.908 | 0.650 | 0.717 | 152 |
+| 2 | 1.789 | 0.511 | 0.072 | 0.825 | 0.869 | 0.882 | 0.912 | 0.717 | 0.783 | 148 |
+| 3 | 1.660 | 0.459 | 0.066 | 0.852 | 0.879 | 0.890 | 0.916 | 0.733 | 0.817 | 145 |
+| 4 | 1.549 | 0.415 | 0.063 | 0.855 | 0.874 | 0.895 | 0.916 | 0.783 | 0.833 | 147 |
+| 5 | 1.494 | 0.388 | 0.060 | 0.869 | 0.894 | 0.895 | 0.915 | 0.767 | 0.817 | 143 |
+| 6 | 1.407 | 0.351 | 0.058 | 0.871 | 0.889 | 0.901 | 0.918 | 0.750 | 0.833 | 143 |
+| 7 | 1.355 | 0.332 | 0.055 | 0.881 | 0.902 | 0.901 | 0.920 | 0.783 | 0.833 | 142 |
+| 8 | 1.321 | 0.318 | 0.054 | 0.884 | 0.908 | 0.901 | 0.921 | 0.783 | 0.833 | 141 |
+| 9 | 1.304 | 0.311 | 0.054 | 0.883 | 0.910 | 0.901 | 0.921 | 0.783 | 0.833 | 142 |
+
+End-to-end on the synthetic test set (300 images, ground-truth text unless noted):
+
+| setting | correct [95% CI] | topology | structure | answers | kind acc | mAP@0.5 | coverage@95% prec. | Brier |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| tracer, GT text | 0.837 [0.7933, 0.8767] | 0.873 | 0.880 | 0.860 | 0.990 | 0.9465 | 0.077 | 0.1694 |
+| + three-scale majority (TTA) | 0.843 [0.8, 0.8833] | 0.877 | 0.883 | 0.867 | 0.991 | 0.9577 | 0.17 | 0.1645 |
+| tracer, no text | 0.000 [0.0, 0.0] | 0.000 | 0.917 | 0.000 | 0.998 | 0.9465 |  | 0.0465 |
+| ablation: no unit-based kinds | 0.880 [0.8433, 0.9167] | 0.910 | 0.917 | 0.897 | 0.998 | 0.9465 | 0.207 | 0.1644 |
+| ablation: box removal, closing 1, wire 0.5 | 0.833 [0.79, 0.8733] | 0.870 | 0.877 | 0.857 | 0.990 | 0.9465 | 0.077 | 0.1696 |
+| calibrated confidence (fit on val) | 0.837 [0.7933, 0.8767] | 0.873 | 0.880 | 0.860 | 0.990 | 0.9465 | 0.147 | 0.1154 |
+
+Breakdown of the default setting: 89.4 % correct with 1–3 elements (n=66), 85.6 % with 4–5 (n=118), 78.4 % with 6 or more (n=116); hand-drawn 83.0 % against printed 84.7 %; photographed 83.6 % against flat 84.0 %. Component recall and precision are 1.00 / 1.00, value accuracy 0.996, ids 0.993, reference node 0.880. Mean latency 47 ms per image on the GPU host including the assembler.
+
+What still fails on synthetic data: 104 missed text labels, 7 missed switch_closed labels, 2 missed crossover labels (text boxes overlapping symbols, the closed switch's tiny contact), plus a couple of capacitor/battery swaps. Calibration: Brier 0.1694 raw, 0.1154 after fitting on val; the gate that keeps 95 % precision accepts 7.7 % of images raw, 14.7 % calibrated, 17.0 % with three-scale voting.
+
+**The unit-based kind rule reversed sign.** On the CPU model it added three points; on this model turning it off raises correct readings from 0.837 to 0.880 and kind accuracy from 0.990 to 0.998. With a strong detector the flips came from values attached to the wrong neighbour, not from wrong kinds. The rule now fires only when the detector is unsure (class probability below 0.9) and the label is close.
+
+Real photos, held-out drafters and volunteers, boxes only (`tracer.detect_eval`, IoU 0.5, image-level bootstrap, classes the source cannot tell apart merged):
+
+| split | source | images | boxes | mAP@0.5 [95 % CI] | polarity acc. (n) | weakest classes (AP, n) |
+| --- | --- | --- | --- | --- | --- | --- |
+| test | cghd | 96 | 1740 | 0.728 [0.704, 0.755] | 0.982 (111) | switch_closed|switch_open (0.00, 16), crossover (0.53, 124), ground (0.69, 88) |
+| test | digitize_hcd | 64 | 1409 | 0.985 [0.973, 0.995] | n/a | current_source (0.95, 38), capacitor (0.98, 103), inductor (0.98, 105) |
+| test + TTA | cghd | 96 | 1740 | 0.729 [0.694, 0.761] | 1.0 (109) | switch_closed|switch_open (0.00, 16), crossover (0.60, 124), ground (0.71, 88) |
+| test + TTA | digitize_hcd | 64 | 1409 | 0.984 [0.972, 0.992] | n/a | current_source (0.95, 38), inductor (0.97, 105), capacitor (0.98, 103) |
+| val | cghd | 288 | 13709 | 0.542 [0.510, 0.578] | 0.9691 (259) | switch_closed|switch_open (0.00, 52), lamp (0.19, 32), battery (0.38, 128) |
+| val | digitize_hcd | 128 | 3125 | 0.978 [0.969, 0.988] | n/a | current_source (0.93, 68), capacitor (0.98, 190), resistor (0.98, 346) |
+
+Reading the real-photo numbers: Digitize-HCD is close to solved for boxes (0.98), but its split is by image id, so the same volunteers' styles appear in train and test; treat it as in-distribution. CGHD holds out whole drafters and is the honest number: 0.73 on the test drafters and 0.54 on the val drafters, who draw far denser pages (48 boxes per photo against 18); text AP drops from 0.97 to 0.65 there and dominates the count. Polarity on the sources and batteries whose rotation is annotated is 0.97–0.98. Switches score zero on real photos in this run: CGHD has one `switch` label, the converter stored it as switch_open with both candidates, and the target builder masked both channels, so the model only ever saw synthetic switches. Batteries (0.38) and lamps (0.19) on the val drafters are the other weak classes.
+
+#### Cloud tier: Qwen3-VL-2B LoRA on the same pod
+
+Teacher labelling (`vlm.distill`, google/gemini-3.6-flash, one sample, solver-checked): 0 real photos accepted, 0 rejected — . The rejections are mostly honest: Digitize-HCD and CGHD are full of op-amp, transistor and AC circuits that the app's DC scope refuses, and the OpenRouter account ran out of credit part-way (HTTP 402), which also skipped the teacher benchmark.
+
+_Student results pending._
+
+<!-- gpu-run:end -->

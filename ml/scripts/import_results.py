@@ -13,7 +13,7 @@ import sys
 import tarfile
 from pathlib import Path
 
-KEEP_SUFFIXES = (".summary.json", ".md")
+KEEP_SUFFIXES = (".json", ".md")
 KEEP_NAMES = {"final_eval.json", "log.jsonl", "calibration.json"}
 
 

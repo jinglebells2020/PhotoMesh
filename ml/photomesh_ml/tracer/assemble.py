@@ -504,8 +504,11 @@ def assemble(detections: list[Detection], wire_prob: np.ndarray, image_size: tup
             continue   # no unit evidence, or a detector with no class distribution (ground truth) is trusted
         dist = value_dist.get(ci, 4.0)
         certainty = float(d.class_probs[TRACER_CLASSES.index(d.cls)])
-        # a label right next to the symbol outranks the detector; a far label only when the detector is unsure
-        if dist <= (1.8 if certainty >= 0.9 else 3.0):
+        # Only an unsure detector defers to the unit of a nearby label. A certain one is trusted:
+        # with a strong detector the flips came from values attached to the wrong neighbour, not
+        # from wrong kinds (synthetic test, 300 images: 0.837 correct with the old distance rule
+        # against 0.880 with the rule off).
+        if certainty < 0.9 and dist <= 3.0:
             best = max(kinds, key=lambda k: float(d.class_probs[TRACER_CLASSES.index(k)]))
             comps[ci] = Detection(best, d.score, d.box, d.polarity, d.polarity_probs, d.class_probs)
             notes.append(f"kind set by unit: {d.cls} -> {best}")

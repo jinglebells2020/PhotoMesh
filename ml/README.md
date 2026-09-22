@@ -188,21 +188,27 @@ tables live in [`docs/experiments.md`](docs/experiments.md).
 
 ## 5. Status
 
-Verified in this repository (CPU only, no GPU): unit tests (72), synthetic generation with previews,
-both converters on fixtures, the assembler on ground-truth maps (90 % fully correct, 96 % topology
-on 160 circuits with crossovers, unsupported symbols and current annotations), LoRA fine-tuning
-steps of SmolVLM-256M with its evaluation loop, Core ML + ONNX export, and one real training run:
-CircuitNet with the tiny backbone at 320 px on 720 synthetic images, 24 epochs on 4 CPU cores.
-On 90 held-out synthetic test images with ground-truth text it reads 69 % of circuits fully
-correctly (95 % CI 59–78), 71 % with three-scale voting, symbol mAP@0.5 0.67, 25 ms per image,
-and the calibrated confidence gate accepts 19 % of images at 95 % precision. Full tables,
-ablations, confusion matrix and reliability bins: [`docs/experiments.md`](docs/experiments.md).
+Done and measured (details and every table: [`docs/experiments.md`](docs/experiments.md), result files in
+`docs/results/`):
 
-Not yet done: the target runs (MobileNetV3 at 640 px on 20k synthetic images plus Digitize-HCD,
-CGHD and app scans; need a GPU and the dataset downloads), the teacher labelling (needs an
-OpenRouter key), the Swift port of the assembler ([`docs/on-device.md`](docs/on-device.md)) and
-the Core ML integration in the app. The synthetic-only model does not transfer to real photos
-yet; real data in training is the next step, and every converter and loss mask for it exists.
+- **CircuitNet on a GPU with real data** (MobileNetV3-Large, 640 px, 10 epochs on 12,000 synthetic images
+  plus Digitize-HCD and CGHD, 25 min on one RTX 4090). On 300 held-out synthetic test images with
+  ground-truth text it reads 84 % of circuits fully correctly (95 % CI 79–88; 88 % with the unit-based
+  kind rule off), symbol mAP@0.5 0.95, 47 ms per image on the GPU host. On real photos from held-out
+  CGHD drafters symbol mAP@0.5 is 0.73 (test) and 0.54 (val, much denser pages), polarity 0.97–1.00;
+  Digitize-HCD 0.98 (its split is by image id, so in-distribution). Exported to a 6.6 MB Core ML package.
+- **Qwen3-VL-2B LoRA** fine-tuned on the same pod on 5,000 synthetic samples plus the 85 real photos
+  the teacher labelled before the OpenRouter account ran out of credit; student numbers in
+  `docs/experiments.md`.
+- Unit tests (78), the synthetic generator with previews, both converters with per-photo label-frame
+  detection, the assembler on ground-truth maps (90 % fully correct, 96 % topology on 160 circuits),
+  Core ML + ONNX export, the unattended RunPod recipe.
+
+Not yet done: the Swift port of the assembler ([`docs/on-device.md`](docs/on-device.md)) and the
+Core ML integration in the app; end-to-end numbers on real photos (they need real netlists: more
+teacher labelling once the OpenRouter account has credit, or corrected scans from the app); the
+teacher-versus-student benchmark (same reason); switches on real drawings (see the second pass in
+the experiments doc); the app-scan converter on real exports.
 
 ## Licences
 

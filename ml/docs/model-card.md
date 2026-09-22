@@ -21,8 +21,11 @@ integrated circuits; those are reported as unsupported so the app can say so.
 ## Evaluation
 `docs/experiments.md` defines the metrics (user-facing correctness with bootstrap intervals,
 solver-checked topology, answers, symbol mAP, calibrated-confidence coverage at 95 % precision)
-and holds the result tables. Numbers reported so far come from CPU proof runs on synthetic data;
-the GPU runs with real data are the ones that matter for deployment.
+and holds the result tables. The GPU run with real data (RTX 4090, MobileNetV3-Large at 640 px):
+84 % of held-out synthetic circuits fully correct with ground-truth text (95 % CI 79–88), symbol
+mAP@0.5 0.95 on synthetic test images, 0.73 on held-out CGHD test drafters, 0.54 on the denser CGHD
+val drafters, 0.98 on Digitize-HCD (in-distribution split). End-to-end correctness on real photos
+is not measured yet: real netlists exist only for the 85 teacher-labelled photos.
 
 ## Known limitations and failure modes
 - Kind confusions between visually similar symbols at low resolution (current vs voltage source,
@@ -36,6 +39,12 @@ the GPU runs with real data are the ones that matter for deployment.
   under-represented until real data is in.
 - The confidence is calibrated on synthetic data unless re-fitted on real scans; escalation
   thresholds should be re-derived per data source.
+- Dense hand-drawn pages (the CGHD val drafters average 48 labelled boxes per photo) halve the
+  symbol mAP compared with sparser drafters; text boxes are the bulk of the loss.
+- Switches were never learnt from real drawings in the first GPU run (the source's single `switch`
+  label was masked out of both switch channels); the second pass supervises every candidate channel.
+- Digitize-HCD numbers are in-distribution: its split is by image id, so a volunteer's style can
+  appear on both sides. CGHD holds out whole drafters and is the number to quote.
 
 ## Safety and privacy
 Photos stay on the device unless the user opts into scan sharing or the reading is escalated to the
