@@ -22,7 +22,7 @@ integrated circuits; those are reported as unsupported so the app can say so.
 `docs/experiments.md` defines the metrics (user-facing correctness with bootstrap intervals,
 solver-checked topology, answers, symbol mAP, calibrated-confidence coverage at 95 % precision)
 and holds the result tables. The GPU run with real data (RTX 4090, MobileNetV3-Large at 640 px):
-84 % of held-out synthetic circuits fully correct with ground-truth text (95 % CI 79–88), symbol
+88 % of held-out synthetic circuits fully correct with ground-truth text (95 % CI 84–92), symbol
 mAP@0.5 0.95 on synthetic test images, 0.73 on held-out CGHD test drafters, 0.54 on the denser CGHD
 val drafters, 0.98 on Digitize-HCD (in-distribution split). End-to-end correctness on real photos
 is not measured yet: real netlists exist only for the 85 teacher-labelled photos.

@@ -193,8 +193,8 @@ Done and measured (details and every table: [`docs/experiments.md`](docs/experim
 
 - **CircuitNet on a GPU with real data** (MobileNetV3-Large, 640 px, 10 epochs on 12,000 synthetic images
   plus Digitize-HCD and CGHD, 25 min on one RTX 4090). On 300 held-out synthetic test images with
-  ground-truth text it reads 84 % of circuits fully correctly (95 % CI 79–88; 88 % with the unit-based
-  kind rule off), symbol mAP@0.5 0.95, 47 ms per image on the GPU host. On real photos from held-out
+  ground-truth text it reads 88 % of circuits fully correctly (95 % CI 84–92; 84 % with the old
+  unit-based kind rule, which is now off by default), symbol mAP@0.5 0.95, 47 ms per image on the GPU host. On real photos from held-out
   CGHD drafters symbol mAP@0.5 is 0.73 (test) and 0.54 (val, much denser pages), polarity 0.97–1.00;
   Digitize-HCD 0.98 (its split is by image id, so in-distribution). Exported to a 6.6 MB Core ML package.
 - **Qwen3-VL-2B LoRA** fine-tuned on the same pod on 5,000 synthetic samples plus the 85 real photos
