@@ -177,7 +177,7 @@ final class Analytics {
             let payload = UploadPayload(installId: Analytics.installId, exportedAt: Date(), events: events, samples: samples)
             guard let data = try? Analytics.encoder.encode(payload) else { return nil }
             let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent("photomesh-data-\(stamp).json")
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("photocircuits-data-\(stamp).json")
             try? data.write(to: url, options: .atomic)
             return url
         }

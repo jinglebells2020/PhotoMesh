@@ -2,7 +2,7 @@ import SwiftUI
 import RevenueCat
 import RevenueCatUI
 
-/// PhotoMesh Plus.
+/// Photocircuits Plus.
 ///
 /// Subscribers see what they have. Everyone else gets the RevenueCat paywall, so plans, prices
 /// and copy come from the dashboard. If there is no current offering yet, the sheet falls back to
@@ -52,7 +52,7 @@ struct PlusSheet: View {
                 .foregroundStyle(PMTheme.plusOrange)
                 .padding(.bottom, 18)
 
-            Text("You have PhotoMesh Plus")
+            Text("You have Photocircuits Plus")
                 .font(.system(size: 20, weight: .bold))
                 .foregroundStyle(PMTheme.ink)
             Text(store.status.detail)

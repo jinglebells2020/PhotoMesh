@@ -196,7 +196,7 @@ private extension SettingsSheet {
             return "Photos are sent to the selected model through OpenRouter to read the schematic. A personal key is stored in this device's Keychain and is not metered. Sample mode skips the camera reader and solves a built-in circuit."
         }
         if APIConfiguration.usesBuiltInKey {
-            return "This beta build reads photos with PhotoMesh's own key, limited to \(UsageAllowance.hourlyLimit) scans an hour and \(UsageAllowance.dailyLimit) a day per device. Drawing circuits by hand is unlimited. Sample mode solves a built-in circuit without the camera."
+            return "This beta build reads photos with Photocircuits' own key, limited to \(UsageAllowance.hourlyLimit) scans an hour and \(UsageAllowance.dailyLimit) a day per device. Drawing circuits by hand is unlimited. Sample mode solves a built-in circuit without the camera."
         }
         return "Photos are read by a vision model. Sample mode skips the camera reader and solves a built-in circuit."
     }

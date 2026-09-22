@@ -33,7 +33,7 @@ struct SideMenuView: View {
                 MenuRow(icon: "info.circle", title: "About us") {
                     router.closeMenuThenPresent(.about)
                 }
-                MenuRow(icon: "plus", title: "PhotoMesh Plus", iconTint: PMTheme.plusOrange, iconWeight: .bold) {
+                MenuRow(icon: "plus", title: "Photocircuits Plus", iconTint: PMTheme.plusOrange, iconWeight: .bold) {
                     router.closeMenuThenPresent(.plus)
                 }
             }

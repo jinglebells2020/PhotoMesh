@@ -17,7 +17,7 @@ struct HelpCenterSheet: View {
 
                     HelpCard(
                         title: "Scan a circuit",
-                        caption: "Fit the whole circuit inside the white corners. PhotoMesh reads the parts and redraws a clean schematic for you to check before it solves."
+                        caption: "Fit the whole circuit inside the white corners. Photocircuits reads the parts and redraws a clean schematic for you to check before it solves."
                     ) {
                         DemoPlayer(duration: 6.5) { phase, playing in ScanDemo(phase: phase, playing: playing) }
                     }

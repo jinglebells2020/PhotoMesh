@@ -5,7 +5,7 @@ enum RecognitionPrompt {
     static let user = "Read this circuit and return the JSON."
 
     static let system = #"""
-You are PhotoMesh's circuit reader. You convert a photo of an electrical circuit diagram into a precise netlist as JSON.
+You are Photocircuits' circuit reader. You convert a photo of an electrical circuit diagram into a precise netlist as JSON.
 
 Follow these rules exactly:
 1. Nodes: every set of wires joined together is ONE node, no matter how many junction dots it has. Give each node a short id. Use "0" for the reference (ground) node: the node marked with a ground symbol, or if none is marked, the negative terminal of the main voltage source (usually the bottom wire). Name the other nodes "a", "b", "c", ... from left to right.

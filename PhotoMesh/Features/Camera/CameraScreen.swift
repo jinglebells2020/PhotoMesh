@@ -411,7 +411,7 @@ private struct PermissionOverlay: View {
             Text("Allow camera access")
                 .font(.system(size: 20, weight: .bold))
                 .foregroundStyle(.white)
-            Text("PhotoMesh needs the camera to scan circuit diagrams. You can enable it in Settings.")
+            Text("Photocircuits needs the camera to scan circuit diagrams. You can enable it in Settings.")
                 .font(.system(size: 15))
                 .foregroundStyle(.white.opacity(0.8))
                 .multilineTextAlignment(.center)

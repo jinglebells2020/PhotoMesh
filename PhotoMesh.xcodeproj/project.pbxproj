@@ -274,7 +274,7 @@
 				DEVELOPMENT_TEAM = 2MCGVQ3NMQ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = PhotoMesh;
+				INFOPLIST_KEY_CFBundleDisplayName = Photocircuits;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "PhotoMesh uses the camera to scan circuit diagrams and solve them.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "PhotoMesh can analyze circuit diagrams saved in your photo library.";
@@ -310,7 +310,7 @@
 				DEVELOPMENT_TEAM = 2MCGVQ3NMQ;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = PhotoMesh;
+				INFOPLIST_KEY_CFBundleDisplayName = Photocircuits;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "PhotoMesh uses the camera to scan circuit diagrams and solve them.";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "PhotoMesh can analyze circuit diagrams saved in your photo library.";

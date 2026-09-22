@@ -45,7 +45,7 @@ enum FeedbackStore {
 
     /// Opens Mail with the feedback pre-filled (no backend yet).
     static func mailURL(for entry: FeedbackEntry) -> URL? {
-        let subject = "PhotoMesh feedback"
+        let subject = "Photocircuits feedback"
         let body = """
         Helpful: \(entry.helpful ? "yes" : "no")
         Question: \(entry.question)

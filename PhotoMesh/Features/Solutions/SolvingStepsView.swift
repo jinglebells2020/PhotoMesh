@@ -460,7 +460,7 @@ private struct FeedbackFlow: View {
                     Text("Glad it helped!")
                         .font(.system(size: 17, weight: .bold))
                         .foregroundStyle(PMTheme.ink)
-                    Text("A quick rating on the App Store helps other students find PhotoMesh.")
+                    Text("A quick rating on the App Store helps other students find Photocircuits.")
                         .font(.system(size: 14))
                         .foregroundStyle(PMTheme.secondaryText)
                         .multilineTextAlignment(.center)
@@ -470,7 +470,7 @@ private struct FeedbackFlow: View {
                         }
                     }
                     .font(.system(size: 20))
-                    Button("Rate PhotoMesh") {
+                    Button("Rate Photocircuits") {
                         FeedbackStore.markRated()
                         if let url = FeedbackStore.writeReviewURL {
                             openURL(url)

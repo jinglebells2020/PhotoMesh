@@ -278,7 +278,7 @@ extension Course {
                           keyframe("In V2 the current is pushed in at its + terminal: V2 is being charged, it absorbs.", .elements(["V2"])),
                       ]))),
                 scene("Power balances",
-                      "Energy is conserved, so in any circuit the total power delivered by the sources equals the total power absorbed by everything else. PhotoMesh checks this at the end of every solution: if the numbers did not balance, a sign or a value would be wrong.",
+                      "Energy is conserved, so in any circuit the total power delivered by the sources equals the total power absorbed by everything else. Photocircuits checks this at the end of every solution: if the numbers did not balance, a sign or a value would be wrong.",
                       formula: "\\sum p = 0", text: "the sum of all element powers is zero"),
                 scene("Energy",
                       "Power is a rate; energy is power accumulated over time. A 60 W lamp on for 2 hours uses 120 watt-hours, which is what the electricity meter counts (in kWh). One kWh is 3.6 million joules.",
@@ -304,7 +304,7 @@ extension Course {
                           keyframe("The bottom rail is one node too, the reference.", .nodes(["0"])),
                       ]))),
                 scene("What the diagram says",
-                      "A schematic is a statement of connections, not of shape. Stretching a wire, moving a resistor to the other side of its loop or redrawing the whole thing upside down changes nothing about the currents and voltages. When you scan a circuit, PhotoMesh reads exactly this: which elements meet at which nodes.",
+                      "A schematic is a statement of connections, not of shape. Stretching a wire, moving a resistor to the other side of its loop or redrawing the whole thing upside down changes nothing about the currents and voltages. When you scan a circuit, Photocircuits reads exactly this: which elements meet at which nodes.",
                       .circuit(DemoCircuits.with(DemoCircuits.bridge, [
                           keyframe("Six elements, four nodes.", .all),
                           keyframe("Node b joins R1, R2 and R5.", .nodes(["b"])),
@@ -337,7 +337,7 @@ extension Course {
                       "Combine p = v·i with v = R·i and the resistor's power can be written three ways. It is always positive: a resistor only ever absorbs, turning electrical energy into heat.",
                       formula: "p = v i = i^2 R = \\frac{v^2}{R}", text: "p = v·i = i²·R = v²/R"),
                 scene("Ohm's law in a real solve",
-                      "Once the node voltages are known, every resistor current is one division: the voltage difference across it over its resistance. That is how PhotoMesh reads off the currents at the end of the node-voltage method.",
+                      "Once the node voltages are known, every resistor current is one division: the voltage difference across it over its resistance. That is how Photocircuits reads off the currents at the end of the node-voltage method.",
                       .circuit(DemoCircuits.with(DemoCircuits.twoLoops, [
                           keyframe("R1 sits between 10 V and 6.154 V: (10 − 6.154)/2 = 1.923 A.", .elements(["R1"])),
                           keyframe("R2: 6.154 V across 4 Ω gives 1.538 A.", .elements(["R2"])),
@@ -387,7 +387,7 @@ extension Course {
                       .concept(.kclJunction),
                       formula: "\\sum i_{in} = \\sum i_{out}", text: "sum of currents in = sum of currents out"),
                 scene("Writing it with signs",
-                      "The usual way to write KCL is to call every current leaving the node positive and set the sum to zero. A current that actually flows in then appears with a minus sign. Any consistent choice works; \"leaving = positive\" is the one PhotoMesh uses.",
+                      "The usual way to write KCL is to call every current leaving the node positive and set the sum to zero. A current that actually flows in then appears with a minus sign. Any consistent choice works; \"leaving = positive\" is the one Photocircuits uses.",
                       formula: "\\sum_{k} i_k = 0", text: "the algebraic sum of the currents at a node is zero"),
                 scene("KCL at a real node",
                       "At node b three currents meet. Written with Ohm's law, each is (this node − other node)/R, which is exactly the equation the node-voltage method solves. Watch the dots: what arrives at b through R1 leaves through R2 and R3.",
@@ -439,7 +439,7 @@ extension Course {
                       .concept(.voltageDivider),
                       formula: "v_2 = \\frac{R_2}{R_1 + R_2} \\, v", text: "v2 = v · R2 / (R1 + R2)"),
                 scene("Watch the engine do it",
-                      "PhotoMesh's simplest method combines series and parallel pairs one at a time, then works back. Here it is on a divider: combine, apply Ohm's law, split the voltage.",
+                      "Photocircuits' simplest method combines series and parallel pairs one at a time, then works back. Here it is on a divider: combine, apply Ohm's law, split the voltage.",
                       .steps(DemoCircuits.divider, method: .reduction)),
             ], quiz: [
                 question("100 Ω, 220 Ω and 680 Ω in series make…", ["1000 Ω", "1 kΩ exactly 1000", "1 kΩ (1000 Ω)", "68 Ω"], answer: 2, "Series resistances add: 100 + 220 + 680 = 1000 Ω = 1 kΩ."),
@@ -483,7 +483,7 @@ extension Course {
                       "Each Y resistor is the product of the two adjacent Δ resistors over the Δ sum. Each Δ resistor is the sum of the pairwise products of the Y resistors over the opposite Y resistor. With three equal resistors, R_Δ = 3 R_Y.",
                       formula: "R_1 = \\frac{R_b R_c}{R_a + R_b + R_c}, \\quad R_a = \\frac{R_1 R_2 + R_2 R_3 + R_3 R_1}{R_1}", text: "R1 = Rb·Rc/(Ra + Rb + Rc);  Ra = (R1R2 + R2R3 + R3R1)/R1"),
                 scene("Or just use a method",
-                      "PhotoMesh does not need the transformation: when a network is not series-parallel, it skips the reduction method and solves with nodal or mesh analysis directly. Here is a bridge, solved.",
+                      "Photocircuits does not need the transformation: when a network is not series-parallel, it skips the reduction method and solves with nodal or mesh analysis directly. Here is a bridge, solved.",
                       .circuit(DemoCircuits.with(DemoCircuits.bridge, [
                           keyframe("No two resistors here are in series or in parallel.", .all),
                           keyframe("Nodal or mesh analysis handles it without any transformation.", .flow),
@@ -500,7 +500,7 @@ extension Course {
 
 extension Course {
     static let methods = CourseModule(
-        id: "m3", number: 3, title: "Methods of analysis", subtitle: "Nodal and mesh analysis: the two systematic ways to solve any circuit, exactly as PhotoMesh does it.", isFree: false,
+        id: "m3", number: 3, title: "Methods of analysis", subtitle: "Nodal and mesh analysis: the two systematic ways to solve any circuit, exactly as Photocircuits does it.", isFree: false,
         lessons: [
             Lesson(id: "m3l1", title: "Nodal analysis", minutes: 9, scenes: [
                 scene("The idea",
@@ -600,7 +600,7 @@ extension Course {
                           keyframe("Nodal: 3 nodes, 2 fixed by sources → 1 equation.", .nodes(["b"])),
                           keyframe("Mesh: 2 windows → 2 equations. Nodal wins here.", .meshes),
                       ]))),
-                scene("What PhotoMesh does",
+                scene("What Photocircuits does",
                       "It runs every applicable method and compares the element currents. Agreement between independent methods is the best check there is; the Solutions screen shows whether they agree, and the reduction method appears whenever the network is series-parallel with one source.",
                       .circuit(DemoCircuits.with(DemoCircuits.bridge, [
                           keyframe("Bridge: nodal needs 2 equations, mesh needs 3.", .nodes(["b", "c"])),

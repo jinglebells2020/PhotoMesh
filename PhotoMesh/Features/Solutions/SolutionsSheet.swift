@@ -638,7 +638,7 @@ private struct ConsentCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Help PhotoMesh read circuits better?")
+            Text("Help Photocircuits read circuits better?")
                 .font(.system(size: 17, weight: .bold))
                 .foregroundStyle(PMTheme.ink)
             Text("Share your scans and the corrections you make, plus anonymous usage statistics. No account, no names; the pictures are used only to improve recognition. You can change this any time in Settings → Privacy & data.")

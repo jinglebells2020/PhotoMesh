@@ -18,7 +18,7 @@ struct CourseSheet: View {
                             .font(.system(size: 32, weight: .bold))
                             .foregroundStyle(.white)
                             .padding(.top, 58)
-                        Text("The first-year circuits course, taught the way the classic textbooks teach it, with every example solved and animated by PhotoMesh's own engine.")
+                        Text("The first-year circuits course, taught the way the classic textbooks teach it, with every example solved and animated by Photocircuits' own engine.")
                             .font(.system(size: 15))
                             .foregroundStyle(Color.white.opacity(0.75))
                             .fixedSize(horizontal: false, vertical: true)

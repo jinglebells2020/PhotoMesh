@@ -97,7 +97,7 @@ struct PlusLockCard: View {
                 Image(systemName: "lock.fill")
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(PMTheme.plusOrange)
-                Text("PhotoMesh Plus")
+                Text("Photocircuits Plus")
                     .font(.system(size: 12, weight: .semibold))
                     .kerning(0.6)
                     .foregroundStyle(PMTheme.plusOrange)

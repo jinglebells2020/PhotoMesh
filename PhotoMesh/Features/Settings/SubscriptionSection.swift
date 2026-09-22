@@ -16,7 +16,7 @@ struct SubscriptionSettingsSection: View {
         Section {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("PhotoMesh Plus").foregroundStyle(PMTheme.ink)
+                    Text("Photocircuits Plus").foregroundStyle(PMTheme.ink)
                     Text(store.status.detail)
                         .font(.system(size: 12))
                         .foregroundStyle(PMTheme.secondaryText)

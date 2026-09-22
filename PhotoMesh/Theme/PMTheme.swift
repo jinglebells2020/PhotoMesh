@@ -126,7 +126,7 @@ struct PMWordmark: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text("photomesh")
+            Text("photocircuits")
                 .font(.system(size: size, weight: .medium, design: .rounded))
                 .kerning(0.4)
                 .foregroundStyle(PMTheme.ink)

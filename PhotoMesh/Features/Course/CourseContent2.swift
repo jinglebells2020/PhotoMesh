@@ -21,7 +21,7 @@ extension Course {
                       "Capacitors in parallel add (more plate area). Capacitors in series combine like resistors in parallel (reciprocals add), because the same charge sits on each.",
                       formula: "C_{par} = C_1 + C_2, \\quad \\frac{1}{C_{ser}} = \\frac{1}{C_1} + \\frac{1}{C_2}", text: "parallel: C1 + C2;  series: 1/C1 + 1/C2"),
                 scene("At DC",
-                      "In a steady DC circuit no capacitor current flows, so PhotoMesh solves the circuit with every capacitor removed and then reads the capacitor voltage as the difference of its node voltages. Here the capacitor simply sits at the divider voltage.",
+                      "In a steady DC circuit no capacitor current flows, so Photocircuits solves the circuit with every capacitor removed and then reads the capacitor voltage as the difference of its node voltages. Here the capacitor simply sits at the divider voltage.",
                       .transient(DemoCircuits.rc, traces: [TransientTrace(kind: .elementVoltage, id: "C1", label: "V(C1)"), TransientTrace(kind: .elementCurrent, id: "R1", label: "I(R1)")])),
             ], quiz: [
                 question("A 100 µF capacitor holds 12 V. Its charge is…", ["1.2 mC", "12 mC", "120 µC", "8.3 µC"], answer: 0, "q = C·v = 100 × 10⁻⁶ × 12 = 1.2 × 10⁻³ C."),
@@ -249,7 +249,7 @@ extension Course {
                       .concept(.impedanceTriangle),
                       formula: "S = V_{rms} I_{rms}, \\quad Q = S \\sin\\theta, \\quad P = S\\cos\\theta", text: "S = Vrms·Irms; Q = S·sin θ; P = S·cos θ"),
                 scene("Where to go next",
-                      "You now have the whole first course: the laws, the two methods, the theorems, energy storage, transients and the phasor view of AC. Every one of these tools is inside PhotoMesh: scan or draw a circuit, follow the steps, tweak it in the lab, and watch it in time.",
+                      "You now have the whole first course: the laws, the two methods, the theorems, energy storage, transients and the phasor view of AC. Every one of these tools is inside Photocircuits: scan or draw a circuit, follow the steps, tweak it in the lab, and watch it in time.",
                       .concept(.chargeFlow)),
             ], quiz: [
                 question("A load draws 2 A rms at 230 V rms with a power factor of 0.8. Its real power is…", ["460 W", "368 W", "276 W", "184 W"], answer: 1, "P = V·I·cos θ = 230 × 2 × 0.8 = 368 W."),

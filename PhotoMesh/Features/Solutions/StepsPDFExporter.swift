@@ -14,7 +14,7 @@ enum StepsPDFExporter {
         let format = UIGraphicsPDFRendererFormat()
         format.documentInfo = [
             kCGPDFContextTitle as String: analysis.question,
-            kCGPDFContextCreator as String: "PhotoMesh",
+            kCGPDFContextCreator as String: "Photocircuits",
             kCGPDFContextSubject as String: solution.method.title,
         ]
         let renderer = UIGraphicsPDFRenderer(bounds: page, format: format)
@@ -22,7 +22,7 @@ enum StepsPDFExporter {
         let data = renderer.pdfData { context in
             let writer = PageWriter(context: context)
             writer.beginPage()
-            writer.text("PhotoMesh · \(solution.method.title)", font: .systemFont(ofSize: 10, weight: .semibold), color: .secondaryLabel, spacingAfter: 6)
+            writer.text("Photocircuits · \(solution.method.title)", font: .systemFont(ofSize: 10, weight: .semibold), color: .secondaryLabel, spacingAfter: 6)
             writer.text(analysis.question, font: .systemFont(ofSize: 20, weight: .bold), color: .label, spacingAfter: 6)
             writer.text(Date().formatted(date: .long, time: .shortened), font: .systemFont(ofSize: 10), color: .secondaryLabel, spacingAfter: 12)
             if let schematic { writer.image(schematic, maxHeight: 250, spacingAfter: 14) }
@@ -105,7 +105,7 @@ private final class PageWriter {
     func finish() { footer() }
 
     private func footer() {
-        let text = NSAttributedString(string: "PhotoMesh · page \(pageNumber)", attributes: [.font: UIFont.systemFont(ofSize: 9), .foregroundColor: UIColor.tertiaryLabel])
+        let text = NSAttributedString(string: "Photocircuits · page \(pageNumber)", attributes: [.font: UIFont.systemFont(ofSize: 9), .foregroundColor: UIColor.tertiaryLabel])
         let size = text.size()
         text.draw(at: CGPoint(x: page.width - margin - size.width, y: page.height - margin + 4))
     }
@@ -158,7 +158,7 @@ private final class PageWriter {
         var size = CGSize.zero
         repeat {
             label.fontSize = fontSize
-            size = label.sizeThatFits(CGSize(width: .greatestFiniteMagnitude, height: .greatestFiniteMagnitude))
+            size = label.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude))
             if size.width <= width || fontSize <= 7 { break }
             fontSize -= 0.5
         } while true

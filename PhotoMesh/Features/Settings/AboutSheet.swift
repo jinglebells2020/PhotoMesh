@@ -41,7 +41,7 @@ struct AboutSheet: View {
                 }
 
                 Section {
-                    Text("PhotoMesh turns a photo of a circuit into a clear, step-by-step analysis. Point the camera at a schematic or a hand-drawn loop, and follow each step the way you would in class.")
+                    Text("Photocircuits turns a photo of a circuit into a clear, step-by-step analysis. Point the camera at a schematic or a hand-drawn loop, and follow each step the way you would in class.")
                         .font(.system(size: 15))
                         .foregroundStyle(PMTheme.ink)
                 }

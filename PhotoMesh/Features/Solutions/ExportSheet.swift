@@ -148,7 +148,7 @@ enum CircuitExports {
     }
 
     static var folder: URL {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("PhotoMesh Exports", isDirectory: true)
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Photocircuits Exports", isDirectory: true)
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }

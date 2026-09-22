@@ -90,7 +90,7 @@ enum SpiceExport {
 
     static func netlist(_ circuit: Circuit, title: String? = nil) -> String {
         var lines: [String] = []
-        lines.append("* \(title ?? circuit.question ?? "Circuit") - exported from PhotoMesh")
+        lines.append("* \(title ?? circuit.question ?? "Circuit") - exported from Photocircuits")
         lines.append("* Nodes: " + circuit.nodes.map { "\($0)" + ($0 == circuit.groundNode ? " (ground = 0)" : "") }.joined(separator: ", "))
         var renamed: [String] = []
         for c in circuit.components {
@@ -231,7 +231,7 @@ enum SpiceExport {
         out.append(contentsOf: symbols)
         let textY = Int(layout.bounds.height * scale) + 176
         out.append("TEXT 96 \(textY) Left 2 !\(analysisDirective(circuit))")
-        out.append("TEXT 96 \(textY + 32) Left 2 ;\(title ?? circuit.question ?? "Circuit") - exported from PhotoMesh")
+        out.append("TEXT 96 \(textY + 32) Left 2 ;\(title ?? circuit.question ?? "Circuit") - exported from Photocircuits")
         return out.joined(separator: "\n") + "\n"
     }
 }
