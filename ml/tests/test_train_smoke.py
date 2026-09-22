@@ -7,7 +7,7 @@ from PIL import Image
 from photomesh_ml.data.records import write_jsonl
 from photomesh_ml.data import synthetic
 from photomesh_ml.synth.generate import make_sample, sample_to_label
-from photomesh_ml.tracer import train
+from photomesh_ml.tracer import detect_eval, train
 
 
 def test_train_cli_smoke(tmp_path):
@@ -34,3 +34,9 @@ def test_train_cli_smoke(tmp_path):
     assert any("e2e" in l for l in lines) and any("val" in l for l in lines)
     val = next(l for l in lines if "val" in l)["val"]
     assert "detection" in val and "mAP" in val["detection"]
+    # detection-only evaluation runs on the same records and writes a per-source summary
+    detect_eval.main(["--checkpoint", str(out / "last.pt"), "--records", str(jsonl), "--limit", "2", "--bootstrap", "5",
+                      "--out", str(out / "detect")])
+    summary = json.loads((out / "detect.json").read_text())
+    assert summary["synthetic"]["images"] == 2 and "mAP" in summary["synthetic"] and "polarity" in summary["synthetic"]
+    assert (out / "detect.md").read_text().startswith("| source |")
