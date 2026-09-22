@@ -216,12 +216,13 @@ End-to-end on the synthetic test set (300 images, ground-truth text unless noted
 | ablation: no unit-based kinds | 0.880 [0.8433, 0.9167] | 0.910 | 0.917 | 0.897 | 0.998 | 0.9465 | 0.207 | 0.1644 |
 | ablation: box removal, closing 1, wire 0.5 | 0.833 [0.79, 0.8733] | 0.870 | 0.877 | 0.857 | 0.990 | 0.9465 | 0.077 | 0.1696 |
 | calibrated confidence (fit on val) | 0.837 [0.7933, 0.8767] | 0.873 | 0.880 | 0.860 | 0.990 | 0.9465 | 0.147 | 0.1154 |
+| unit-based kinds gated on detector uncertainty | 0.850 [0.81, 0.8867] | 0.887 | 0.893 | 0.873 | 0.993 | 0.9466 | 0.147 | 0.1132 |
 
 Breakdown of the default setting: 89.4 % correct with 1–3 elements (n=66), 85.6 % with 4–5 (n=118), 78.4 % with 6 or more (n=116); hand-drawn 83.0 % against printed 84.7 %; photographed 83.6 % against flat 84.0 %. Component recall and precision are 1.00 / 1.00, value accuracy 0.996, ids 0.993, reference node 0.880. Mean latency 47 ms per image on the GPU host including the assembler.
 
 What still fails on synthetic data: 104 missed text labels, 7 missed switch_closed labels, 2 missed crossover labels (text boxes overlapping symbols, the closed switch's tiny contact), plus a couple of capacitor/battery swaps. Calibration: Brier 0.1694 raw, 0.1154 after fitting on val; the gate that keeps 95 % precision accepts 7.7 % of images raw, 14.7 % calibrated, 17.0 % with three-scale voting.
 
-**The unit-based kind rule reversed sign.** On the CPU model it added three points; on this model turning it off raises correct readings from 0.837 to 0.880 and kind accuracy from 0.990 to 0.998. With a strong detector the flips came from values attached to the wrong neighbour, not from wrong kinds. The rule now fires only when the detector is unsure (class probability below 0.9) and the label is close.
+**The unit-based kind rule reversed sign.** On the CPU model it added three points; on this model turning it off raises correct readings from 0.837 to 0.880 and kind accuracy from 0.990 to 0.998. With a strong detector the flips came from values attached to the wrong neighbour, not from wrong kinds. Gating the rule on detector uncertainty (class probability below 0.9, label within three cells) recovers part of the loss (0.850 correct, kind accuracy 0.993, row above), but off is still best, so the rule is now off by default and kept as an option (`--unit-kinds`) for weaker detectors.
 
 Real photos, held-out drafters and volunteers, boxes only (`tracer.detect_eval`, IoU 0.5, image-level bootstrap, classes the source cannot tell apart merged):
 

@@ -78,7 +78,7 @@ def assembly_features(assembly: Assembly, agreement: Optional[float]) -> dict[st
 
 class Tracer:
     def __init__(self, checkpoint: str | Path, device: str = "cpu", threshold: float = 0.3, wire_threshold: float = 0.4,
-                 closing: int = -1, body_removal: str = "span", unit_kinds: bool = True):
+                 closing: int = -1, body_removal: str = "span", unit_kinds: bool = False):
         self.device = torch.device(device)
         self.model, ckpt = load_checkpoint(checkpoint, self.device)
         self.size = int(ckpt["config"].get("size", 640))

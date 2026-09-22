@@ -280,7 +280,7 @@ def _positive_index(det: Detection, terminals) -> int:
 def assemble(detections: list[Detection], wire_prob: np.ndarray, image_size: tuple[int, int], ocr: Optional[list[TextItem]] = None,  # noqa: C901
              junction_prob: Optional[np.ndarray] = None, wire_threshold: float = 0.5, min_component_px: int = 12,
              box_margin: float = 1.5, closing: int = -1, terminal_prob: Optional[np.ndarray] = None,
-             body_removal: str = "span", unit_kinds: bool = True) -> Assembly:
+             body_removal: str = "span", unit_kinds: bool = False) -> Assembly:
     W, H = image_size
     scale = max(W, H) / 640.0
     radii = tuple(int(round(r * scale)) for r in (3, 6, 10, 16, 24))

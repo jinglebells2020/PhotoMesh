@@ -158,7 +158,7 @@ def main() -> None:
     parser.add_argument("--wire-threshold", type=float, default=0.4)
     parser.add_argument("--body-removal", choices=["span", "box"], default="span")
     parser.add_argument("--closing", type=int, default=-1, help="closing radius in px (-1 = scaled with the input size)")
-    parser.add_argument("--no-unit-kinds", action="store_true", help="ablation: do not let OCR units correct symbol kinds")
+    parser.add_argument("--unit-kinds", action="store_true", help="let the unit of a nearby label correct an unsure detector's kind (off by default: it cost 3-4 points on the GPU model)")
     parser.add_argument("--out", default=None, help="prefix for .jsonl details, .summary.json and .md")
     parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
@@ -167,7 +167,7 @@ def main() -> None:
     for p in args.records:
         base = base or Path(p)
         records += read_jsonl(p)
-    tracer = Tracer(args.checkpoint, args.device, args.threshold, args.wire_threshold, args.closing, args.body_removal, not args.no_unit_kinds)
+    tracer = Tracer(args.checkpoint, args.device, args.threshold, args.wire_threshold, args.closing, args.body_removal, args.unit_kinds)
     summary, details = evaluate_records(tracer, records, base, args.limit, args.tta, args.ocr, verbose=True)
     print(json.dumps(summary, indent=1))
     print(markdown_table(summary))

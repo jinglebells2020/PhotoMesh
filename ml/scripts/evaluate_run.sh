@@ -11,7 +11,7 @@ python -m photomesh_ml.tracer.report --run "$RUN" --out "$OUT/training.md"
 python -m photomesh_ml.tracer.evaluate --checkpoint "$CK" --records "$REC/test.jsonl" --limit "$LIMIT" --ocr gt --device "$DEVICE" --out "$OUT/test_gt"
 python -m photomesh_ml.tracer.evaluate --checkpoint "$CK" --records "$REC/test.jsonl" --limit "$LIMIT" --ocr gt --tta --device "$DEVICE" --out "$OUT/test_gt_tta"
 python -m photomesh_ml.tracer.evaluate --checkpoint "$CK" --records "$REC/test.jsonl" --limit "$LIMIT" --ocr none --device "$DEVICE" --out "$OUT/test_noocr"
-python -m photomesh_ml.tracer.evaluate --checkpoint "$CK" --records "$REC/test.jsonl" --limit "$LIMIT" --ocr gt --no-unit-kinds --device "$DEVICE" --out "$OUT/ablation_no_unit_kinds"
+python -m photomesh_ml.tracer.evaluate --checkpoint "$CK" --records "$REC/test.jsonl" --limit "$LIMIT" --ocr gt --unit-kinds --device "$DEVICE" --out "$OUT/ablation_unit_kinds_on"
 python -m photomesh_ml.tracer.evaluate --checkpoint "$CK" --records "$REC/test.jsonl" --limit "$LIMIT" --ocr gt --body-removal box --closing 1 --wire-threshold 0.5 --device "$DEVICE" --out "$OUT/ablation_assembler_v1"
 cp "$CK" "$OUT/calibrated.pt"
 python -m photomesh_ml.tracer.calibrate --checkpoint "$OUT/calibrated.pt" --records "$REC/val.jsonl" --limit "$LIMIT" --ocr gt --device "$DEVICE"
@@ -22,7 +22,7 @@ from pathlib import Path
 out = Path(sys.argv[1])
 rows = []
 for name, label in [("test_gt", "tracer, GT text"), ("test_gt_tta", "+ three-scale majority (TTA)"), ("test_noocr", "tracer, no text"),
-                    ("ablation_no_unit_kinds", "ablation: no unit-based kinds"), ("ablation_assembler_v1", "ablation: box removal, closing 1, wire 0.5"),
+                    ("ablation_unit_kinds_on", "ablation: unit-based kinds on (gated on detector uncertainty)"), ("ablation_assembler_v1", "ablation: box removal, closing 1, wire 0.5"),
                     ("test_gt_calibrated", "calibrated confidence (fit on val)")]:
     p = out / f"{name}.summary.json"
     if not p.exists():
