@@ -1,19 +1,22 @@
 import Foundation
 
-/// The course, in the order of the classic first-year texts (Alexander & Sadiku, Nilsson &
-/// Riedel, Hayt & Kemmerly): basic concepts, the two laws, the two methods, the theorems, the
-/// energy-storing elements, transients, and the first look at AC. Every circuit shown is solved
-/// live by the app's engine; the concept animations are drawn.
+/// The course. It opens with the water-in-pipes picture (CourseWater.swift) and then follows the
+/// order of the classic first-year texts (Alexander & Sadiku, Nilsson & Riedel, Hayt & Kemmerly):
+/// basic concepts, the two laws, the two methods, the theorems, the energy-storing elements,
+/// transients, and the first look at AC. Every new idea is met in water first, then in symbols.
+/// Every circuit shown is solved live by the app's engine; the concept animations are drawn.
 enum Course {
     static let modules: [CourseModule] = [
-        foundations, basicLaws, methods, theorems, storage, firstOrder, secondOrder, alternating,
+        waterAndWires, foundations, basicLaws, methods, theorems, storage, firstOrder, secondOrder, alternating,
     ]
 }
 
 // MARK: - Authoring helpers
 
-func scene(_ title: String, _ body: String, _ illustration: Illustration = .none, formula: String? = nil, text: String? = nil) -> LessonScene {
-    LessonScene(title: title, body: body, illustration: illustration, formula: formula, formulaText: text)
+func scene(_ title: String, _ body: String, _ illustration: Illustration = .none, formula: String? = nil, text: String? = nil,
+           analogy: [(String, String)] = [], remember: String? = nil) -> LessonScene {
+    LessonScene(title: title, body: body, illustration: illustration, formula: formula, formulaText: text,
+                analogy: analogy.map { AnalogyPair(water: $0.0, electric: $0.1) }, remember: remember)
 }
 
 func question(_ prompt: String, _ options: [String], answer: Int, _ explanation: String) -> QuizQuestion {
@@ -27,6 +30,11 @@ func keyframe(_ caption: String, _ highlight: DemoKeyframe.Highlight, seconds: D
 // MARK: - Demo circuits
 
 enum DemoCircuits {
+    static let single = CircuitDemoSpec(id: "single", json: """
+    {"components":[{"id":"V1","type":"voltage_source","value":12,"positive_node":"a","negative_node":"0"},
+    {"id":"R1","type":"resistor","value":4,"node_a":"a","node_b":"0"}],"ground_node":"0","question":"Find the current."}
+    """)
+
     static let series = CircuitDemoSpec(id: "series", json: """
     {"components":[{"id":"V1","type":"voltage_source","value":12,"positive_node":"a","negative_node":"0"},
     {"id":"R1","type":"resistor","value":100,"node_a":"a","node_b":"b"},
@@ -193,7 +201,7 @@ enum DemoCircuits {
     {"id":"C1","type":"capacitor","value":0.00001,"node_a":"c","node_b":"0"}],"ground_node":"0","question":"The same circuit with more resistance."}
     """)
 
-    static func with(_ spec: CircuitDemoSpec, _ keyframes: [DemoKeyframe], loop: Double = 8) -> CircuitDemoSpec {
+    static func with(_ spec: CircuitDemoSpec, _ keyframes: [DemoKeyframe], loop: Double = 10) -> CircuitDemoSpec {
         var copy = spec
         copy.keyframes = keyframes
         copy.loopSeconds = loop
@@ -201,131 +209,161 @@ enum DemoCircuits {
     }
 }
 
-// MARK: - Module 1: Foundations
+// MARK: - Module 2: Foundations
 
 extension Course {
     static let foundations = CourseModule(
-        id: "m1", number: 1, title: "Foundations", subtitle: "Charge, current, voltage, power: the four ideas every circuit is built on.", isFree: true,
+        id: "m1", number: 2, title: "Foundations", subtitle: "The water ideas get their proper names: charge, current, voltage and power, one at a time.", isFree: true,
         lessons: [
             Lesson(id: "m1l1", title: "Charge and current", minutes: 6, scenes: [
-                scene("Something is flowing",
-                      "Every wire is full of electric charge that is free to move. A source pushes it round the loop, and that steady movement of charge is what we call an electric current. Nothing is used up on the way round: the same charge that leaves the source comes back to it.",
+                scene("What is actually flowing",
+                      "In the pipes it was water. In a wire it is electric charge: tiny bits of it, far too small to see, that sit inside every metal and are free to move. A battery pushes them and they shuffle along the wire together. That shuffle is the current.",
                       .concept(.chargeFlow)),
-                scene("Current is a rate",
-                      "Current measures how much charge passes a point each second. One ampere is one coulomb per second, and one coulomb is the charge of about 6.24 × 10¹⁸ electrons. A current of 2 A through a lamp means two coulombs go through it every second.",
-                      formula: "i = \\frac{dq}{dt}", text: "i = dq/dt"),
-                scene("Which way does it go?",
-                      "By convention, current points the way positive charge would move: out of the + terminal of a source, round the circuit, back into the − terminal. In a metal the moving charges are electrons, which drift the opposite way. Both descriptions give the same answers; every textbook and every meter uses the conventional direction.",
-                      .concept(.chargeFlow)),
-                scene("Reading a current on a diagram",
-                      "A current is a number with an arrow. If the arrow you drew turns out to point against the real flow, the number simply comes out negative: −2 A pointing left is 2 A pointing right. Watch the same current pass every element of this loop: current is not shared out between series parts, it is the same everywhere along one path.",
+                scene("A bucket of charge",
+                      "Water is measured in buckets or litres. Charge is measured in coulombs, written C. One coulomb is an enormous number of the tiny charges, but you can simply think of it as one bucket of charge.",
+                      remember: "A coulomb is a bucket of charge."),
+                scene("Current is buckets per second",
+                      "One ampere means one coulomb passes each second. Two amps: two coulombs every second. That is exactly the flow rate from the water lessons, with buckets of charge instead of buckets of water. In symbols, current is charge divided by time.",
+                      formula: "I = \\frac{Q}{t}", text: "I = Q / t  (one ampere is one coulomb per second)",
+                      analogy: [
+                          ("Buckets of water", "Coulombs of charge (C)"),
+                          ("Buckets per second", "Amperes (A)"),
+                      ]),
+                scene("Which way the arrow points",
+                      "We draw the current arrow from the battery's + end, through the circuit, to its − end. In a metal wire the moving particles, the electrons, actually drift the opposite way. Both stories give the same numbers, so every book and every meter uses the arrow direction, called conventional current."),
+                scene("A negative current is fine",
+                      "If your arrow turns out to point against the real flow, nothing breaks: the number simply comes out negative. −2 A pointing left means 2 A pointing right. Watch this loop: the same current passes every part of it.",
                       .circuit(DemoCircuits.with(DemoCircuits.series, [
-                          keyframe("The source drives one current round the whole loop.", .flow),
+                          keyframe("One current, round the whole loop.", .flow),
                           keyframe("Through R1 …", .elements(["R1"])),
                           keyframe("… and through R2: the very same 37.5 mA.", .elements(["R2"])),
-                          keyframe("Dots move at the same speed before and after each resistor.", .flow),
-                      ]))),
+                          keyframe("The dots move at the same rate before and after each resistor.", .flow),
+                      ])),
+                      remember: "Current is the same everywhere along one path. A minus sign only means the arrow was drawn the other way."),
             ], quiz: [
-                question("A wire carries 3 A. How much charge passes a point in 10 seconds?", ["0.3 C", "3 C", "30 C", "300 C"], answer: 2, "Current is charge per second: q = i·t = 3 A × 10 s = 30 C."),
-                question("Conventional current points…", ["the way electrons move", "the way positive charge would move", "always clockwise", "toward the − terminal inside the source"], answer: 1, "Conventional current is defined as the direction positive charge would move: out of + through the circuit. Electrons drift the other way."),
-                question("Two resistors are connected one after the other in a single loop. The current through the first is 40 mA. The current through the second is…", ["20 mA", "40 mA", "80 mA", "it depends on the resistances"], answer: 1, "Charge is not used up. In a single path the same current passes through every element."),
-                question("You marked a current arrow to the right and computed −1.5 A. That means…", ["a mistake was made", "1.5 A flows to the left", "no current flows", "the resistor is faulty"], answer: 1, "A negative value means the real flow is opposite to the arrow you chose: 1.5 A to the left."),
+                question("A wire carries 2 A. How much charge passes a point in 5 seconds?", ["0.4 C", "2 C", "10 C", "25 C"], answer: 2, "I = Q / t, so Q = I × t = 2 A × 5 s = 10 coulombs: ten buckets."),
+                question("Conventional current arrows point…", ["the way electrons drift", "from + to −, outside the battery", "always clockwise", "nowhere in particular"], answer: 1, "Conventional current goes out of the + end, round the circuit, into the − end. Electrons drift the other way."),
+                question("You drew an arrow to the right and worked out −1.5 A. That means…", ["you made a mistake", "1.5 A flows to the left", "no current flows", "the wire is broken"], answer: 1, "A negative value means the real flow is opposite to the arrow you chose."),
+                question("Two lamps sit one after the other in a single loop. The current through the second lamp is…", ["half the current through the first", "the same as through the first", "double", "zero"], answer: 1, "One path, one current. Charge is not used up on the way."),
             ]),
 
             Lesson(id: "m1l2", title: "Voltage", minutes: 7, scenes: [
-                scene("Energy per coulomb",
-                      "Moving charge takes energy. Voltage says how much: it is the energy given to, or taken from, each coulomb between two points. A 9 V battery lifts every coulomb by 9 joules; a resistor with 9 V across it turns 9 joules into heat for every coulomb that goes through. Think of voltage as height.",
+                scene("Height, pressure, voltage",
+                      "Water at the top of a hill has energy to give as it runs down. Water under high pressure has energy to give as it flows. Charge at the + end of a battery has energy to give as it goes round. Voltage is that energy, per coulomb: a 9 V battery hands 9 joules to every coulomb it pushes out.",
                       .concept(.potentialHill),
-                      formula: "v = \\frac{dw}{dq}", text: "v = dw/dq  (one volt is one joule per coulomb)"),
-                scene("Voltage is always between two points",
-                      "A voltage is a difference, like a height difference. That is why every voltage has a + and a −: v across an element means \"the + end is v volts higher than the − end\". A single point has no voltage until you say what it is measured against.",
+                      formula: "V = \\frac{W}{Q}", text: "V = W / Q  (one volt is one joule per coulomb)"),
+                scene("Always between two points",
+                      "Just like pressure, a voltage is a difference. \"9 V across the battery\" means its + end is 9 V higher than its − end. \"3 V across the resistor\" means one end is 3 V higher than the other. A single point has no voltage until you say what you compare it with.",
                       .circuit(DemoCircuits.with(DemoCircuits.divider, [
-                          keyframe("Three nodes: the reference 0, a and b.", .nodes(["0", "a", "b"])),
-                          keyframe("Va = 9 V means node a is 9 V above the reference.", .nodes(["a"])),
-                          keyframe("Vb = 6 V: node b is 6 V above the reference…", .nodes(["b"])),
-                          keyframe("… so R1 has 9 − 6 = 3 V across it and R2 has 6 V.", .flowWithPolarity),
-                      ]))),
-                scene("The reference node",
-                      "Because only differences matter, one node is chosen as 0 V and given the ground symbol. Every other node voltage is then a single number measured from it. Choosing a different reference shifts all the numbers together; no current or element voltage changes.",
+                          keyframe("Three points: the bottom wire, a and b.", .nodes(["0", "a", "b"])),
+                          keyframe("a is 9 V above the bottom wire …", .nodes(["a"])),
+                          keyframe("… b is 6 V above it …", .nodes(["b"])),
+                          keyframe("… so R1 has 9 − 6 = 3 V across it, and R2 has 6 V.", .flowWithPolarity),
+                      ])),
+                      remember: "A voltage is always the difference between two points."),
+                scene("Sea level for voltage",
+                      "Heights are measured from sea level. Voltages are measured from one chosen point of the circuit, called the reference or ground and drawn with a small rake symbol. It is 0 V by definition. Every other point then has one number: how far above ground it sits. Choose a different reference and all the numbers shift together, but no difference changes.",
                       .circuit(DemoCircuits.with(DemoCircuits.twoLoops, [
                           keyframe("The bottom wire is the reference: 0 V by choice.", .nodes(["0"])),
-                          keyframe("Each other node gets one number.", .nodes(["a", "b", "c"])),
-                          keyframe("Element voltages are differences of those numbers.", .flowWithPolarity),
+                          keyframe("Each other point gets one number, measured from it.", .nodes(["a", "b", "c"])),
+                          keyframe("The voltage across each part is the difference of two of those numbers.", .flowWithPolarity),
                       ]))),
-                scene("Sources",
-                      "An ideal voltage source holds a fixed voltage between its terminals whatever current is drawn: a 12 V source is 12 V at 1 mA and at 10 A. An ideal current source pushes a fixed current whatever voltage that takes. Real batteries and supplies come close to the first; both are indispensable models.",
+                scene("Two kinds of pump",
+                      "A battery is a pump that holds a fixed pressure: 12 V whether a little current or a lot is drawn. There is a second kind of ideal source that holds a fixed flow instead, pushing with whatever voltage that takes. It is called a current source. It is rarer in real life, but useful in circuit problems.",
                       .circuit(DemoCircuits.with(DemoCircuits.currentSource, [
-                          keyframe("A current source forces 2 A into node a, no matter what.", .elements(["I1"])),
-                          keyframe("The rest of the circuit decides what voltage that needs: here 44 V.", .flow),
-                      ]))),
+                          keyframe("A current source forces 2 A into the circuit, no matter what.", .elements(["I1"])),
+                          keyframe("The circuit decides what voltage that needs: here 44 V.", .flow),
+                      ])),
+                      analogy: [
+                          ("A pump that holds a fixed pressure", "Voltage source (a battery)"),
+                          ("A pump that holds a fixed flow", "Current source"),
+                      ]),
             ], quiz: [
-                question("One volt is…", ["one coulomb per second", "one joule per coulomb", "one ampere per ohm", "one watt per second"], answer: 1, "Voltage is energy per unit charge: 1 V = 1 J/C."),
-                question("Node a is at 9 V and node b at 6 V (both relative to the same reference). The voltage across an element between them is…", ["15 V", "9 V", "3 V, a being the higher end", "3 V, b being the higher end"], answer: 2, "An element voltage is the difference of its node voltages: 9 − 6 = 3 V, with a the + end."),
-                question("If the reference node is moved to a different node…", ["all the currents change", "the element voltages change", "the node numbers shift but currents and element voltages do not", "the circuit stops working"], answer: 2, "Only differences are physical. Re-choosing the reference adds the same constant to every node voltage."),
-                question("An ideal 5 V source is connected first to a 5 Ω and then to a 500 Ω resistor. Its terminal voltage is…", ["5 V in both cases", "higher with 500 Ω", "lower with 500 Ω", "zero with 5 Ω"], answer: 0, "An ideal voltage source keeps its voltage whatever the current: that is what makes it ideal."),
+                question("One volt is…", ["one bucket per second", "one joule of energy per coulomb", "one ohm per amp", "one coulomb"], answer: 1, "Voltage is energy per unit charge: 1 V = 1 J/C."),
+                question("Point a is at 9 V and point b at 6 V, both measured from the same reference. Across a part joining them there is…", ["15 V", "9 V", "3 V, a being the higher end", "3 V, b being the higher end"], answer: 2, "A voltage across a part is the difference of its two end voltages: 9 − 6 = 3 V, with a the + end."),
+                question("If you choose a different point as the 0 V reference…", ["all the currents change", "the voltage across each part changes", "the point numbers shift together and nothing physical changes", "the battery voltage changes"], answer: 2, "Only differences are physical. A new reference adds the same amount to every point."),
+                question("An ideal 5 V battery is connected first to a small resistor, then to a large one. Its voltage is…", ["5 V both times", "higher with the large resistor", "lower with the large resistor", "zero with the small one"], answer: 0, "An ideal voltage source keeps its voltage whatever the current."),
             ]),
 
             Lesson(id: "m1l3", title: "Power and energy", minutes: 6, scenes: [
-                scene("Power is voltage times current",
-                      "Each coulomb carries v joules and i coulombs go by every second, so v·i joules are converted every second. That rate is the power, in watts. A resistor converts it into heat; a source supplies it.",
+                scene("Push times flow",
+                      "A water wheel gets more power from more pressure, or from more flow. Both matter, and they multiply. In a circuit it is the same: each coulomb carries V joules and I coulombs go by every second, so V × I joules are delivered every second. That rate is the power, in watts.",
                       .concept(.powerBalance),
-                      formula: "p = v \\cdot i", text: "p = v · i"),
-                scene("The passive sign convention",
-                      "Mark the current as entering the + end of the element. Then p = v·i positive means the element absorbs power (a resistor always does), and negative means it delivers power (a source usually does). The convention is what lets one formula serve every element.",
+                      formula: "P = V \\cdot I", text: "P = V · I",
+                      analogy: [
+                          ("Pressure × flow at a water wheel", "Voltage × current in a part"),
+                          ("Watts", "Watts (the very same unit)"),
+                      ]),
+                scene("Giving and taking",
+                      "Sources give power; resistors take it and turn it into heat or light. To tell the two apart from the numbers alone, draw the current arrow entering the + end of each part. Then a positive V × I means the part is taking power, and a negative one means it is giving. This bookkeeping rule is called the passive sign convention.",
                       .circuit(DemoCircuits.with(DemoCircuits.twoLoops, [
-                          keyframe("For each resistor, current enters at the + mark: it absorbs power.", .flowWithPolarity),
-                          keyframe("In V1 the current comes out of the + terminal: it delivers power.", .elements(["V1"])),
-                          keyframe("In V2 the current is pushed in at its + terminal: V2 is being charged, it absorbs.", .elements(["V2"])),
+                          keyframe("Each resistor: the current enters at its + mark, so it takes power.", .flowWithPolarity),
+                          keyframe("V1: the current comes out of its + end. It gives power.", .elements(["V1"])),
+                          keyframe("V2: the current is pushed in at its + end. It is being charged, so it takes power.", .elements(["V2"])),
                       ]))),
-                scene("Power balances",
-                      "Energy is conserved, so in any circuit the total power delivered by the sources equals the total power absorbed by everything else. Photocircuits checks this at the end of every solution: if the numbers did not balance, a sign or a value would be wrong.",
-                      formula: "\\sum p = 0", text: "the sum of all element powers is zero"),
-                scene("Energy",
-                      "Power is a rate; energy is power accumulated over time. A 60 W lamp on for 2 hours uses 120 watt-hours, which is what the electricity meter counts (in kWh). One kWh is 3.6 million joules.",
-                      formula: "w = \\int p \\, dt", text: "w = ∫ p dt"),
+                scene("Nothing is lost",
+                      "Whatever the sources give, the rest of the circuit takes: the two totals are always equal. Photocircuits checks this at the end of every solution. If they did not match, a sign or a value would be wrong somewhere.",
+                      formula: "P_{given} = P_{taken}", text: "power given by the sources = power taken by everything else",
+                      remember: "Power given equals power taken. Always."),
+                scene("Energy: power over time",
+                      "Power is a rate, like a flow. Energy is the total delivered over a stretch of time: power times time. A 60 W lamp on for 2 hours uses 120 watt-hours. The electricity meter at home counts thousands of these, kilowatt-hours.",
+                      formula: "W = P \\cdot t", text: "W = P · t"),
             ], quiz: [
-                question("A resistor has 6 V across it and 0.5 A through it. It absorbs…", ["3 W", "12 W", "0.083 W", "6.5 W"], answer: 0, "p = v · i = 6 V × 0.5 A = 3 W, turned into heat."),
-                question("With the passive sign convention (current entering the + terminal), p = −20 W means the element…", ["absorbs 20 W", "delivers 20 W", "is a resistor", "has no voltage"], answer: 1, "Negative power under the passive sign convention means the element is supplying power to the circuit."),
-                question("A circuit's sources deliver 45 W in total. Its resistors absorb…", ["less than 45 W", "exactly 45 W", "more than 45 W", "cannot be known"], answer: 1, "Conservation of energy: absorbed power equals delivered power in every circuit."),
-                question("A 100 W device runs for 30 minutes. The energy used is…", ["3000 J", "50 Wh", "100 Wh", "0.5 kWh"], answer: 1, "Energy = power × time = 100 W × 0.5 h = 50 Wh (180 kJ)."),
+                question("A resistor has 6 V across it and 0.5 A through it. It takes…", ["3 W", "12 W", "0.083 W", "6.5 W"], answer: 0, "P = V × I = 6 × 0.5 = 3 W, turned into heat."),
+                question("With the current arrow entering the + end, P = −20 W means the part…", ["takes 20 W", "gives 20 W", "is a resistor", "has no voltage"], answer: 1, "A negative result under the passive sign convention means the part is supplying power."),
+                question("The sources in a circuit give 45 W in total. Everything else takes…", ["less than 45 W", "exactly 45 W", "more than 45 W", "it cannot be known"], answer: 1, "Energy is conserved: power taken equals power given."),
+                question("A 100 W lamp is on for 30 minutes. The energy used is…", ["3000 J", "50 Wh", "100 Wh", "0.5 kWh"], answer: 1, "Energy = power × time = 100 W × 0.5 h = 50 Wh."),
             ]),
 
-            Lesson(id: "m1l4", title: "Elements and diagrams", minutes: 5, scenes: [
-                scene("Active and passive",
-                      "Sources are active: they can deliver energy. Resistors, capacitors and inductors are passive: they absorb it (capacitors and inductors store some and give it back, but never more than they took). This course deals with independent sources and these three passive elements.",
+            Lesson(id: "m1l4", title: "Reading a circuit diagram", minutes: 5, scenes: [
+                scene("A diagram is a map of connections",
+                      "A circuit diagram, or schematic, shows what is connected to what. It does not show shape or size. Stretch a wire, move a resistor to the other side of its loop, draw the whole thing upside down: nothing electrical changes. When you scan a circuit, Photocircuits reads exactly this: which parts meet where.",
+                      .circuit(DemoCircuits.with(DemoCircuits.bridge, [
+                          keyframe("Six parts, four meeting points.", .all),
+                          keyframe("Point b is where R1, R2 and R5 meet.", .nodes(["b"])),
+                          keyframe("Point c is where R3, R4 and R5 meet.", .nodes(["c"])),
+                      ]))),
+                scene("Wires are perfect pipes",
+                      "On a diagram a wire is a perfect, wide, frictionless pipe: no resistance, so no voltage difference along it, however long it is drawn. Everything joined by wire is at one and the same voltage. That single fact is what makes circuits solvable.",
+                      .circuit(DemoCircuits.with(DemoCircuits.twoLoops, [
+                          keyframe("Every point of this wire is one place, b, at one voltage.", .nodes(["b"])),
+                          keyframe("The whole bottom wire is one place too: the reference.", .nodes(["0"])),
+                      ])),
+                      remember: "Everything joined by wire is at the same voltage."),
+                scene("The symbols",
+                      "You have met the main ones: the battery (a long and a short line, + at the long one), the resistor (a zigzag), the switch (a gap that can close) and the ground rake for the reference. Later come the capacitor (two plates) and the inductor (a coil). Parts that give power are called active; parts that only take or store it are passive.",
                       .circuit(DemoCircuits.with(DemoCircuits.twoLoops, [
                           keyframe("Active: the two sources.", .elements(["V1", "V2"])),
                           keyframe("Passive: the three resistors.", .elements(["R1", "R2", "R3"])),
                       ]))),
-                scene("Ideal wires",
-                      "A wire on a diagram is a perfect conductor: no resistance, no voltage across it, however long it is drawn. Everything joined by wires is at one and the same voltage. That is the whole reason node voltages work.",
-                      .circuit(DemoCircuits.with(DemoCircuits.twoLoops, [
-                          keyframe("Every point of this wire is node b: one voltage.", .nodes(["b"])),
-                          keyframe("The bottom rail is one node too, the reference.", .nodes(["0"])),
-                      ]))),
-                scene("What the diagram says",
-                      "A schematic is a statement of connections, not of shape. Stretching a wire, moving a resistor to the other side of its loop or redrawing the whole thing upside down changes nothing about the currents and voltages. When you scan a circuit, Photocircuits reads exactly this: which elements meet at which nodes.",
-                      .circuit(DemoCircuits.with(DemoCircuits.bridge, [
-                          keyframe("Six elements, four nodes.", .all),
-                          keyframe("Node b joins R1, R2 and R5.", .nodes(["b"])),
-                          keyframe("Node c joins R3, R4 and R5.", .nodes(["c"])),
-                      ]))),
+                scene("What comes next",
+                      "You now have the whole foundation: a closed loop, a push (voltage), a flow (current), things that resist (resistance) and the one relationship between them. The next module turns these into three short laws that solve any simple circuit.",
+                      analogy: [
+                          ("Pump", "Battery: a voltage source"),
+                          ("Pressure difference", "Voltage (V)"),
+                          ("Flow rate", "Current (A)"),
+                          ("Narrow pipe", "Resistance (Ω)"),
+                          ("Flow = push ÷ narrowness", "Ohm's law: I = V / R"),
+                      ]),
             ], quiz: [
-                question("Which of these is an active element?", ["a resistor", "a capacitor", "an independent voltage source", "an ideal wire"], answer: 2, "Sources deliver energy; resistors, capacitors and inductors can only absorb or return it."),
-                question("The voltage between two points joined by an ideal wire is…", ["proportional to the wire's length", "zero", "equal to the source voltage", "undefined"], answer: 1, "An ideal wire has no resistance, so no voltage develops across it: its two ends are the same node."),
-                question("Redrawing a schematic with the same connections but a different shape…", ["changes the currents", "changes the node voltages", "changes nothing electrical", "adds a node"], answer: 2, "Only the connections (the topology) matter to the circuit's behaviour."),
+                question("Which of these is an active part?", ["a resistor", "a capacitor", "a battery", "a wire"], answer: 2, "Sources give power; resistors, capacitors and inductors only take or store it."),
+                question("The voltage between the two ends of an ideal wire is…", ["proportional to its length", "zero", "the battery voltage", "unknown"], answer: 1, "No resistance, no voltage difference: the two ends are the same point electrically."),
+                question("Redrawing a diagram with the same connections but a different shape…", ["changes the currents", "changes the voltages", "changes nothing electrical", "adds a connection"], answer: 2, "Only the connections matter to the circuit."),
             ]),
         ]
     )
 }
 
-// MARK: - Module 2: Basic laws
+// MARK: - Module 3: Basic laws
 
 extension Course {
     static let basicLaws = CourseModule(
-        id: "m2", number: 2, title: "Basic laws", subtitle: "Ohm's law and Kirchhoff's two laws, with series, parallel and the dividers that follow from them.", isFree: false,
+        id: "m2", number: 3, title: "Basic laws", subtitle: "Ohm's law and Kirchhoff's two laws, each met in water first, then in symbols; series, parallel and the dividers follow.", isFree: false,
         lessons: [
             Lesson(id: "m2l1", title: "Ohm's law", minutes: 6, scenes: [
+                scene("Push, flow and pipe, once more",
+                      "You met this in the water lessons: for one pipe, the flow rises with the push and falls with the narrowness. For a resistor, the current rises with the voltage and falls with the resistance. In this module the law is written the way the textbooks write it, voltage first, and used properly.",
+                      .concept(.waterOhm)),
                 scene("Voltage is proportional to current",
                       "For a resistor, the voltage across it is directly proportional to the current through it. The constant of proportionality is the resistance R, in ohms. Double the voltage and the current doubles; double the resistance and it halves.",
                       .concept(.ohmLine),
@@ -382,6 +420,9 @@ extension Course {
             ]),
 
             Lesson(id: "m2l3", title: "Kirchhoff's current law", minutes: 6, scenes: [
+                scene("Water at a junction",
+                      "Where a pipe splits, the water splits too, and none is lost: what flows in flows out. That is all Kirchhoff's current law says, for charge instead of water. Everything else in this lesson is about writing it down neatly.",
+                      .concept(.waterJunction)),
                 scene("Charge does not pile up",
                       "At any node, the total current flowing in equals the total flowing out. Charge cannot accumulate at a junction, so what comes in must leave.",
                       .concept(.kclJunction),
@@ -407,6 +448,9 @@ extension Course {
             ]),
 
             Lesson(id: "m2l4", title: "Kirchhoff's voltage law", minutes: 6, scenes: [
+                scene("Pressure once round the loop",
+                      "Follow the pressure once round a water loop. The pump raises it; each narrow section uses some up; back at the pump you are at the pressure you started from. Around a circuit loop the voltage does the same: what the sources raise, the resistors use up.",
+                      .concept(.waterSeries)),
                 scene("Back where you started",
                       "Walk once round any closed loop, adding the voltage rises and subtracting the drops. You arrive at the potential you left from, so the total is zero. Voltage is like height: a round trip has no net climb.",
                       .concept(.kvlStaircase),
@@ -430,6 +474,9 @@ extension Course {
             ]),
 
             Lesson(id: "m2l5", title: "Series resistors and voltage division", minutes: 7, scenes: [
+                scene("Narrow sections one after the other",
+                      "Two narrow sections in one pipe: the same flow through both, and each uses up a share of the push, the narrower one the bigger share. Resistors one after the other, in series, do exactly this: one current, and the voltage split between them.",
+                      .concept(.waterSeries)),
                 scene("Same current, voltages add",
                       "Resistors in series carry the same current. By KVL their voltages add, and by Ohm's law each voltage is R times that current. So the resistances simply add.",
                       .concept(.seriesBulbs),
@@ -448,6 +495,9 @@ extension Course {
             ]),
 
             Lesson(id: "m2l6", title: "Parallel resistors and current division", minutes: 7, scenes: [
+                scene("Pipes side by side",
+                      "Two pipes between the same two points feel the same push, and the flow shares itself between them, more through the wide one. Together they pass more than either alone. Resistors side by side, in parallel, do exactly this.",
+                      .concept(.waterParallel)),
                 scene("Same voltage, currents add",
                       "Resistors in parallel connect the same two nodes, so they have the same voltage. By KCL their currents add; by Ohm's law each current is v/R. Conductances add, which for two resistors is the product-over-sum rule.",
                       .concept(.parallelBulbs),
@@ -496,11 +546,11 @@ extension Course {
     )
 }
 
-// MARK: - Module 3: Methods of analysis
+// MARK: - Module 4: Methods of analysis
 
 extension Course {
     static let methods = CourseModule(
-        id: "m3", number: 3, title: "Methods of analysis", subtitle: "Nodal and mesh analysis: the two systematic ways to solve any circuit, exactly as Photocircuits does it.", isFree: false,
+        id: "m3", number: 4, title: "Methods of analysis", subtitle: "Nodal and mesh analysis: the two systematic ways to solve any circuit, exactly as Photocircuits does it.", isFree: false,
         lessons: [
             Lesson(id: "m3l1", title: "Nodal analysis", minutes: 9, scenes: [
                 scene("The idea",
@@ -617,7 +667,7 @@ extension Course {
 
 extension Course {
     static let theorems = CourseModule(
-        id: "m4", number: 4, title: "Circuit theorems", subtitle: "Superposition, source transformation, Thévenin, Norton and maximum power: shortcuts that follow from linearity.", isFree: false,
+        id: "m4", number: 5, title: "Circuit theorems", subtitle: "Superposition, source transformation, Thévenin, Norton and maximum power: shortcuts that follow from linearity.", isFree: false,
         lessons: [
             Lesson(id: "m4l1", title: "Linearity and superposition", minutes: 8, scenes: [
                 scene("Linear circuits",

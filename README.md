@@ -36,7 +36,7 @@ method to follow.
 | History of solved circuits (button right of the shutter) | Done |
 | Circuit lab (Plus): Tweak mode re-solves live as values are dragged and switches flipped; Simulate mode plays the circuit in time with plots, a scrubber and switch events | Done, `ExplorerModel`, `TransientSimulator` |
 | Exports (Plus): LTspice schematic (.asc) + SPICE netlist (.cir), PDF of any step-by-step solution | Done, `SpiceExport`, `StepsPDFExporter` |
-| Circuits course (module 1 free, rest Plus): 8 modules, 30 animated lessons with quizzes, following the classic first-year syllabus | Done, `Features/Course` |
+| Circuits course (modules 1–2 free, rest Plus): 9 modules, 38 animated lessons with quizzes; opens with the water-in-pipes analogy and then follows the classic first-year syllabus | Done, `Features/Course` |
 | PhotoMesh Plus via RevenueCat (paywall, Customer Center, `photocircuits_pro` entitlement), feature gates in `PlusAccess` | Done |
 | AC solving, dependent sources | Next |
 
@@ -110,7 +110,9 @@ and every gate goes through `PlusAccess.allows(_:)` (Settings → Subscription h
   simulation with that event. A circuit with no DC steady state (a source, a resistor and a
   capacitor in one loop) cannot be solved by the step methods, so the Solutions screen offers
   "Simulate in the lab" instead of a dead end.
-- **The course.** Eight modules in the order of Alexander & Sadiku / Nilsson & Riedel:
+- **The course.** Nine modules: an analogy-first opener, *Water and wires* (pressure is voltage,
+  flow rate is current, a narrow pipe is resistance, the pump is the battery; no formula until
+  the last lesson), then the order of Alexander & Sadiku / Nilsson & Riedel:
   foundations (charge, current, voltage, power), basic laws (Ohm, KCL, KVL, series and parallel,
   dividers, Y–Δ), methods (nodal, supernodes, mesh, supermeshes), theorems (superposition,
   source transformation, Thévenin, Norton, maximum power), capacitors and inductors, first-order
@@ -118,9 +120,9 @@ and every gate goes through `PlusAccess.allows(_:)` (Settings → Subscription h
   power). Every circuit in a lesson is solved live by the engine and drawn with the same
   schematic as a scan, lit up keyframe by keyframe; the method lessons auto-play the engine's
   own solving steps; the transient lessons run the simulator; the concept animations
-  (`ConceptAnimations.swift`) are drawn on a Canvas. Each lesson ends with a quiz that explains
-  every answer; progress and best scores are kept on the device. Module 1 and the first lesson
-  of every other module are free.
+  (`ConceptAnimations.swift`, `WaterAnimations.swift`) are drawn on a Canvas. Each lesson ends with a quiz that explains
+  every answer; progress and best scores are kept on the device. Modules 1 and 2 and the first
+  lesson of every other module are free.
 - **Exports.** From the explorer, an LTspice schematic laid out like the drawing (symbols on
   the 16 px grid, nets named after the nodes, wires split at every junction) plus a plain SPICE
   netlist, with element names given the letter SPICE expects; from the steps screen, an A4 PDF

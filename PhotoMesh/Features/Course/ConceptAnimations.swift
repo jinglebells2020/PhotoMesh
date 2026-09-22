@@ -21,7 +21,9 @@ struct ConceptAnimationView: View {
 
     static func duration(_ kind: ConceptAnimation) -> Double {
         switch kind {
-        case .kclJunction, .seriesBulbs, .parallelBulbs: return 5
+        case .waterJunction, .kclJunction, .seriesBulbs, .parallelBulbs: return 5
+        case .waterTank: return 7
+        case .waterOhm, .waterWheel: return 8
         case .superposition: return 9
         case .theveninBox: return 7
         default: return 6
@@ -201,6 +203,18 @@ enum ConceptDrawing {
 
     static func draw(_ kind: ConceptAnimation, phase: Double, in ctx: inout GraphicsContext) {
         switch kind {
+        case .waterLoop: waterLoop(&ctx, phase)
+        case .waterPressure: waterPressure(&ctx, phase)
+        case .waterFlowRate: waterFlowRate(&ctx, phase)
+        case .waterNarrowPipe: waterNarrowPipe(&ctx, phase)
+        case .waterPump: waterPump(&ctx, phase)
+        case .waterValve: waterValve(&ctx, phase)
+        case .waterOhm: waterOhm(&ctx, phase)
+        case .waterJunction: waterJunction(&ctx, phase)
+        case .waterSeries: waterSeries(&ctx, phase)
+        case .waterParallel: waterParallel(&ctx, phase)
+        case .waterTank: waterTank(&ctx, phase)
+        case .waterWheel: waterWheel(&ctx, phase)
         case .chargeFlow: chargeFlow(&ctx, phase)
         case .potentialHill: potentialHill(&ctx, phase)
         case .powerBalance: powerBalance(&ctx, phase)

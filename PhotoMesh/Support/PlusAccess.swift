@@ -28,7 +28,7 @@ enum PlusFeature: String, CaseIterable, Identifiable {
         case .lab:
             return "Drag any value and watch every current and voltage follow. Flip switches, then play the circuit in time: capacitors charging, coils resisting, curves you can scrub."
         case .course:
-            return "The whole first-year circuits course as animated lessons with quizzes, from charge and Ohm's law to nodal and mesh analysis, Thévenin, RC and RL transients and phasors. The first module is free."
+            return "The whole first-year circuits course as animated lessons with quizzes: it starts from water in pipes and builds up through Ohm's law to nodal and mesh analysis, Thévenin, RC and RL transients and phasors. The first two modules are free."
         case .exports:
             return "Save any solved circuit as an LTspice schematic and netlist, or share the complete step-by-step solution as a PDF."
         }

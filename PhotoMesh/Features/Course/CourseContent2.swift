@@ -1,12 +1,20 @@
 import Foundation
 
-// MARK: - Module 5: Capacitors and inductors
+// MARK: - Module 9: Capacitors and inductors
 
 extension Course {
     static let storage = CourseModule(
-        id: "m5", number: 5, title: "Capacitors and inductors", subtitle: "The two elements that store energy instead of burning it, and how they behave when nothing changes.", isFree: false,
+        id: "m5", number: 6, title: "Capacitors and inductors", subtitle: "The two elements that store energy instead of burning it, and how they behave when nothing changes.", isFree: false,
         lessons: [
             Lesson(id: "m5l1", title: "Capacitors", minutes: 8, scenes: [
+                scene("A tank with a stretchy wall",
+                      "Put a chamber in the pipe with a rubber sheet across it. Water flows in, the sheet stretches, and the stretched sheet pushes back harder and harder until the flow stops. No water ever passes through; but while the sheet is stretching, water moves on both sides as if it did. A capacitor is exactly this, for charge.",
+                      .concept(.waterTank),
+                      analogy: [
+                          ("Stretchy wall in the pipe", "Capacitor"),
+                          ("How far it has stretched", "Charge stored"),
+                          ("How hard it pushes back", "Capacitor voltage"),
+                      ]),
                 scene("Charge on two plates",
                       "A capacitor is two conductors separated by an insulator. Push charge onto one plate and an equal charge is pulled from the other; the separated charge sets up a voltage. The charge is proportional to the voltage, and the constant is the capacitance C, in farads.",
                       .concept(.capacitorCharging),
@@ -31,6 +39,14 @@ extension Course {
             ]),
 
             Lesson(id: "m5l2", title: "Inductors", minutes: 8, scenes: [
+                scene("A heavy wheel in the pipe",
+                      "Put a heavy paddle wheel in the pipe. When the pump starts, the wheel is slow to get going, so the flow builds up gradually. When the pump stops, the spinning wheel keeps pushing water for a moment. It resists any change in the flow. An inductor does exactly this, for current.",
+                      .concept(.waterWheel),
+                      analogy: [
+                          ("Heavy wheel in the pipe", "Inductor"),
+                          ("How fast it is spinning", "Current through it"),
+                          ("The shove it takes to change its speed", "Inductor voltage"),
+                      ]),
                 scene("A coil resists change in current",
                       "Current through a coil sets up a magnetic field. Changing the current changes the field, and the changing field induces a voltage that opposes the change (Lenz's law). The voltage is L times how fast the current changes; L is the inductance, in henrys.",
                       .concept(.inductorRise),
@@ -54,11 +70,11 @@ extension Course {
     )
 }
 
-// MARK: - Module 6: First-order circuits
+// MARK: - Module 9: First-order circuits
 
 extension Course {
     static let firstOrder = CourseModule(
-        id: "m6", number: 6, title: "First-order circuits", subtitle: "RC and RL circuits in time: exponential rise and decay, and the time constant that sets the pace.", isFree: false,
+        id: "m6", number: 7, title: "First-order circuits", subtitle: "RC and RL circuits in time: exponential rise and decay, and the time constant that sets the pace.", isFree: false,
         lessons: [
             Lesson(id: "m6l1", title: "The source-free RC circuit", minutes: 8, scenes: [
                 scene("A charged capacitor left to itself",
@@ -134,11 +150,11 @@ extension Course {
     )
 }
 
-// MARK: - Module 7: Second-order circuits
+// MARK: - Module 9: Second-order circuits
 
 extension Course {
     static let secondOrder = CourseModule(
-        id: "m7", number: 7, title: "Second-order circuits", subtitle: "RLC circuits: energy sloshing between coil and capacitor, damping, and the three kinds of response.", isFree: false,
+        id: "m7", number: 8, title: "Second-order circuits", subtitle: "RLC circuits: energy sloshing between coil and capacitor, damping, and the three kinds of response.", isFree: false,
         lessons: [
             Lesson(id: "m7l1", title: "The series RLC circuit", minutes: 9, scenes: [
                 scene("Two energy stores",
@@ -178,11 +194,11 @@ extension Course {
     )
 }
 
-// MARK: - Module 8: AC steady state
+// MARK: - Module 9: AC steady state
 
 extension Course {
     static let alternating = CourseModule(
-        id: "m8", number: 8, title: "Alternating current", subtitle: "Sinusoids, phasors and impedance: how the DC methods carry over to circuits driven by sine waves.", isFree: false,
+        id: "m8", number: 9, title: "Alternating current", subtitle: "Sinusoids, phasors and impedance: how the DC methods carry over to circuits driven by sine waves.", isFree: false,
         lessons: [
             Lesson(id: "m8l1", title: "Sinusoids", minutes: 6, scenes: [
                 scene("Describing a sine wave",

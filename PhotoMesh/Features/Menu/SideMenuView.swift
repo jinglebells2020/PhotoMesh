@@ -24,7 +24,7 @@ struct SideMenuView: View {
                 MenuRow(icon: "gearshape", title: "Settings") {
                     router.closeMenuThenPresent(.settings)
                 }
-                MenuRow(icon: "graduationcap", title: "Learn circuits", subtitle: "The course, from charge to phasors") {
+                MenuRow(icon: "graduationcap", title: "Learn circuits", subtitle: "The course, from water in pipes to phasors") {
                     router.closeMenuThenPresent(.course)
                 }
                 MenuRow(icon: "questionmark.circle", title: "Help center") {

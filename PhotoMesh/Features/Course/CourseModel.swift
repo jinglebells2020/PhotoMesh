@@ -40,6 +40,16 @@ struct LessonScene: Identifiable {
     var formula: String? = nil
     /// Plain-text reading of the formula for accessibility and fallback.
     var formulaText: String? = nil
+    /// Water-to-electricity pairs shown as a small two-column map under the text.
+    var analogy: [AnalogyPair] = []
+    /// One sentence to take away, shown in its own box at the end of the scene.
+    var remember: String? = nil
+}
+
+/// One row of the water-in-pipes map: the water picture on the left, the electrical word on the right.
+struct AnalogyPair: Hashable {
+    var water: String
+    var electric: String
 }
 
 /// What moves on a scene.
@@ -109,6 +119,20 @@ struct DemoKeyframe {
 
 /// A drawn, non-circuit animation (see ConceptAnimations.swift).
 enum ConceptAnimation: String {
+    // Water in pipes (see WaterAnimations.swift)
+    case waterLoop
+    case waterPressure
+    case waterFlowRate
+    case waterNarrowPipe
+    case waterPump
+    case waterValve
+    case waterOhm
+    case waterJunction
+    case waterSeries
+    case waterParallel
+    case waterTank
+    case waterWheel
+    // Drawn electrical concepts (see ConceptAnimations.swift)
     case chargeFlow
     case potentialHill
     case powerBalance

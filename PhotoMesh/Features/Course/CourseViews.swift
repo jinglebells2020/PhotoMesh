@@ -18,7 +18,7 @@ struct CourseSheet: View {
                             .font(.system(size: 32, weight: .bold))
                             .foregroundStyle(.white)
                             .padding(.top, 58)
-                        Text("The first-year circuits course, taught the way the classic textbooks teach it, with every example solved and animated by Photocircuits' own engine.")
+                        Text("Starts from water in pipes, with no formulas, and builds up to the full first-year circuits course. Every example is solved and animated by Photocircuits' own engine.")
                             .font(.system(size: 15))
                             .foregroundStyle(Color.white.opacity(0.75))
                             .fixedSize(horizontal: false, vertical: true)
@@ -67,7 +67,7 @@ struct CourseSheet: View {
                     }
                     .buttonStyle(.plain)
                 } else {
-                    Text("Start with the foundations; every lesson ends with a short quiz.")
+                    Text("Start with Water and wires; every lesson ends with a short quiz.")
                         .font(.system(size: 13))
                         .foregroundStyle(Color.white.opacity(0.7))
                 }
@@ -306,6 +306,9 @@ private struct SceneCard: View {
                 .foregroundStyle(PMTheme.ink)
                 .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
+            if !scene.analogy.isEmpty {
+                AnalogyMap(pairs: scene.analogy)
+            }
             if let formula = scene.formula {
                 ScrollView(.horizontal, showsIndicators: false) {
                     MathText(latex: formula, fallback: scene.formulaText ?? formula, fontSize: 18, color: PMTheme.accent)
@@ -315,6 +318,9 @@ private struct SceneCard: View {
                 .scrollBounceBehavior(.basedOnSize)
                 .frame(maxWidth: .infinity)
                 .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(PMTheme.accentSoft))
+            }
+            if let remember = scene.remember {
+                RememberBox(text: remember)
             }
         }
         .padding(18)
@@ -339,6 +345,73 @@ private struct SceneCard: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(Color.black.opacity(0.08)))
         }
+    }
+}
+
+/// The water-to-electricity map: what the water picture is called in electrical words.
+private struct AnalogyMap: View {
+    let pairs: [AnalogyPair]
+    private static let water = Color(red: 0.16, green: 0.47, blue: 0.86)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 10) {
+                Label("WATER", systemImage: "drop.fill")
+                    .foregroundStyle(AnalogyMap.water)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Label("ELECTRICITY", systemImage: "bolt.fill")
+                    .foregroundStyle(PMTheme.accent)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .font(.system(size: 11, weight: .bold))
+            .kerning(0.5)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            ForEach(Array(pairs.enumerated()), id: \.offset) { index, pair in
+                Divider().opacity(0.6)
+                HStack(alignment: .top, spacing: 10) {
+                    Text(pair.water)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text(pair.electric)
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .font(.system(size: 14))
+                .foregroundStyle(PMTheme.ink)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background(index % 2 == 1 ? Color.black.opacity(0.025) : Color.clear)
+            }
+        }
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(AnalogyMap.water.opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(AnalogyMap.water.opacity(0.18)))
+    }
+}
+
+/// The one sentence to keep from a scene.
+private struct RememberBox: View {
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "lightbulb.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(PMTheme.whyOrange)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("REMEMBER")
+                    .font(.system(size: 10, weight: .bold))
+                    .kerning(0.6)
+                    .foregroundStyle(PMTheme.whyOrange)
+                Text(text)
+                    .font(.system(size: 14.5, weight: .medium))
+                    .foregroundStyle(PMTheme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(PMTheme.whyOrange.opacity(0.1)))
     }
 }
 
