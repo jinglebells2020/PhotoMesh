@@ -65,6 +65,9 @@ def main() -> None:
             n_synth += 1
     n_real = 0
     for d in args.distilled:
+        if not Path(d).exists():
+            print(f"warning: distilled file {d} not found, skipping")
+            continue
         for line in Path(d).read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue

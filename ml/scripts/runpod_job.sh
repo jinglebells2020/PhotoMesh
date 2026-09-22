@@ -9,13 +9,13 @@ set -uo pipefail
 cd /workspace
 export PYTHONUNBUFFERED=1
 SYNTH_COUNT=${SYNTH_COUNT:-12000}
-TRACER_EPOCHS=${TRACER_EPOCHS:-12}
+TRACER_EPOCHS=${TRACER_EPOCHS:-10}
 TRACER_SIZE=${TRACER_SIZE:-640}
-DISTILL_LIMIT=${DISTILL_LIMIT:-1000}
+DISTILL_LIMIT=${DISTILL_LIMIT:-600}
 VLM_SYNTH=${VLM_SYNTH:-5000}
 VLM_EPOCHS=${VLM_EPOCHS:-1}
 MAX_HOURS=${MAX_HOURS:-5}
-GRACE_MIN=${GRACE_MIN:-45}
+GRACE_MIN=${GRACE_MIN:-25}
 START=$(date +%s)
 
 terminate_self() {
@@ -68,7 +68,7 @@ for split in train val test; do
 done
 
 stage "tracer training (${TRACER_EPOCHS} epochs at ${TRACER_SIZE}px)"
-run_capped 150m "python -m photomesh_ml.tracer.train --train /workspace/data/records_small/train.jsonl --val /workspace/data/records_small/val.jsonl \
+run_capped 120m "python -m photomesh_ml.tracer.train --train /workspace/data/records_small/train.jsonl --val /workspace/data/records_small/val.jsonl \
   --backbone mobilenet_v3_large --size ${TRACER_SIZE} --epochs ${TRACER_EPOCHS} --batch 16 --workers $(( $(nproc) > 12 ? 12 : $(nproc) )) \
   --source-weights synthetic=1,cghd=3,digitize_hcd=2,mosaic=1 --balance-rare 1.0 --e2e-records /workspace/data/records_small/val.jsonl --e2e-limit 60 \
   --out /workspace/runs/tracer"
