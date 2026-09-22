@@ -2,10 +2,14 @@ import SwiftUI
 
 /// Every circuit solved so far. Tapping one re-runs the engine and opens its solutions.
 struct HistorySheet: View {
+    /// Free keeps this many of the newest circuits open; the rest are Plus.
+    static let freeCount = 3
+
     @Environment(\.dismiss) private var dismiss
     @State private var store = HistoryStore.shared
     @State private var selected: HistoryEntry?
     @State private var confirmClear = false
+    @State private var presentingPaywall = false
 
     var body: some View {
         NavigationStack {
@@ -13,17 +17,29 @@ struct HistorySheet: View {
                 if store.entries.isEmpty {
                     ContentUnavailableView("No circuits yet", systemImage: "clock.arrow.circlepath", description: Text("Circuits you scan or draw will be kept here."))
                 } else {
+                    let hasPlus = PlusAccess.allows(.history)
                     List {
-                        ForEach(store.entries) { entry in
+                        ForEach(Array(store.entries.enumerated()), id: \.element.id) { index, entry in
+                            let locked = index >= HistorySheet.freeCount && !hasPlus
                             Button {
-                                selected = entry
+                                if locked {
+                                    PlusAccess.notedLockedTap(.history)
+                                    presentingPaywall = true
+                                } else {
+                                    selected = entry
+                                }
                             } label: {
-                                HistoryRow(entry: entry)
+                                HistoryRow(entry: entry, locked: locked)
                             }
                             .buttonStyle(.plain)
                             .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
                         }
                         .onDelete { offsets in store.remove(atOffsets: offsets) }
+                        if !hasPlus, store.entries.count > HistorySheet.freeCount {
+                            PlusLockCard(feature: .history, compact: true)
+                                .listRowSeparator(.hidden)
+                                .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 16, trailing: 16))
+                        }
                     }
                     .listStyle(.plain)
                 }
@@ -50,11 +66,15 @@ struct HistorySheet: View {
             SolutionsSheet(request: SolutionRequest(source: .circuit(entry.circuit)))
                 .presentationBackground(PMTheme.darkSheet)
         }
+        .sheet(isPresented: $presentingPaywall) {
+            PlusSheet()
+        }
     }
 }
 
 private struct HistoryRow: View {
     let entry: HistoryEntry
+    var locked = false
 
     private var layout: SchematicLayout { SchematicLayoutEngine.layout(for: entry.circuit) }
 
@@ -80,10 +100,11 @@ private struct HistoryRow: View {
                 .foregroundStyle(PMTheme.secondaryText)
             }
             Spacer(minLength: 0)
-            Image(systemName: "chevron.right")
+            Image(systemName: locked ? "lock.fill" : "chevron.right")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(PMTheme.tertiaryText)
+                .foregroundStyle(locked ? PMTheme.plusOrange : PMTheme.tertiaryText)
         }
+        .opacity(locked ? 0.55 : 1)
         .contentShape(Rectangle())
     }
 }

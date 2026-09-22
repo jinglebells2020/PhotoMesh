@@ -91,14 +91,27 @@ circuit through the real engine, so every screen can be exercised without hardwa
 
 Values are formatted with engineering prefixes (37.5 mA, 4.7 kΩ) following the settings.
 
-### PhotoMesh Plus: what the subscription unlocks
+### Photocircuits Plus: paywall the second time, not the first
 
-The free app scans (rate-limited on the shared key), draws, solves and explains. Plus adds
-the parts that turn it from an answer key into a lab and a course; `PlusFeature` lists them
-and every gate goes through `PlusAccess.allows(_:)` (Settings → Subscription has a developer
-"Pretend Plus" toggle for testing):
+A student who has never seen a node light up has nothing to buy; one who saw it on step one and
+hit a wall on step two knows exactly what they are missing. So:
 
-- **Unlimited scans.** No hourly or daily cap.
+- **Free, always:** scanning (soft cap of 30 a month, see below), the recognized schematic with
+  tap to fix (before solving, and *Fix a misread part* after), the final answer, and step one
+  with the live highlight. The correction screen is never behind the wall: every fix is
+  training data.
+- **Free, once:** three complete solutions (`SolveTrial`). The trial fires at real need, when a
+  student first taps past step one, and unlocks that circuit fully (steps, methods,
+  explanations), also when it is reopened from history.
+- **Plus:** steps two onward, method switching (nodal, mesh, reduction on the same circuit),
+  *Explain this step*, practice (a similar problem with fresh values, answered exam-style
+  before the steps show: `Practice`, `PracticeView`), history beyond the last three, and the
+  three below.
+
+`PlusFeature` lists it all and every gate goes through `PlusAccess.allows(_:)` or
+`PlusAccess.allows(_:for:)` for the per-circuit trial (Settings → Subscription has a developer
+"Pretend Plus" toggle, and the Scans row's *Reset* clears the cap, the credits and the trial):
+
 - **Circuit lab.** The explorer has three modes. *Inspect* is the old tap-to-read view.
   *Tweak* shows a slider per element (a hundredfold either way for R, C, L; zero to double
   for sources) and a toggle per switch; the schematic re-solves through the normal engine
@@ -437,10 +450,11 @@ Testers never see an API key. A Release build reads photos with a key baked into
 - Obfuscation only keeps the key out of `strings`; anyone determined can recover it from the
   IPA. Create a dedicated key on openrouter.ai **with a credit limit** and rotate it when the beta
   ends.
-- Per device, `UsageAllowance` caps calls on the built-in key to 12 an hour and 40 a day (rolling
-  windows; a second-pass read counts too and is skipped when out of allowance). Over the limit the
-  scan fails with a message saying when it resets; Settings → Recognition shows what is left.
-  Drawing circuits by hand and the sample circuit are unlimited.
+- Per device, `UsageAllowance` puts a soft cap on the built-in key: 30 scans a calendar month
+  (300 for subscribers, purely against scripts). It is a margin guard, not a conversion lever:
+  the message says when the scans come back and never mentions Plus, bonus scans from the
+  feedback loop cover a full month, a second-pass read is part of the same scan, and Settings →
+  Recognition shows the count. Drawing circuits by hand and the sample circuit are unlimited.
 - Key entry, model choice and the fast/escalate switches only appear in Debug builds, or after
   tapping the version in About seven times (a personal key entered there is not metered).
 

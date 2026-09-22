@@ -62,7 +62,7 @@ struct SubscriptionSettingsSection: View {
         } header: {
             Text("SUBSCRIPTION")
         } footer: {
-            Text(restoreMessage ?? "Plus removes the beta scan limit and unlocks the circuit lab (tweak values, flip switches, simulate in time), the full animated course, and LTspice and PDF exports. Subscriptions renew through your Apple Account until cancelled.")
+            Text(restoreMessage ?? "Scanning, the recognized circuit with tap to fix, the answer and step one are free for everyone, and the first three complete solutions are free too. Plus opens every step after the first, method switching, explanations, practice problems and your full history, plus the circuit lab, the full course and exports. Subscriptions renew through your Apple Account until cancelled.")
                 .foregroundStyle(restoreMessage == nil ? PMTheme.secondaryText : PMTheme.whyOrange)
         }
         .task { await store.refresh() }

@@ -103,6 +103,12 @@ struct PlusSheet: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
+                    Text(SolveTrial.remaining > 0
+                         ? "\(SolveTrial.remaining) of \(SolveTrial.total) free complete solutions left. Scanning, the answer and step one stay free either way."
+                         : "Your \(SolveTrial.total) free complete solutions are used up. Scanning, the answer and step one stay free.")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(PMTheme.plusOrange)
+                        .fixedSize(horizontal: false, vertical: true)
                     ForEach(PlusFeature.allCases) { feature in
                         FeatureRow(title: feature.title, subtitle: feature.detail, systemImage: feature.systemImage)
                     }

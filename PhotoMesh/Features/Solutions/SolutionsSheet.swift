@@ -3,6 +3,7 @@ import SwiftUI
 enum SolutionDestination: Hashable {
     case steps(CircuitAnalysis, methodIndex: Int)
     case circuit(CircuitAnalysis)
+    case practice(CircuitAnalysis)
 }
 
 /// Dark results sheet. One white card per solving method so the user picks which to follow,
@@ -34,6 +35,8 @@ struct SolutionsSheet: View {
     @State private var showContribute = false
     /// A thank-you line after a reward, shown above the cards.
     @State private var rewardNote: String?
+    /// Bumped whenever the sheet comes back into view, so method locks follow a trial or a purchase.
+    @State private var entitlementsTick = 0
 
     var body: some View {
         NavigationStack {
@@ -70,11 +73,16 @@ struct SolutionsSheet: View {
                         case .loaded(let analysis):
                             // The circuit first: what was solved, then how.
                             if analysis.circuit != nil {
-                                RecognizedCircuitCard(analysis: analysis, image: sourceImage, isDrawn: isDrawn)
-                                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                                RecognizedCircuitCard(analysis: analysis, image: sourceImage, isDrawn: isDrawn, onFix: sourceImage == nil ? nil : {
+                                    editing = analysis.drawn ?? analysis.circuit
+                                    showEditor = true
+                                })
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
                             }
                             ForEach(Array(analysis.methods.enumerated()), id: \.element.id) { index, method in
-                                MethodCard(method: method, methodIndex: index, analysis: analysis, request: request)
+                                // The first method is the free walkthrough; switching methods is Plus (or the trial's).
+                                MethodCard(method: method, methodIndex: index, analysis: analysis, request: request,
+                                           locked: entitlementsTick >= 0 && index > 0 && !PlusAccess.allows(.methods, for: analysis))
                                     .transition(.move(edge: .bottom).combined(with: .opacity))
                             }
                             if showConsent { ConsentCard { granted in showConsent = false; noteReward(granted, "for sharing") } }
@@ -83,6 +91,7 @@ struct SolutionsSheet: View {
                     .padding(.horizontal, 16)
                     .padding(.bottom, 36)
                 }
+                .onAppear { entitlementsTick += 1 }
 
                 PMCloseButton { dismiss() }
                     .padding(.top, 14)
@@ -107,6 +116,8 @@ struct SolutionsSheet: View {
                     SolvingStepsView(analysis: analysis, solution: analysis.methods[min(index, analysis.methods.count - 1)])
                 case .circuit(let analysis):
                     CircuitExplorerView(analysis: analysis)
+                case .practice(let analysis):
+                    PracticeView(source: analysis)
                 }
             }
         }
@@ -211,13 +222,19 @@ private struct MethodCard: View {
     let methodIndex: Int
     let analysis: CircuitAnalysis
     let request: SolutionRequest
+    /// Another method's walkthrough, behind Plus. The answer on the card stays visible.
+    var locked = false
+    @State private var presentingPaywall = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(method.method.eyebrow)
-                .font(.system(size: 12, weight: .semibold))
-                .kerning(0.6)
-                .foregroundStyle(PMTheme.secondaryText)
+            HStack(spacing: 8) {
+                Text(method.method.eyebrow)
+                    .font(.system(size: 12, weight: .semibold))
+                    .kerning(0.6)
+                    .foregroundStyle(PMTheme.secondaryText)
+                if locked { PlusTag() }
+            }
             Text(method.method.title)
                 .font(.system(size: 21, weight: .bold))
                 .foregroundStyle(PMTheme.ink)
@@ -276,13 +293,27 @@ private struct MethodCard: View {
 
             HStack {
                 Spacer()
-                NavigationLink(value: SolutionDestination.steps(analysis, methodIndex: methodIndex)) {
-                    HStack(spacing: 10) {
-                        Text("Show Solving Steps")
-                        Image(systemName: "arrow.right").font(.system(size: 16, weight: .semibold))
+                if locked {
+                    Button {
+                        PlusAccess.notedLockedTap(.methods)
+                        presentingPaywall = true
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "lock.fill").font(.system(size: 14, weight: .semibold))
+                            Text("Solve by this method")
+                        }
                     }
+                    .buttonStyle(PMPrimaryButtonStyle())
+                    .sheet(isPresented: $presentingPaywall) { PlusSheet() }
+                } else {
+                    NavigationLink(value: SolutionDestination.steps(analysis, methodIndex: methodIndex)) {
+                        HStack(spacing: 10) {
+                            Text("Show Solving Steps")
+                            Image(systemName: "arrow.right").font(.system(size: 16, weight: .semibold))
+                        }
+                    }
+                    .buttonStyle(PMPrimaryButtonStyle())
                 }
-                .buttonStyle(PMPrimaryButtonStyle())
                 Spacer()
             }
             .padding(.top, 20)
@@ -296,6 +327,9 @@ private struct RecognizedCircuitCard: View {
     let analysis: CircuitAnalysis
     let image: UIImage?
     var isDrawn = false
+    /// Opens the editor on the solved circuit: a misread part can be fixed after the fact, and the
+    /// fix is recorded like one made before solving. Never behind the paywall.
+    var onFix: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -366,6 +400,14 @@ private struct RecognizedCircuitCard: View {
             }
 
             HStack {
+                if let onFix {
+                    Button(action: onFix) {
+                        Label("Fix a misread part", systemImage: "wrench.and.screwdriver")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(PMTheme.accent)
+                    }
+                    .buttonStyle(.plain)
+                }
                 Spacer()
                 NavigationLink(value: SolutionDestination.circuit(analysis)) {
                     HStack(spacing: 10) {
@@ -491,7 +533,7 @@ private struct FailedCard: View {
                 .padding(.top, 6)
             }
             if let earn {
-                Text("Bonus scans get you past the beta limit right away. Earn them by rating a walkthrough, fixing a misread circuit or answering five questions.")
+                Text("Bonus scans get you past this month's cap right away. Earn them by rating a walkthrough, fixing a misread circuit or answering five questions.")
                     .font(.system(size: 14))
                     .foregroundStyle(PMTheme.ink)
                     .fixedSize(horizontal: false, vertical: true)

@@ -213,50 +213,51 @@ private extension SettingsSheet {
             return "Photos are sent to the selected model through OpenRouter to read the schematic. A personal key is stored in this device's Keychain and is not metered. Sample mode skips the camera reader and solves a built-in circuit."
         }
         if APIConfiguration.usesBuiltInKey {
-            return "This beta build reads photos with Photocircuits' own key, limited to \(UsageAllowance.hourlyLimit) scans an hour and \(UsageAllowance.dailyLimit) a day per device. Drawing circuits by hand is unlimited. Sample mode solves a built-in circuit without the camera."
+            return "Photos are read with Photocircuits' own key. Scanning is free, with a soft cap of \(UsageAllowance.monthlyLimit) scans a month per device that almost nobody reaches; bonus scans from feedback count on top. Drawing circuits by hand is unlimited. Sample mode solves a built-in circuit without the camera."
         }
         return "Photos are read by a vision model. Sample mode skips the camera reader and solves a built-in circuit."
     }
 }
 
-/// Scans left on the shared tester key.
+/// Scans used this month against the soft cap, and the bonus scans that stretch it.
 private struct AllowanceRow: View {
-    @State private var status = UsageAllowance.shared.status
+    @State private var status = UsageAllowance.shared.status(plus: PlusAccessCached.hasPlus)
 
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Beta scan allowance").foregroundStyle(PMTheme.ink)
+                Text("Scans this month").foregroundStyle(PMTheme.ink)
                 Text(detail)
                     .font(.system(size: 12))
                     .foregroundStyle(status.isBlocked ? PMTheme.whyOrange : PMTheme.secondaryText)
             }
             Spacer()
-            Text("\(status.remainingToday) left")
+            Text("\(status.remaining) left")
                 .font(.system(size: 15, weight: .semibold, design: .rounded))
-                .foregroundStyle(status.remainingToday == 0 ? PMTheme.whyOrange : PMTheme.accent)
+                .foregroundStyle(status.remaining == 0 ? PMTheme.whyOrange : PMTheme.accent)
             if DeveloperOptions.enabled {
                 Button("Reset") {
                     UsageAllowance.shared.reset()
                     ScanCredits.reset()
-                    status = UsageAllowance.shared.status
+                    SolveTrial.reset()
+                    status = UsageAllowance.shared.status(plus: PlusAccessCached.hasPlus)
                 }
                 .font(.system(size: 13))
                 .buttonStyle(.bordered)
                 .tint(PMTheme.accent)
             }
         }
-        .onAppear { status = UsageAllowance.shared.status }
+        .onAppear { status = UsageAllowance.shared.status(plus: PlusAccessCached.hasPlus) }
     }
 
     private var detail: String {
         let bonus = status.bonus > 0 ? " · \(status.bonus) bonus" : ""
-        if let until = status.blockedUntil {
+        if status.isFull {
             return status.bonus > 0
-                ? "Windows full · bonus scans are being used\(bonus)"
-                : "Limit reached · scans again at \(UsageAllowance.timeText(until))"
+                ? "Month's scans used · bonus scans in use\(bonus)"
+                : "Month's scans used · back on \(UsageAllowance.dayText(status.resetsAt))"
         }
-        return "\(status.usedThisHour) of \(UsageAllowance.hourlyLimit) this hour · \(status.usedToday) of \(UsageAllowance.dailyLimit) today\(bonus)"
+        return "\(status.usedThisMonth) of \(status.limit) used · resets \(UsageAllowance.dayText(status.resetsAt))\(bonus)"
     }
 }
 

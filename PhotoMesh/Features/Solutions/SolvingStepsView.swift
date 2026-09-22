@@ -12,6 +12,12 @@ struct SolvingStepsView: View {
     @State private var showExplorer = false
     @State private var showExport = false
     @State private var showPaywall = false
+    /// Steps past the first are open: Plus, or a free complete solution spent on this circuit.
+    @State private var unlocked = false
+    /// The wall after step one, once a student without Plus and without trial left taps on.
+    @State private var showLock = false
+    /// "Free complete solution 1 of 3", shown when the trial pays for this circuit.
+    @State private var trialNote: String?
 
     private var isComplete: Bool { revealedCount > solution.steps.count }
 
@@ -40,7 +46,11 @@ struct SolvingStepsView: View {
         }
         .background(PMTheme.groupedBackground.ignoresSafeArea())
         .onAppear {
-            Analytics.shared.track("steps_opened", ["method": .string(solution.method.rawValue), "steps": .init(solution.steps.count)])
+            unlocked = PlusAccess.allows(.fullSteps, for: analysis)
+            Analytics.shared.track("steps_opened", ["method": .string(solution.method.rawValue), "steps": .init(solution.steps.count), "unlocked": .bool(unlocked)])
+        }
+        .onChange(of: showPaywall) { _, presenting in
+            if !presenting { refreshEntitlement() }
         }
         .onChange(of: isComplete) { _, done in
             if done { Analytics.shared.track("steps_completed", ["method": .string(solution.method.rawValue), "steps": .init(solution.steps.count)]) }
@@ -86,6 +96,23 @@ struct SolvingStepsView: View {
                         .padding(.horizontal, 20)
                         .padding(.bottom, 8)
 
+                    if let trialNote {
+                        HStack(spacing: 10) {
+                            Image(systemName: "gift.fill")
+                                .foregroundStyle(PMTheme.plusOrange)
+                            Text(trialNote)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(PMTheme.ink)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(PMTheme.plusOrange.opacity(0.12)))
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 10)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+
                     ForEach(Array(solution.steps.enumerated()), id: \.offset) { index, step in
                         if index < revealedCount {
                             StepRow(
@@ -102,6 +129,11 @@ struct SolvingStepsView: View {
                                     if expandedIndex == index { scroll(proxy, to: "step-\(index)") }
                                 },
                                 onWhy: {
+                                    guard PlusAccess.allows(.explain, for: analysis) else {
+                                        PlusAccess.notedLockedTap(.explain)
+                                        showPaywall = true
+                                        return
+                                    }
                                     let opening = whyIndex != index
                                     withAnimation(.easeOut(duration: 0.2)) {
                                         whyIndex = opening ? index : nil
@@ -119,11 +151,27 @@ struct SolvingStepsView: View {
                         }
                     }
 
+                    if showLock, !unlocked {
+                        StepsLockCard(remaining: Array(solution.steps.dropFirst())) {
+                            PlusAccess.notedLockedTap(.fullSteps)
+                            showPaywall = true
+                        }
+                        .id("lock")
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .onAppear { scroll(proxy, to: "lock") }
+                        // The final answer is free, wall or no wall.
+                        SolutionRow(answers: solution.answers, headline: solution.headline)
+                            .padding(.top, 12)
+                    }
+
                     if isComplete {
                         SolutionRow(answers: solution.answers, headline: solution.headline)
                             .id("solution")
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                             .onAppear { scroll(proxy, to: "solution") }
+                        PracticeCard(analysis: analysis)
                         FeedbackFlow(question: analysis.question, method: solution.method.title, circuit: analysis.circuit)
                             .padding(.top, 26)
                             .padding(.horizontal, 20)
@@ -154,10 +202,39 @@ struct SolvingStepsView: View {
     }
 
     private func revealNext() {
+        // Paywall the second time, not the first: step one and the answer are free, step two is
+        // where the trial fires and, once it is spent, where the wall stands.
+        if revealedCount == 1, solution.steps.count > 1, !unlocked {
+            switch SolveTrial.unlock(analysis) {
+            case .unlocked(let ordinal):
+                unlocked = true
+                let last = SolveTrial.remaining == 0 ? " That was the last free one." : ""
+                withAnimation { trialNote = "Free complete solution \(ordinal) of \(SolveTrial.total): every step, method and explanation on this circuit.\(last)" }
+            case .alreadyUnlocked:
+                unlocked = true
+            case .exhausted:
+                PlusAccess.notedLockedTap(.fullSteps)
+                Analytics.shared.track("steps_locked", ["method": .string(solution.method.rawValue), "steps": .init(solution.steps.count)])
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                    showLock = true
+                    whyIndex = nil
+                }
+                return
+            }
+        }
         withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
             revealedCount += 1
             expandedIndex = isComplete ? nil : revealedCount - 1
             whyIndex = nil
+        }
+    }
+
+    /// After the paywall closes: a purchase opens the wall and carries on where the student stopped.
+    private func refreshEntitlement() {
+        unlocked = PlusAccess.allows(.fullSteps, for: analysis)
+        if unlocked, showLock {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) { showLock = false }
+            revealNext()
         }
     }
 
@@ -197,9 +274,14 @@ struct SolvingStepsView: View {
             if !isComplete {
                 Button {
                     Haptics.impact(.light)
-                    revealNext()
+                    if showLock, !unlocked {
+                        PlusAccess.notedLockedTap(.fullSteps)
+                        showPaywall = true
+                    } else {
+                        revealNext()
+                    }
                 } label: {
-                    Text(revealedCount == solution.steps.count ? "Show Answer" : "Next Step")
+                    Text(showLock && !unlocked ? "Unlock every step" : (revealedCount == solution.steps.count ? "Show Answer" : "Next Step"))
                 }
                 .buttonStyle(PMPrimaryButtonStyle())
                 .transition(.scale.combined(with: .opacity))
@@ -386,6 +468,116 @@ private struct StepRow: View {
         default:
             return step.summary
         }
+    }
+}
+
+/// The wall after step one: the remaining step titles, blurred, and the way through.
+private struct StepsLockCard: View {
+    let remaining: [AnalysisStep]
+    let onUnlock: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(remaining.prefix(4).enumerated()), id: \.offset) { offset, step in
+                    HStack(spacing: 10) {
+                        Text("\(offset + 2).")
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .foregroundStyle(PMTheme.tertiaryText)
+                        Text(step.title)
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(PMTheme.ink)
+                            .blur(radius: 4)
+                            .accessibilityHidden(true)
+                        Spacer(minLength: 0)
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 12))
+                            .foregroundStyle(PMTheme.plusOrange)
+                    }
+                }
+                if remaining.count > 4 {
+                    Text("+ \(remaining.count - 4) more steps")
+                        .font(.system(size: 13))
+                        .foregroundStyle(PMTheme.secondaryText)
+                }
+            }
+            .padding(16)
+            .background(RoundedRectangle(cornerRadius: PMTheme.cardRadius, style: .continuous).fill(Color.white))
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(PMTheme.plusOrange)
+                    Text("Photocircuits Plus")
+                        .font(.system(size: 12, weight: .semibold))
+                        .kerning(0.6)
+                        .foregroundStyle(PMTheme.plusOrange)
+                }
+                Text("\(remaining.count) more steps to the answer")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundStyle(PMTheme.ink)
+                Text("Your three free complete solutions are used up. Plus opens every step on every circuit, the other methods, and the explanation behind each step. The answer below stays free.")
+                    .font(.system(size: 14))
+                    .foregroundStyle(PMTheme.secondaryText)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button(action: onUnlock) {
+                    HStack(spacing: 8) {
+                        Text(PlusFeature.fullSteps.unlockPrompt)
+                        Image(systemName: "arrow.right").font(.system(size: 14, weight: .semibold))
+                    }
+                }
+                .buttonStyle(PMBlackButtonStyle())
+                .padding(.top, 4)
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: PMTheme.cardRadius, style: .continuous)
+                    .fill(Color.white)
+                    .shadow(color: .black.opacity(0.08), radius: 10, y: 3)
+            )
+        }
+    }
+}
+
+/// "Practice a similar problem" at the end of a walkthrough; Plus, with the lock card otherwise.
+private struct PracticeCard: View {
+    let analysis: CircuitAnalysis
+
+    var body: some View {
+        Group {
+            if analysis.circuit != nil {
+                if PlusAccess.allows(.practice) {
+                    NavigationLink(value: SolutionDestination.practice(analysis)) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "repeat")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(PMTheme.accent)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Practice a similar problem")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundStyle(PMTheme.ink)
+                                Text("Same circuit, new values. Answer first, then read fresh steps.")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(PMTheme.secondaryText)
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(PMTheme.tertiaryText)
+                        }
+                        .padding(16)
+                        .background(RoundedRectangle(cornerRadius: PMTheme.cardRadius, style: .continuous).fill(Color.white))
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    PlusLockCard(feature: .practice, compact: true)
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 16)
     }
 }
 

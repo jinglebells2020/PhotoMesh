@@ -1,85 +1,61 @@
 import Foundation
 
-/// Per-device caps on recognition calls made with the built-in tester key, so one enthusiastic
-/// tester cannot drain the shared credit. Rolling windows: calls in the last hour and the last day.
-/// Personal keys (entered by a developer) are not metered.
+/// The one guardrail on free scanning: a soft cap per calendar month that almost nobody reaches.
+/// It protects the shared key against abuse and never sells anything: the message says when the
+/// scans come back, not what to buy. Bonus scans (`ScanCredits`) cover a full month. Personal keys
+/// entered by a developer are not metered.
 final class UsageAllowance {
     static let shared = UsageAllowance()
 
-    static let hourlyLimit = 12
-    static let dailyLimit = 40
+    /// Free devices.
+    static let monthlyLimit = 30
+    /// Subscribers: high enough never to be met in honest use, low enough to stop a script.
+    static let plusMonthlyLimit = 300
 
     private let defaultsKey = "usage.recognitionCalls"
-    private let hour: TimeInterval = 3600
-    private let day: TimeInterval = 86400
 
     struct Status {
-        var usedThisHour: Int
-        var usedToday: Int
-        var remainingToday: Int
-        /// When the next call becomes possible, if a limit is currently reached.
-        var blockedUntil: Date?
-        /// Bonus scans that would be spent while a window is full.
+        var usedThisMonth: Int
+        var limit: Int
+        var resetsAt: Date
+        /// Bonus scans that would be spent once the month is full.
         var bonus: Int
-        var isBlocked: Bool { blockedUntil != nil && bonus == 0 }
+        var remaining: Int { max(0, limit - usedThisMonth) }
+        var isFull: Bool { usedThisMonth >= limit }
+        var isBlocked: Bool { isFull && bonus == 0 }
     }
 
     enum LimitError: LocalizedError {
-        case hourly(until: Date)
-        case daily(until: Date)
+        case monthly(limit: Int, until: Date)
 
         var errorDescription: String? {
             switch self {
-            case .hourly(let until):
-                return "Beta limit: \(UsageAllowance.hourlyLimit) scans per hour on the shared key. You can scan again at \(UsageAllowance.timeText(until))."
-            case .daily(let until):
-                return "Beta limit: \(UsageAllowance.dailyLimit) scans per day on the shared key. You can scan again at \(UsageAllowance.timeText(until))."
+            case .monthly(let limit, let until):
+                return "You've used this month's \(limit) scans. They come back on \(UsageAllowance.dayText(until)). Circuits you draw by hand still solve."
             }
         }
     }
 
-    var status: Status {
+    func status(plus: Bool) -> Status {
         let now = Date()
-        let calls = recentCalls(now: now)
-        let lastHour = calls.filter { now.timeIntervalSince($0) < hour }
-        var blockedUntil: Date?
-        if calls.count >= Self.dailyLimit, let oldest = calls.first {
-            blockedUntil = oldest.addingTimeInterval(day)
-        } else if lastHour.count >= Self.hourlyLimit, let oldest = lastHour.first {
-            blockedUntil = oldest.addingTimeInterval(hour)
-        }
-        return Status(usedThisHour: lastHour.count, usedToday: calls.count, remainingToday: max(0, Self.dailyLimit - calls.count), blockedUntil: blockedUntil, bonus: ScanCredits.balance)
+        return Status(usedThisMonth: callsThisMonth(now: now).count, limit: plus ? Self.plusMonthlyLimit : Self.monthlyLimit,
+                      resetsAt: Self.nextMonth(after: now), bonus: ScanCredits.balance)
     }
 
-    /// Records one call, or throws when a window is full. A full window is covered by a bonus
-    /// scan when the user has earned one (the call is then not counted against the window).
-    func consume() throws {
+    /// Records one scan, or throws when the month is full and no bonus scan can cover it.
+    /// A bonus scan is not counted against the month.
+    func consume(plus: Bool) throws {
         let now = Date()
-        let calls = recentCalls(now: now)
-        if let error = limitReached(calls, now: now) {
+        let calls = callsThisMonth(now: now)
+        let limit = plus ? Self.plusMonthlyLimit : Self.monthlyLimit
+        if calls.count >= limit {
             if ScanCredits.spend() {
-                RecognitionLog.shared.record("beta allowance full: spent a bonus scan, \(ScanCredits.balance) left")
+                RecognitionLog.shared.record("month's scans used: spent a bonus scan, \(ScanCredits.balance) left")
                 return
             }
-            throw error
+            throw LimitError.monthly(limit: limit, until: Self.nextMonth(after: now))
         }
         save(calls + [now])
-    }
-
-    private func limitReached(_ calls: [Date], now: Date) -> LimitError? {
-        if calls.count >= Self.dailyLimit, let oldest = calls.first {
-            return .daily(until: oldest.addingTimeInterval(day))
-        }
-        let lastHour = calls.filter { now.timeIntervalSince($0) < hour }
-        if lastHour.count >= Self.hourlyLimit, let oldest = lastHour.first {
-            return .hourly(until: oldest.addingTimeInterval(hour))
-        }
-        return nil
-    }
-
-    /// Records one call if there is room; false (and nothing recorded) otherwise.
-    func tryConsume() -> Bool {
-        do { try consume(); return true } catch { return false }
     }
 
     /// Developer options: start over.
@@ -87,10 +63,11 @@ final class UsageAllowance {
         UserDefaults.standard.removeObject(forKey: defaultsKey)
     }
 
-    private func recentCalls(now: Date) -> [Date] {
+    private func callsThisMonth(now: Date) -> [Date] {
+        let start = Self.monthStart(of: now)
         let stamps = UserDefaults.standard.array(forKey: defaultsKey) as? [Double] ?? []
         return stamps.map { Date(timeIntervalSince1970: $0) }
-            .filter { now.timeIntervalSince($0) < day && $0 <= now }
+            .filter { $0 >= start && $0 <= now }
             .sorted()
     }
 
@@ -98,10 +75,19 @@ final class UsageAllowance {
         UserDefaults.standard.set(calls.map(\.timeIntervalSince1970), forKey: defaultsKey)
     }
 
-    static func timeText(_ date: Date) -> String {
+    static func monthStart(of date: Date) -> Date {
+        let parts = Calendar.current.dateComponents([.year, .month], from: date)
+        return Calendar.current.date(from: parts) ?? date
+    }
+
+    static func nextMonth(after date: Date) -> Date {
+        Calendar.current.date(byAdding: .month, value: 1, to: monthStart(of: date)) ?? date
+    }
+
+    static func dayText(_ date: Date) -> String {
         let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        formatter.dateStyle = Calendar.current.isDateInToday(date) ? .none : .short
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
         formatter.doesRelativeDateFormatting = true
         return formatter.string(from: date)
     }

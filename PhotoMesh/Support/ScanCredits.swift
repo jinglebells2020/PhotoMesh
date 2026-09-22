@@ -1,9 +1,9 @@
 import Foundation
 
 /// Bonus scans earned by helping: turning scan sharing on, fixing a misread circuit, rating a
-/// walkthrough, answering the questionnaire. A bonus scan is spent only when the beta allowance
-/// window is full, so it never costs a subscriber anything and never goes to waste on a free
-/// day. Everything lives in UserDefaults; the balance is capped so credits cannot pile up.
+/// walkthrough, answering the questionnaire. A bonus scan is spent only once the month's free
+/// scans are used up, so it never costs a subscriber anything and never goes to waste in a quiet
+/// month. Everything lives in UserDefaults; the balance is capped so credits cannot pile up.
 enum ScanCredits {
     enum Reason: String, CaseIterable, Codable {
         /// Scan sharing switched on for the first time.

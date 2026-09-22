@@ -46,7 +46,8 @@ enum SolverProvider {
 struct VLMCircuitSolver: CircuitSolverService {
     let primary: OpenRouterClient.Configuration
     let fallback: OpenRouterClient.Configuration?
-    /// Shared tester key: every call counts against `UsageAllowance`.
+    /// Shared tester key: every scan counts against the monthly cap in `UsageAllowance`
+    /// (a second-pass read is part of the same scan and is not counted again).
     var metered = false
 
     func prepare(_ request: SolutionRequest, progress: @escaping (String) -> Void) async throws -> SolveInput {
@@ -61,13 +62,12 @@ struct VLMCircuitSolver: CircuitSolverService {
     }
 
     private func recognizeWithEscalation(_ image: UIImage, progress: @escaping (String) -> Void) async throws -> SolveInput {
-        if metered, !PlusAccessCached.hasPlus {
-            // Caps are checked before spending anything; the error text says when to try again.
-            // Plus subscribers skip the beta allowance entirely.
+        if metered {
+            // The monthly soft cap is checked before anything is spent; the error says when it resets.
             do {
-                try UsageAllowance.shared.consume()
+                try UsageAllowance.shared.consume(plus: PlusAccessCached.hasPlus)
             } catch {
-                Analytics.shared.track("recognition_limited", ["reason": .string(error.localizedDescription)])
+                Analytics.shared.track("recognition_limited", ["reason": .string(error.localizedDescription), "plus": .bool(PlusAccessCached.hasPlus)])
                 throw error
             }
         }
@@ -96,13 +96,6 @@ struct VLMCircuitSolver: CircuitSolverService {
             if let result = firstResult { return input(from: result) }
             throw firstError ?? CircuitPayload.PayloadError.noCircuit
         }
-        if metered, !PlusAccessCached.hasPlus, !UsageAllowance.shared.tryConsume() {
-            // Out of allowance for a second read: return the first result rather than fail.
-            RecognitionLog.shared.record("escalation skipped: beta allowance used up")
-            if let result = firstResult { return input(from: result) }
-            throw firstError ?? CircuitPayload.PayloadError.noCircuit
-        }
-
         progress("Taking a closer look…")
         RecognitionLog.shared.record("escalating to \(fallback.model): \(firstProblem ?? "?")")
         do {

@@ -51,7 +51,7 @@ struct ContributeView: View {
             } header: {
                 Text("WAYS TO EARN")
             } footer: {
-                Text("Bonus scans are spent only when the beta allowance (\(UsageAllowance.hourlyLimit) an hour, \(UsageAllowance.dailyLimit) a day) is full, up to \(ScanCredits.bankLimit) banked. The daily caps keep it fair for everyone.")
+                Text("Bonus scans are spent only once the month's \(UsageAllowance.monthlyLimit) free scans are used up, and up to \(ScanCredits.bankLimit) can be banked. The daily caps keep it fair for everyone.")
             }
 
             Section {
@@ -131,8 +131,8 @@ struct ContributeView: View {
             }
             .frame(minWidth: 96, alignment: .leading)
             Text(PlusAccess.hasPlus
-                 ? "You have unlimited scans with Plus, so these are pure thank-yous. Your feedback still shapes the app."
-                 : "Spent by themselves when the beta allowance is full, so a busy homework night never stops at the cap.")
+                 ? "Plus has a far higher monthly cap, so these are pure thank-yous. Your feedback still shapes the app."
+                 : "Spent by themselves once the month's free scans are used up, so a busy homework night never stops at the cap.")
                 .font(.system(size: 13))
                 .foregroundStyle(PMTheme.ink)
                 .fixedSize(horizontal: false, vertical: true)

@@ -2,10 +2,20 @@ import Foundation
 import Observation
 import SwiftUI
 
-/// What PhotoMesh Plus unlocks. Each case is one gate in the app; the paywall lists them in
-/// this order, so the copy here is the single source of truth for what a subscriber gets.
+/// What Photocircuits Plus unlocks, in the order the paywall lists it, so the copy here is the
+/// single source of truth for what a subscriber gets.
+///
+/// The rule behind the split: paywall the second time, not the first. Scanning, the recognized
+/// schematic with tap to fix, the final answer and step one with its live highlight are always
+/// free; a student who has never seen a node light up has nothing to buy. Everything from step
+/// two on is Plus, after three complete free solutions (`SolveTrial`). The correction screen is
+/// never behind the wall: every fix is training data.
 enum PlusFeature: String, CaseIterable, Identifiable {
-    case unlimitedScans
+    case fullSteps
+    case methods
+    case explain
+    case practice
+    case history
     case lab
     case course
     case exports
@@ -14,7 +24,11 @@ enum PlusFeature: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .unlimitedScans: return "Unlimited scans"
+        case .fullSteps: return "Every step, not just the first"
+        case .methods: return "Solve it their way: nodal, mesh or reduction"
+        case .explain: return "Explain this step"
+        case .practice: return "Practice: a similar problem, fresh steps"
+        case .history: return "History beyond your last three"
         case .lab: return "Circuit lab: tweak and simulate"
         case .course: return "The full circuits course"
         case .exports: return "Export to LTspice and PDF"
@@ -23,8 +37,16 @@ enum PlusFeature: String, CaseIterable, Identifiable {
 
     var detail: String {
         switch self {
-        case .unlimitedScans:
-            return "No hourly or daily cap on camera solves. Drawn circuits are always free."
+        case .fullSteps:
+            return "Step one is always free, with the schematic lighting up as you go. Plus opens steps two onward on every circuit: the whole walkthrough, written the way it is marked."
+        case .methods:
+            return "Professors specify the method. Switch between node voltages, mesh currents and series-parallel reduction on the same circuit and see each one written out in full."
+        case .explain:
+            return "Why this reference node, why this sign, why that equation: a plain-language reason behind every step, one tap away."
+        case .practice:
+            return "The same circuit shape with new values. Answer it yourself in exam mode, get checked, then read fresh steps. As many as you like."
+        case .history:
+            return "Every circuit you ever solved, ready to reopen. Free keeps your last three."
         case .lab:
             return "Drag any value and watch every current and voltage follow. Flip switches, then play the circuit in time: capacitors charging, coils resisting, curves you can scrub."
         case .course:
@@ -36,7 +58,11 @@ enum PlusFeature: String, CaseIterable, Identifiable {
 
     var systemImage: String {
         switch self {
-        case .unlimitedScans: return "camera.viewfinder"
+        case .fullSteps: return "list.number"
+        case .methods: return "arrow.triangle.branch"
+        case .explain: return "questionmark.circle"
+        case .practice: return "repeat"
+        case .history: return "clock.arrow.circlepath"
         case .lab: return "slider.horizontal.below.square.and.square.filled"
         case .course: return "graduationcap"
         case .exports: return "square.and.arrow.up"
@@ -46,7 +72,11 @@ enum PlusFeature: String, CaseIterable, Identifiable {
     /// One line for a locked spot in the app ("Unlock the circuit lab").
     var unlockPrompt: String {
         switch self {
-        case .unlimitedScans: return "Unlock unlimited scans"
+        case .fullSteps: return "Unlock every step"
+        case .methods: return "Unlock method switching"
+        case .explain: return "Unlock explanations"
+        case .practice: return "Unlock practice problems"
+        case .history: return "Unlock your full history"
         case .lab: return "Unlock the circuit lab"
         case .course: return "Unlock the full course"
         case .exports: return "Unlock exports"
@@ -54,8 +84,52 @@ enum PlusFeature: String, CaseIterable, Identifiable {
     }
 }
 
-/// Answers "may this user use that feature right now": the subscription, plus a developer
-/// override so testers can walk through the paid paths without a purchase.
+/// Three complete solutions on install. The trial fires at real need, when a student first taps
+/// past step one, instead of burning down over seven days. A trial unlocks that circuit fully
+/// (every step, every method, every explanation) and it stays unlocked when reopened later.
+enum SolveTrial {
+    static let total = 3
+    private static let unlockedKey = "trial.unlocked"
+
+    enum Outcome {
+        case alreadyUnlocked
+        case unlocked(ordinal: Int)
+        case exhausted
+    }
+
+    static var unlockedKeys: [String] { UserDefaults.standard.stringArray(forKey: unlockedKey) ?? [] }
+    static var used: Int { min(total, unlockedKeys.count) }
+    static var remaining: Int { max(0, total - unlockedKeys.count) }
+
+    /// Stable identity of a solved circuit: its parts and question, not its object identity.
+    static func key(for analysis: CircuitAnalysis) -> String {
+        guard let circuit = analysis.circuit else { return "expression|" + analysis.question }
+        let parts = circuit.components.map { "\($0.id):\($0.kind.rawValue):\($0.value):\($0.nodeA):\($0.nodeB)" }.sorted()
+        return parts.joined(separator: ";") + "#" + circuit.groundNode + "|" + analysis.question
+    }
+
+    static func isUnlocked(_ analysis: CircuitAnalysis) -> Bool {
+        unlockedKeys.contains(key(for: analysis))
+    }
+
+    /// Spends one free complete solution on this circuit, if any is left.
+    static func unlock(_ analysis: CircuitAnalysis) -> Outcome {
+        let key = key(for: analysis)
+        if unlockedKeys.contains(key) { return .alreadyUnlocked }
+        guard remaining > 0 else { return .exhausted }
+        UserDefaults.standard.set(unlockedKeys + [key], forKey: unlockedKey)
+        Analytics.shared.track("trial_used", ["ordinal": .init(used), "remaining": .init(remaining)])
+        return .unlocked(ordinal: used)
+    }
+
+    /// Developer options: start over.
+    static func reset() {
+        UserDefaults.standard.removeObject(forKey: unlockedKey)
+    }
+}
+
+/// Answers "may this user use that feature right now": the subscription, the trial for the
+/// circuit at hand, plus a developer override so testers can walk the paid paths without buying.
 @MainActor
 enum PlusAccess {
     static let pretendKey = "developer.pretendPlus"
@@ -68,11 +142,24 @@ enum PlusAccess {
 
     static var hasPlus: Bool { Subscriptions.shared.isPro || pretendPlus }
 
+    /// Features that are not about one particular circuit.
     static func allows(_ feature: PlusFeature) -> Bool { hasPlus }
+
+    /// Steps, methods and explanations are also open on a circuit the trial unlocked, and on
+    /// calculator results, which have nothing past step one to sell.
+    static func allows(_ feature: PlusFeature, for analysis: CircuitAnalysis) -> Bool {
+        if hasPlus { return true }
+        switch feature {
+        case .fullSteps, .methods, .explain:
+            return analysis.circuit == nil || SolveTrial.isUnlocked(analysis)
+        case .practice, .history, .lab, .course, .exports:
+            return false
+        }
+    }
 
     /// Records that a locked feature was tapped, so the paywall's usefulness can be judged.
     static func notedLockedTap(_ feature: PlusFeature) {
-        Analytics.shared.track("plus_gate", ["feature": .string(feature.rawValue)])
+        Analytics.shared.track("plus_gate", ["feature": .string(feature.rawValue), "trial_left": .init(SolveTrial.remaining)])
     }
 }
 
