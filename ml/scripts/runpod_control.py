@@ -43,7 +43,28 @@ def gql(query: str, variables: dict | None = None) -> dict:
     return data["data"]
 
 
+def build_code_tar(code_dir: str) -> bytes:
+    root = Path(code_dir).resolve()
+    if not (root / "pyproject.toml").exists():
+        raise SystemExit(f"{root} is not the ml package directory (no pyproject.toml)")
+    buf = io.BytesIO()
+    n = 0
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        for p in root.rglob("*"):
+            rel = p.relative_to(root.parent)
+            if any(part in ("__pycache__", ".pytest_cache", "data", "runs", "results", ".venv") for part in rel.parts) or p.suffix in (".pyc",):
+                continue
+            tar.add(p, arcname=str(rel), recursive=False)
+            n += p.is_file()
+    data = buf.getvalue()
+    if n < 20 or len(data) < 10_000:
+        raise SystemExit(f"code tarball looks wrong: {n} files, {len(data)} bytes")
+    print(f"code tarball: {n} files, {len(data)} bytes")
+    return data
+
+
 def create(args) -> None:
+    code = build_code_tar(args.code) if args.job else b""
     token = secrets.token_hex(16)
     env = [{"key": "JUPYTER_PASSWORD", "value": token}, {"key": "RUNPOD_API_KEY", "value": os.environ["RUNPOD_API_KEY"]}]
     for kv in args.env:
@@ -65,7 +86,7 @@ def create(args) -> None:
     Path(args.state).write_text(json.dumps(state))
     if args.job:
         wait_ready(pod["id"], token, args.wait)
-        upload_code(pod["id"], token, args.code)
+        upload_bytes(pod["id"], token, "workspace/ml.tar.gz", code)
         upload_text(pod["id"], token, "workspace/job.sh", Path(args.job).read_text())
         print("job uploaded; the pod starts it within seconds")
 
@@ -113,18 +134,6 @@ def upload_bytes(pod_id: str, token: str, path: str, data: bytes) -> None:
     r = requests.put(pod_url(pod_id, path, token), json={"type": "file", "format": "base64", "content": base64.b64encode(data).decode()}, timeout=300)
     r.raise_for_status()
     print("uploaded", path, len(data), "bytes")
-
-
-def upload_code(pod_id: str, token: str, code_dir: str) -> None:
-    buf = io.BytesIO()
-    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        root = Path(code_dir)
-        for p in root.rglob("*"):
-            rel = p.relative_to(root.parent)
-            if any(part in ("__pycache__", ".pytest_cache", "data", "runs", "results", ".venv") for part in rel.parts) or p.suffix in (".pyc",):
-                continue
-            tar.add(p, arcname=str(rel), recursive=False)
-    upload_bytes(pod_id, token, "workspace/ml.tar.gz", buf.getvalue())
 
 
 def read_text(pod_id: str, token: str, path: str) -> str:
