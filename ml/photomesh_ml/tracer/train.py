@@ -3,7 +3,8 @@
     python -m photomesh_ml.tracer.train --train data/records/train.jsonl --val data/records/val.jsonl \
         --backbone mobilenet_v3_large --size 640 --epochs 40 --batch 16 --out runs/tracer
 
-Checkpoints hold the model, the config and the class list; `--resume` continues a run.
+Checkpoints hold the model, the config and the class list; `--resume` continues a run, `--init` starts
+a new schedule from a checkpoint's weights.
 """
 from __future__ import annotations
 
@@ -123,7 +124,8 @@ def main(argv: Optional[list[str]] = None) -> None:
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--workers", type=int, default=4)
     parser.add_argument("--out", default="runs/tracer")
-    parser.add_argument("--resume", default=None)
+    parser.add_argument("--resume", default=None, help="continue a run: weights, EMA and epoch counter")
+    parser.add_argument("--init", default=None, help="start a new schedule from a checkpoint's weights (and EMA)")
     parser.add_argument("--max-steps", type=int, default=0, help="stop early (smoke tests)")
     parser.add_argument("--no-mosaic", action="store_true")
     parser.add_argument("--no-pretrained", action="store_true")
@@ -160,13 +162,17 @@ def main(argv: Optional[list[str]] = None) -> None:
     if args.resume:
         model, ckpt = load_checkpoint(args.resume, device)
         start_epoch = int(ckpt.get("epoch", 0)) + 1
+    elif args.init:
+        # weights only: a fresh schedule on top of a finished run (new targets, more data)
+        model, ckpt = load_checkpoint(args.init, device)
+        start_epoch = 0
     else:
         model = CircuitNet(args.backbone, args.width, pretrained=not args.no_pretrained).to(device)
         start_epoch = 0
     params = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(params, lr=args.lr, weight_decay=args.weight_decay)
     ema_model = copy.deepcopy(model).eval() if args.ema > 0 else None
-    if ema_model is not None and args.resume and "ema" in ckpt:
+    if ema_model is not None and (args.resume or args.init) and "ema" in ckpt:
         ema_model.load_state_dict(ckpt["ema"])
 
     ema_updates = 0

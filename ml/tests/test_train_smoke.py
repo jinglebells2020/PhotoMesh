@@ -34,6 +34,12 @@ def test_train_cli_smoke(tmp_path):
     assert any("e2e" in l for l in lines) and any("val" in l for l in lines)
     val = next(l for l in lines if "val" in l)["val"]
     assert "detection" in val and "mAP" in val["detection"]
+    # a second run can start from the first one's weights with a fresh schedule
+    out2 = tmp_path / "run2"
+    train.main(["--train", str(jsonl), "--val", str(jsonl), "--backbone", "tiny", "--width", "16", "--size", "128", "--epochs", "1",
+                "--batch", "2", "--workers", "0", "--max-steps", "1", "--out", str(out2), "--ema", "0.9", "--no-mosaic", "--device", "cpu",
+                "--init", str(out / "last.pt")])
+    assert (out2 / "last.pt").exists()
     # detection-only evaluation runs on the same records and writes a per-source summary
     detect_eval.main(["--checkpoint", str(out / "last.pt"), "--records", str(jsonl), "--limit", "2", "--bootstrap", "5",
                       "--out", str(out / "detect")])
