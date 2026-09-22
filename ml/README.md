@@ -77,6 +77,8 @@ What each source supervises (everything else is masked in the loss):
 | CGHD | ✓ (59 → app classes + `other`) | ✓ from rotation | ✓ near-axis symbols | ✓ dots | ✓ from stroke maps (284 images) | ✓ | via teacher |
 | app scans (opt-in, `data/scans.py`) | ✓ from the app's placements | axis only | – | – | – | – | ✓ corrected (gold) / accepted (silver) |
 
+Label frames: phone photos carry an EXIF rotation, and the CGHD labellers applied it for 293 of the 3,293 photos but not for the rest, while two drafters' XML sizes are simply wrong. `data/orientation.py` works out, per photo, which frame the boxes were drawn in (stroke-mask size, then annotation size, then ink-versus-label agreement for 180° turns); the record stores that orientation and every loader opens photos through `open_record_image`, so nothing trains or scores on sideways boxes.
+
 ## 2. On-device tracer (CircuitNet)
 
 ```bash

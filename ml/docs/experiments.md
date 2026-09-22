@@ -15,6 +15,11 @@ data and the models change.
 `python -m photomesh_ml.data.convert_cli` writes `train/val/test.jsonl` with these rules
 (`data/splits.py`, salt `photomesh`). Never tune on `test`.
 
+Every photo is opened in the frame its labels were drawn in (`Record.orientation`, detected per
+photo by `data/orientation.py`); in CGHD that is the EXIF-rotated frame for 293 photos and the
+stored frame for the rest. Numbers from before this fix (none are published here) scored those
+293 photos against sideways boxes.
+
 ## Metrics (`eval/metrics.py`, `eval/detection.py`)
 
 - **correct**: the user would see the right circuit and the right numbers: every element found
