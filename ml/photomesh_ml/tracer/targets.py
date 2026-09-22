@@ -78,13 +78,12 @@ def build_targets(record: Record, input_size: tuple[int, int], stride: int = 4, 
         ci, cj = int(cx), int(cy)
         if not (0 <= ci < w and 0 <= cj < h):
             continue
-        if s.class_candidates:
-            for name in s.class_candidates:
-                k = CLASS_INDEX[name]
-                heat_weight[k, max(0, int(y0 / stride)):int(math.ceil(y1 / stride)), max(0, int(x0 / stride)):int(math.ceil(x1 / stride))] = 0.0
-            continue
         radius = max(0.0, gaussian_radius(bh, bw))
-        draw_gaussian(heat[CLASS_INDEX[s.cls]], ci, cj, radius)
+        # A label the source cannot resolve (CGHD's one `switch` class) is a positive on every
+        # candidate channel: the model learns the symbol from real drawings, synthetic data teaches
+        # the split, and the decoder keeps the stronger channel at inference.
+        for name in (s.class_candidates or [s.cls]):
+            draw_gaussian(heat[CLASS_INDEX[name]], ci, cj, radius)
         sizes.append([bw, bh])
         offsets.append([cx - ci, cy - cj])
         indices.append(cj * w + ci)

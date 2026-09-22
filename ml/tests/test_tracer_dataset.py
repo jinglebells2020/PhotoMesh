@@ -54,7 +54,7 @@ def test_rotation_keeps_labels_inside_and_consistent(tmp_path):
     ds = TracerDataset(records, input_size=160, train=True, mosaic_ports=False, seed=3, max_rotation=8.0)
     item = ds[0]
     n = int(item["reg_mask"].sum())
-    assert n == len([s for s in records[0].symbols if not s.class_candidates])
+    assert n == len(records[0].symbols)
     assert int(item["index"].max()) < 40 * 40
     # rotated wire ink still lands on the wire target
     assert float(item["wire"].sum()) > 0

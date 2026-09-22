@@ -23,11 +23,12 @@ def test_targets_shapes_and_masks():
     assert t.heat.shape == (len(TRACER_CLASSES), 32, 32)
     assert t.heat[CLASS_INDEX["resistor"]].max() == pytest.approx(1.0)
     assert t.heat[CLASS_INDEX["text"]].max() == pytest.approx(1.0)
-    # the ambiguous switch produces an ignore region instead of a peak
-    assert t.heat[CLASS_INDEX["switch_open"]].max() == 0
-    assert t.heat_weight[CLASS_INDEX["switch_closed"], 23, 5] == 0
-    assert len(t.index) == 3
-    assert t.polarity_weight.tolist() == [1.0, 1.0, 0.0]
+    # the ambiguous switch is a peak on both candidate channels (its state is unknown, not its presence)
+    assert t.heat[CLASS_INDEX["switch_open"]].max() == pytest.approx(1.0)
+    assert t.heat[CLASS_INDEX["switch_closed"]].max() == pytest.approx(1.0)
+    assert t.heat[CLASS_INDEX["switch_closed"], 23, 6] == pytest.approx(1.0)
+    assert len(t.index) == 4
+    assert t.polarity_weight.tolist() == [1.0, 1.0, 0.0, 0.0]
     assert t.wire_weight == 1.0 and t.wire[0, 8, 0] == 1.0
     assert t.junction_weight == 1.0 and t.junction[0, 16, 16] == pytest.approx(1.0)
     assert t.terminal_weight == 0.0     # the switch has no terminals -> whole head masked

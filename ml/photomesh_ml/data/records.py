@@ -23,7 +23,7 @@ class Symbol:
     box: list[float]                            # px [x0, y0, x1, y1]
     polarity: Optional[str] = None              # right | up | left | down; None = unknown
     polarity_candidates: Optional[list[str]] = None   # e.g. ["right", "left"] when only the axis is known
-    class_candidates: Optional[list[str]] = None      # e.g. ["switch_open", "switch_closed"]: no loss on those channels
+    class_candidates: Optional[list[str]] = None      # e.g. ["switch_open", "switch_closed"]: positive on every candidate
     terminals: Optional[list[list[float]]] = None      # px points; None = unknown
     text: Optional[str] = None                  # for cls == "text"
     id: Optional[str] = None
