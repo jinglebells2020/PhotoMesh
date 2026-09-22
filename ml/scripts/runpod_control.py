@@ -52,8 +52,9 @@ def build_code_tar(code_dir: str) -> bytes:
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
         for p in root.rglob("*"):
             rel = p.relative_to(root.parent)
-            if any(part in ("__pycache__", ".pytest_cache", "data", "runs", "results", ".venv") for part in rel.parts) or p.suffix in (".pyc",):
-                continue
+            top = rel.parts[1] if len(rel.parts) > 1 else ""
+            if any(part in ("__pycache__", ".pytest_cache", ".venv") for part in rel.parts) or top in ("data", "runs", "results") or p.suffix == ".pyc":
+                continue   # skip caches and the top-level data/runs/results dirs, never package sub-directories
             tar.add(p, arcname=str(rel), recursive=False)
             n += p.is_file()
     data = buf.getvalue()
@@ -122,6 +123,12 @@ def wait_ready(pod_id: str, token: str, wait_s: int) -> None:
             return
         time.sleep(15)
     raise SystemExit("pod's Jupyter did not come up in time; check `status`")
+
+
+def mkdir(pod_id: str, token: str, path: str) -> None:
+    r = requests.put(pod_url(pod_id, path, token), json={"type": "directory"}, timeout=60)
+    if r.status_code not in (200, 201):
+        r.raise_for_status()
 
 
 def upload_text(pod_id: str, token: str, path: str, content: str) -> None:
