@@ -4,18 +4,18 @@
 # RECORDS_DIR must hold val.jsonl (calibration) and test.jsonl (reporting).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-RUN=$1; REC=$2; LIMIT=${3:-0}
+RUN=$1; REC=$2; LIMIT=${3:-0}; DEVICE=${DEVICE:-cpu}
 OUT="$RUN/results"; mkdir -p "$OUT"
 CK="$RUN/last.pt"
 python -m photomesh_ml.tracer.report --run "$RUN" --out "$OUT/training.md"
-python -m photomesh_ml.tracer.evaluate --checkpoint "$CK" --records "$REC/test.jsonl" --limit "$LIMIT" --ocr gt --out "$OUT/test_gt"
-python -m photomesh_ml.tracer.evaluate --checkpoint "$CK" --records "$REC/test.jsonl" --limit "$LIMIT" --ocr gt --tta --out "$OUT/test_gt_tta"
-python -m photomesh_ml.tracer.evaluate --checkpoint "$CK" --records "$REC/test.jsonl" --limit "$LIMIT" --ocr none --out "$OUT/test_noocr"
-python -m photomesh_ml.tracer.evaluate --checkpoint "$CK" --records "$REC/test.jsonl" --limit "$LIMIT" --ocr gt --no-unit-kinds --out "$OUT/ablation_no_unit_kinds"
-python -m photomesh_ml.tracer.evaluate --checkpoint "$CK" --records "$REC/test.jsonl" --limit "$LIMIT" --ocr gt --body-removal box --closing 1 --wire-threshold 0.5 --out "$OUT/ablation_assembler_v1"
+python -m photomesh_ml.tracer.evaluate --checkpoint "$CK" --records "$REC/test.jsonl" --limit "$LIMIT" --ocr gt --device "$DEVICE" --out "$OUT/test_gt"
+python -m photomesh_ml.tracer.evaluate --checkpoint "$CK" --records "$REC/test.jsonl" --limit "$LIMIT" --ocr gt --tta --device "$DEVICE" --out "$OUT/test_gt_tta"
+python -m photomesh_ml.tracer.evaluate --checkpoint "$CK" --records "$REC/test.jsonl" --limit "$LIMIT" --ocr none --device "$DEVICE" --out "$OUT/test_noocr"
+python -m photomesh_ml.tracer.evaluate --checkpoint "$CK" --records "$REC/test.jsonl" --limit "$LIMIT" --ocr gt --no-unit-kinds --device "$DEVICE" --out "$OUT/ablation_no_unit_kinds"
+python -m photomesh_ml.tracer.evaluate --checkpoint "$CK" --records "$REC/test.jsonl" --limit "$LIMIT" --ocr gt --body-removal box --closing 1 --wire-threshold 0.5 --device "$DEVICE" --out "$OUT/ablation_assembler_v1"
 cp "$CK" "$OUT/calibrated.pt"
-python -m photomesh_ml.tracer.calibrate --checkpoint "$OUT/calibrated.pt" --records "$REC/val.jsonl" --limit "$LIMIT" --ocr gt
-python -m photomesh_ml.tracer.evaluate --checkpoint "$OUT/calibrated.pt" --records "$REC/test.jsonl" --limit "$LIMIT" --ocr gt --out "$OUT/test_gt_calibrated"
+python -m photomesh_ml.tracer.calibrate --checkpoint "$OUT/calibrated.pt" --records "$REC/val.jsonl" --limit "$LIMIT" --ocr gt --device "$DEVICE"
+python -m photomesh_ml.tracer.evaluate --checkpoint "$OUT/calibrated.pt" --records "$REC/test.jsonl" --limit "$LIMIT" --ocr gt --device "$DEVICE" --out "$OUT/test_gt_calibrated"
 python - "$OUT" <<'PYEOF'
 import json, sys
 from pathlib import Path

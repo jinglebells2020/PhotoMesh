@@ -71,7 +71,8 @@ def _border_colour(img: Image.Image) -> tuple[int, int, int]:
 
 class TracerDataset(Dataset):
     def __init__(self, records: Sequence[Record], input_size: int = 640, train: bool = True, stride: int = 4,
-                 jsonl_dir: Optional[Path] = None, mosaic_ports: bool = True, seed: int = 0, max_rotation: float = 0.0):
+                 jsonl_dir: Optional[Path] = None, mosaic_ports: bool = True, seed: int = 0, max_rotation: float = 0.0,
+                 max_mosaics: int = 3000):
         self.records = list(records)
         self.input_size = input_size
         self.train = train
@@ -83,7 +84,7 @@ class TracerDataset(Dataset):
         self.port_records = [r for r in self.records if r.source == "digitize_hcd_ports"]
         # Port crops are only consumed through mosaics; keep one entry per ~6 crops.
         others = [r for r in self.records if r.source != "digitize_hcd_ports"]
-        n_mosaic = len(self.port_records) // 6 if mosaic_ports else 0
+        n_mosaic = min(len(self.port_records) // 6, max_mosaics) if mosaic_ports else 0
         self.items: list[tuple[str, Optional[Record]]] = [("record", r) for r in others] + [("mosaic", None)] * n_mosaic
 
     def __len__(self) -> int:

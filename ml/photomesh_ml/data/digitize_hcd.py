@@ -104,6 +104,7 @@ def convert_port_crops(root: Path, size: int = 320, margin: float = 0.03) -> lis
     if port_root is None:
         return []
     records: list[Record] = []
+    counter = 0
     for class_dir in sorted(p for p in port_root.iterdir() if p.is_dir()):
         cls = PORT_DIR_MAP.get(class_dir.name)
         if cls is None:
@@ -133,7 +134,8 @@ def convert_port_crops(root: Path, size: int = 320, margin: float = 0.03) -> lis
             elif len(points) == 2:
                 (ax, ay), (bx, by) = points
                 candidates = ["right", "left"] if abs(bx - ax) >= abs(by - ay) else ["up", "down"]
-            records.append(Record(image=str(img), width=size, height=size, source="digitize_hcd_ports", group="ports",
+            counter += 1
+            records.append(Record(image=str(img), width=size, height=size, source="digitize_hcd_ports", group=f"ports-{counter % 20:02d}",
                                   symbols=[Symbol(cls=cls, box=box, polarity=polarity, polarity_candidates=candidates,
                                                   terminals=points or None, source_label=class_dir.name)],
                                   junctions=None, wire_mask=None, texts_complete=False,
