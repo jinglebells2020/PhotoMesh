@@ -207,11 +207,21 @@ Done and measured on a rented RTX 4090 (every table and the result files: [`docs
   detection, the assembler on ground-truth maps (90 % fully correct, 96 % topology on 160 circuits),
   Core ML + ONNX export, real-photo detection evaluation, the unattended RunPod recipe.
 
+- **Real netlists for 334 photos** ([`labels/claude/`](labels/claude/README.md)): Claude labelled the
+  in-scope Digitize-HCD and CGHD photos directly and every label passed the distillation checks
+  (schema, DC solver, box agreement with the dataset annotation); 62 of them come from the held-out
+  records and are the end-to-end test set for real photos. Scored on them, the tracer reads the
+  symbols (recall 0.98, kinds 1.00, values 0.99) but gets only 18 % of the netlists right (95 % CI
+  8–27; 26 % with three-scale test-time augmentation; 44 % on the CGHD drafters whose stroke maps
+  trained the wire head, 9 % on Digitize-HCD):
+  the traced wires stop short of the terminals, so nets fragment. Details and the assembler
+  ablations are in `docs/experiments.md`.
+
 Not yet done: the Swift port of the assembler ([`docs/on-device.md`](docs/on-device.md)) and the
-Core ML integration in the app; end-to-end numbers on real photos (they need real netlists: more
-teacher labelling once the OpenRouter account has credit, or corrected scans from the app); the
-teacher-versus-student benchmark (same reason); dense hand-drawn pages (the CGHD val drafters) and
-lamps/batteries on real drawings; the app-scan converter on real exports.
+Core ML integration in the app; wire supervision for the Digitize-HCD style and a tracer retrained
+with it (the end-to-end failure above); the teacher-versus-student benchmark (the OpenRouter
+account has no credit); dense hand-drawn pages (the CGHD val drafters) and lamps/batteries on real
+drawings; the app-scan converter on real exports.
 
 ## Licences
 

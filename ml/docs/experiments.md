@@ -275,3 +275,54 @@ The student sees the components (recall 0.96, kinds and values right when found)
 Training-loop evaluation on 30 val samples agrees: correct 0.33 [0.1667, 0.5], component recall 0.96, kind accuracy 0.994, box IoU 0.85. LoRA training loss fell from 0.44 to 0.06 over the 308 optimizer steps (51 min).
 
 <!-- gpu-run:end -->
+
+### Real photos end to end, scored against Claude's netlists (23 Sep 2026, CPU)
+
+The 334 accepted labels in [`labels/claude/`](../labels/claude/README.md) give the first end-to-end
+numbers on real photos. The held-out file holds the 62 photos from the val/test records (46
+Digitize-HCD, 16 CGHD from the test drafters); the tracer never saw their boxes. The 272 training-split
+photos are reported separately: the tracer trained on their symbol boxes (not on any wiring), so that
+number is in-distribution for detection and only says how far the wire tracing is from the symbols.
+All runs: `tracer.evaluate`, CircuitNet v2 (calibrated), 640 px, ground-truth text, unit rule off,
+one CPU core each (latency is the CPU figure, 2.5 s a photo).
+
+| set | n | correct [95% CI] | topology | valid netlist | comp. recall / precision | kind acc | value acc | mAP@0.5 | ground node |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| held-out, all | 62 | 0.177 [0.0806, 0.2742] | 0.177 | 0.226 | 0.983 / 0.991 | 1.000 | 0.985 | 0.983 | 0.21 |
+| held-out, CGHD test drafters | 16 | 0.438 | 0.438 | 0.50 | 0.93 / 0.98 | 1.00 | 0.92 | – | 0.50 |
+| held-out, Digitize-HCD | 46 | 0.087 | 0.087 | 0.13 | 0.99 / 1.00 | 1.00 | 0.99 | – | 0.11 |
+| training-split photos | 272 | 0.118 [0.0809, 0.1581] | 0.121 | 0.169 | 0.998 / 0.999 | 0.996 | 0.979 | 0.994 | 0.165 |
+
+The symbols are essentially solved on these photos (recall 0.98, every kind right, values right where
+the text is given) and the netlists are still wrong four times out of five. The failure is one thing:
+the traced wires do not reach the terminals. 39 of the 62 held-out netlists are rejected as
+`danglingElement` (a component with a terminal on no net), 6 more because the tracer kept an
+`X` element it could not attach, and the predicted circuits have more nodes than the truth in 49 of
+62 photos and fewer in none: nets fragment, they never merge. By circuit size: 1–3 elements 0.125
+(n=8), 4–5 elements 0.364 (n=22), 6+ elements 0.062 (n=32). CGHD is the source whose stroke maps
+trained the wire head (284 images) and it scores 0.44; Digitize-HCD contributed no wire supervision
+at all and scores 0.09. The calibrated confidence is useless here (Brier 0.71: 59 of 62 photos are
+rated above 0.8 and 19 % of those are right), which is what a gate fit on synthetic val should do
+on an out-of-distribution failure and is the reason the app must not trust it on photos yet.
+
+Assembler knobs on the same held-out photos (the wire head is unchanged; only the post-processing moves):
+
+| setting | correct [95% CI] | topology | valid |
+| --- | --- | --- | --- |
+| default (wire threshold 0.4, closing radius max(W,H)/160, span body removal) | 0.177 [0.0806, 0.2742] | 0.177 | 0.226 |
+| unit-based kinds on | 0.129 [0.0484, 0.2097] | 0.129 | 0.16 |
+| three-scale majority (`--tta`) | 0.258 [0.1613, 0.371] | 0.258 | 0.306 |
+| wire threshold 0.25 (training-split photos, 272) | 0.121 [0.0846, 0.1618] vs 0.118 default | 0.125 | 0.17 |
+| box body removal (training-split photos, 272) | 0.118 [0.0809, 0.1581], identical to default | 0.121 | 0.169 |
+
+Lowering the wire threshold changes one photo in 272 and removing the body by box changes none: the
+wire probability near the terminals is not low, it is absent, so no post-processing recovers it.
+Test-time augmentation is the one knob that moves the number (0.18 → 0.26, intervals overlapping),
+because the three scales see the thin scan lines differently and the majority fills some gaps.
+
+What this changes in the plan: the tracer's next training run needs wire supervision on the Digitize-HCD
+style (its scans have no stroke maps; the netlists can supervise the assembler's output but not the
+pixels, so the options are pseudo-masks from the netlist plus the symbol boxes, or a few hundred
+stroke maps drawn for that source), and the Core ML package in the repository should be read as a
+symbol detector until then. The cloud tier is scored on the same 62 photos below.
+

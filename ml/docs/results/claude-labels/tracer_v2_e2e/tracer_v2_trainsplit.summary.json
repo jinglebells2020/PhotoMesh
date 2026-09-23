@@ -1,0 +1,253 @@
+{
+ "overall": {
+  "n": 272,
+  "valid": 0.16911764705882354,
+  "correct": 0.11764705882352941,
+  "topology_ok": 0.1213235294117647,
+  "structure_ok": 0.13970588235294118,
+  "answer_ok": 0.1213235294117647,
+  "component_recall": 0.998314606741573,
+  "component_precision": 0.999437570303712,
+  "kind_acc": 0.996060776589758,
+  "value_acc": 0.9786156443444006,
+  "ids_ok": 1.0,
+  "ground_ok": 0.16544117647058823,
+  "box_iou": 0.6662324821406097,
+  "unsupported_ok": 0.9963235294117647,
+  "correct_ci95": [
+   0.0809,
+   0.1581
+  ],
+  "topology_ci95": [
+   0.0846,
+   0.1618
+  ]
+ },
+ "confusion": {
+  "capacitor": {
+   "capacitor": 298,
+   "resistor": 1
+  },
+  "current_source": {
+   "current_source": 220,
+   "text": 1,
+   "voltage_source": 1
+  },
+  "ground": {
+   "ground": 259
+  },
+  "inductor": {
+   "inductor": 313,
+   "resistor": 5
+  },
+  "resistor": {
+   "resistor": 641,
+   "(missed)": 1
+  },
+  "text": {
+   "text": 1775,
+   "(missed)": 8
+  },
+  "voltage_source": {
+   "voltage_source": 297,
+   "(missed)": 1
+  }
+ },
+ "by_style": {
+  "digitize_hcd": {
+   "n": 272,
+   "valid": 0.16911764705882354,
+   "correct": 0.11764705882352941,
+   "topology_ok": 0.1213235294117647,
+   "structure_ok": 0.13970588235294118,
+   "answer_ok": 0.1213235294117647,
+   "component_recall": 0.998314606741573,
+   "component_precision": 0.999437570303712,
+   "kind_acc": 0.996060776589758,
+   "value_acc": 0.9786156443444006,
+   "ids_ok": 1.0,
+   "ground_ok": 0.16544117647058823,
+   "box_iou": 0.6662324821406097,
+   "unsupported_ok": 0.9963235294117647,
+   "correct_ci95": [
+    0.0809,
+    0.1581
+   ],
+   "topology_ci95": [
+    0.0846,
+    0.1618
+   ]
+  }
+ },
+ "by_photo": {
+  "flat": {
+   "n": 272,
+   "valid": 0.16911764705882354,
+   "correct": 0.11764705882352941,
+   "topology_ok": 0.1213235294117647,
+   "structure_ok": 0.13970588235294118,
+   "answer_ok": 0.1213235294117647,
+   "component_recall": 0.998314606741573,
+   "component_precision": 0.999437570303712,
+   "kind_acc": 0.996060776589758,
+   "value_acc": 0.9786156443444006,
+   "ids_ok": 1.0,
+   "ground_ok": 0.16544117647058823,
+   "box_iou": 0.6662324821406097,
+   "unsupported_ok": 0.9963235294117647,
+   "correct_ci95": [
+    0.0809,
+    0.1581
+   ],
+   "topology_ci95": [
+    0.0846,
+    0.1618
+   ]
+  }
+ },
+ "by_size": {
+  "4-5 elements": {
+   "n": 67,
+   "valid": 0.208955223880597,
+   "correct": 0.14925373134328357,
+   "topology_ok": 0.14925373134328357,
+   "structure_ok": 0.1791044776119403,
+   "answer_ok": 0.14925373134328357,
+   "component_recall": 0.9969418960244648,
+   "component_precision": 1.0,
+   "kind_acc": 0.9969325153374233,
+   "value_acc": 0.9754601226993865,
+   "ids_ok": 1.0,
+   "ground_ok": 0.208955223880597,
+   "box_iou": 0.6551601181996863,
+   "unsupported_ok": 0.9850746268656716,
+   "correct_ci95": [
+    0.0746,
+    0.2388
+   ],
+   "topology_ci95": [
+    0.0746,
+    0.2388
+   ]
+  },
+  "6+ elements": {
+   "n": 205,
+   "valid": 0.15609756097560976,
+   "correct": 0.1073170731707317,
+   "topology_ok": 0.11219512195121951,
+   "structure_ok": 0.12682926829268293,
+   "answer_ok": 0.11219512195121951,
+   "component_recall": 0.9986235375086029,
+   "component_precision": 0.9993112947658402,
+   "kind_acc": 0.9958649207443143,
+   "value_acc": 0.9793246037215714,
+   "ids_ok": 1.0,
+   "ground_ok": 0.15121951219512195,
+   "box_iou": 0.6698512547456916,
+   "unsupported_ok": 1.0,
+   "correct_ci95": [
+    0.0683,
+    0.1512
+   ],
+   "topology_ci95": [
+    0.0732,
+    0.1561
+   ]
+  }
+ },
+ "detection": {
+  "mAP": 0.9936,
+  "per_class": {
+   "resistor": {
+    "ap": 0.9973,
+    "n": 642
+   },
+   "voltage_source": {
+    "ap": 0.9966,
+    "n": 298
+   },
+   "current_source": {
+    "ap": 0.991,
+    "n": 222
+   },
+   "battery": {
+    "ap": null,
+    "n": 0
+   },
+   "capacitor": {
+    "ap": 0.9963,
+    "n": 299
+   },
+   "inductor": {
+    "ap": 0.9843,
+    "n": 318
+   },
+   "lamp": {
+    "ap": null,
+    "n": 0
+   },
+   "switch_open": {
+    "ap": null,
+    "n": 0
+   },
+   "switch_closed": {
+    "ap": null,
+    "n": 0
+   },
+   "ground": {
+    "ap": 0.9958,
+    "n": 259
+   },
+   "crossover": {
+    "ap": null,
+    "n": 0
+   },
+   "text": {
+    "ap": 0.9942,
+    "n": 1783
+   },
+   "other": {
+    "ap": null,
+    "n": 0
+   }
+  }
+ },
+ "mean_latency_s": 1.2670147058823527,
+ "confidence": {
+  "brier": 0.7803,
+  "calibrated": true,
+  "reliability": [
+   {
+    "bin": "0.0-0.2",
+    "n": 4,
+    "mean_conf": 0.07,
+    "accuracy": 0.0
+   },
+   {
+    "bin": "0.2-0.4",
+    "n": 0,
+    "mean_conf": null,
+    "accuracy": null
+   },
+   {
+    "bin": "0.4-0.6",
+    "n": 0,
+    "mean_conf": null,
+    "accuracy": null
+   },
+   {
+    "bin": "0.6-0.8",
+    "n": 0,
+    "mean_conf": null,
+    "accuracy": null
+   },
+   {
+    "bin": "0.8-1.0",
+    "n": 268,
+    "mean_conf": 0.941,
+    "accuracy": 0.119
+   }
+  ]
+ },
+ "confidence_gate_95": null
+}

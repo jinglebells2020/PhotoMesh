@@ -25,8 +25,11 @@ and holds the result tables. The GPU run with real data (RTX 4090, MobileNetV3-L
 second pass with the switch fix): 89 % of held-out synthetic circuits fully correct with ground-truth
 text (95 % CI 85–92), symbol mAP@0.5 0.97 on synthetic test images, 0.81 on held-out CGHD test
 drafters, 0.59 on the denser CGHD val drafters, 0.99 on Digitize-HCD (in-distribution split).
-End-to-end correctness on real photos is not measured yet: real netlists exist only for the 85
-teacher-labelled photos. The cloud-tier student (Qwen3-VL-2B LoRA, one epoch) wires 28 % of held-out
+End-to-end correctness on real photos, measured on the 62 held-out photos with Claude's netlists
+(`labels/claude/heldout.jsonl`): 18 % of circuits fully correct (95 % CI 8–27), 44 % on the CGHD test
+drafters and 9 % on Digitize-HCD, with the symbols themselves at 0.98 recall and 1.00 kind accuracy;
+the wire tracing leaves terminals unattached, so this package is a symbol detector on photos until a
+tracer with wire supervision for that style is trained (`docs/experiments.md`). The cloud-tier student (Qwen3-VL-2B LoRA, one epoch) wires 28 % of held-out
 val circuits correctly and is not deployed.
 
 ## Known limitations and failure modes

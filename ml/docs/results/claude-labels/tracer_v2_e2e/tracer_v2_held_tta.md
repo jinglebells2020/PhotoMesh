@@ -1,0 +1,17 @@
+| metric | value |
+| --- | --- |
+| n | 62 |
+| correct | 0.258 |
+| correct_ci95 | [0.1613, 0.371] |
+| topology_ok | 0.258 |
+| topology_ci95 | [0.1613, 0.371] |
+| structure_ok | 0.306 |
+| answer_ok | 0.258 |
+| component_recall | 0.98 |
+| component_precision | 0.997 |
+| kind_acc | 1.0 |
+| value_acc | 0.985 |
+| ground_ok | 0.403 |
+| unsupported_ok | 0.919 |
+| symbol mAP@0.5 | 0.9709 |
+| mean latency (s) | 12.435 |
