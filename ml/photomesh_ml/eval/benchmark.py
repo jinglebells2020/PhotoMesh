@@ -97,13 +97,15 @@ def main() -> None:
     by_source: dict[str, list[Score]] = {}
     for row, s in zip(rows, scores):
         by_source.setdefault(row.get("source", "?"), []).append(s)
-    print(json.dumps({"summary": summary, "by_source": {k: summarize(v) for k, v in by_source.items()}}, indent=1))
+    per_source = {k: summarize(v) for k, v in by_source.items()}
+    print(json.dumps({"summary": summary, "by_source": per_source}, indent=1))
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         with Path(args.out).open("w", encoding="utf-8") as f:
             for d in details:
                 f.write(json.dumps(d, ensure_ascii=False) + "\n")
-        Path(args.out).with_suffix(".summary.json").write_text(json.dumps({"summary": summary, "model": args.model if not args.predictions else args.predictions}, indent=1))
+        Path(args.out).with_suffix(".summary.json").write_text(json.dumps({"summary": summary, "by_source": per_source,
+                                                                           "model": args.model if not args.predictions else args.predictions}, indent=1))
 
 
 if __name__ == "__main__":
