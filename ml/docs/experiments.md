@@ -23,11 +23,17 @@ stored frame for the rest. Numbers from before this fix (none are published here
 ## Metrics (`eval/metrics.py`, `eval/detection.py`)
 
 - **correct**: the user would see the right circuit and the right numbers: every element found
-  (position-matched), right kind and value, same currents and voltages after solving both netlists,
-  drawn labels kept as ids, same reference node, same unknowns, same answers. Reported with a
-  percentile-bootstrap 95 % interval (2,000 resamples).
-- **topology_ok**: the solver agrees on every element (polarity and connectivity), ignoring
-  question and ids.
+  (position-matched), right kind and value, the same physics after solving both netlists (see
+  `topology_ok`), drawn labels kept as ids, same reference node, same unknowns, same answers. Reported
+  with a percentile-bootstrap 95 % interval (2,000 resamples).
+- **topology_ok**: both netlists solve and describe the same circuit: there is a correspondence of
+  node names under which every node potential and every element current agree
+  (`solver.same_solution`). An element without polarity (resistor, capacitor, inductor, lamp, switch)
+  may be listed with its terminals the other way round; a source may not, because its terminal order
+  is its polarity. Ids and the question are ignored. Until 23 Sep 2026 this compared signed
+  per-element currents only, which penalised the terminal order of passive elements and missed an
+  open element attached to the wrong node; the correction and its effect on every number are under
+  "Metric correction" in the results.
 - **answer_ok**: the asked quantities agree (what Photomath-style users check first).
 - **component recall / precision, kind and value accuracy**: element level.
 - **symbol mAP@0.5**: per-class average precision of the tracer's boxes (VOC all-point).
@@ -98,6 +104,34 @@ training (Digitize-HCD, CGHD, app scans) is not optional; the converters and los
 exactly that.
 
 ## Results
+
+### Metric correction (23 Sep 2026)
+
+The blind second labelling pass below disagreed with the first on two photos whose netlists were the
+same circuit with one resistor or inductor listed as `0-b` instead of `b-0`. The comparison behind
+`topology_ok` and `correct` (`solver.same_solution`) compared the signed current and voltage of each
+element, so the arbitrary terminal order of an element without polarity counted as a wiring error,
+while two netlists whose DC currents and voltages happened to coincide (an open capacitor attached to a
+node at the same potential) counted as the same circuit. It now searches for a correspondence of node
+names under which every node potential and every element current agree, with the terminal order of
+resistors, capacitors, inductors, lamps and switches free and the terminal order of sources fixed
+(`tests/test_schema_solver.py` pins both cases). Every per-image result file kept its predictions, so
+all numbers below were re-scored: the real photos against the labels, the synthetic test images
+against circuits regenerated from their seeds (`synth.generate` draws the circuit from the seed before
+rendering). The CPU run at the top of this section could not be re-scored (its synthetic images are
+gone) and keeps the old comparison. Fully-correct rates on synthetic data do not move at all; on the
+real photos a few verdicts move each way:
+
+| number | before | after |
+| --- | --- | --- |
+| tracer v1, synthetic test: correct / topology / structure / answers | 0.837 / 0.873 / 0.880 / 0.860 | 0.837 / 0.860 / 0.867 / 0.850 |
+| tracer v2, synthetic test | 0.887 / 0.920 / 0.927 / 0.900 | 0.887 / 0.907 / 0.913 / 0.890 |
+| tracer v2 on the 62 held-out photos, default: correct / topology / structure | 0.177 / 0.177 / 0.194 | unchanged |
+| tracer v2 on the 62 held-out photos, TTA | 0.258 / 0.258 / 0.306 | 0.274 / 0.274 / 0.323 |
+| earlier VLM adapter, 62 held-out photos | 0.048 / 0.048 / 0.081 | 0.065 / 0.065 / 0.081 |
+| retrained VLM adapter, 62 held-out photos | 0.597 / 0.613 / 0.661 | 0.581 / 0.581 / 0.629 |
+| retrained adapter, its own val split (108) | 0.361 / 0.444 / 0.481 | 0.370 / 0.398 / 0.426 |
+| earlier adapter, its own val split (120) | 0.283 / 0.267 / 0.300 | 0.283 / 0.242 / 0.267 |
 
 Produced by `scripts/evaluate_run.sh`; the JSON/markdown behind each table is in `docs/results/`.
 
@@ -210,13 +244,13 @@ End-to-end on the synthetic test set (300 images, ground-truth text unless noted
 
 | setting | correct [95% CI] | topology | structure | answers | kind acc | mAP@0.5 | coverage@95% prec. | Brier |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| tracer, GT text | 0.837 [0.7933, 0.8767] | 0.873 | 0.880 | 0.860 | 0.990 | 0.9465 | 0.077 | 0.1694 |
-| + three-scale majority (TTA) | 0.843 [0.8, 0.8833] | 0.877 | 0.883 | 0.867 | 0.991 | 0.9577 | 0.17 | 0.1645 |
-| tracer, no text | 0.000 [0.0, 0.0] | 0.000 | 0.917 | 0.000 | 0.998 | 0.9465 |  | 0.0465 |
-| ablation: no unit-based kinds | 0.880 [0.8433, 0.9167] | 0.910 | 0.917 | 0.897 | 0.998 | 0.9465 | 0.207 | 0.1644 |
-| ablation: box removal, closing 1, wire 0.5 | 0.833 [0.79, 0.8733] | 0.870 | 0.877 | 0.857 | 0.990 | 0.9465 | 0.077 | 0.1696 |
-| calibrated confidence (fit on val) | 0.837 [0.7933, 0.8767] | 0.873 | 0.880 | 0.860 | 0.990 | 0.9465 | 0.147 | 0.1154 |
-| unit-based kinds gated on detector uncertainty | 0.850 [0.81, 0.8867] | 0.887 | 0.893 | 0.873 | 0.993 | 0.9466 | 0.147 | 0.1132 |
+| tracer, GT text | 0.837 [0.7933, 0.8767] | 0.860 | 0.867 | 0.850 | 0.990 | 0.9465 | 0.077 | 0.1694 |
+| + three-scale majority (TTA) | 0.843 [0.8, 0.8833] | 0.867 | 0.873 | 0.857 | 0.991 | 0.9577 | 0.17 | 0.1645 |
+| tracer, no text | 0.000 [0.0, 0.0] | 0.000 | 0.897 | 0.000 | 0.998 | 0.9465 |  | 0.0465 |
+| ablation: no unit-based kinds | 0.880 [0.8433, 0.9167] | 0.897 | 0.903 | 0.887 | 0.998 | 0.9465 | 0.207 | 0.1644 |
+| ablation: box removal, closing 1, wire 0.5 | 0.833 [0.79, 0.8733] | 0.857 | 0.863 | 0.847 | 0.990 | 0.9465 | 0.077 | 0.1696 |
+| calibrated confidence (fit on val) | 0.837 [0.7933, 0.8767] | 0.860 | 0.867 | 0.850 | 0.990 | 0.9465 | 0.147 | 0.1154 |
+| unit-based kinds gated on detector uncertainty | 0.850 [0.81, 0.8867] | 0.873 | 0.880 | 0.863 | 0.993 | 0.9466 | 0.147 | 0.1132 |
 
 Breakdown of the default setting: 89.4 % correct with 1–3 elements (n=66), 85.6 % with 4–5 (n=118), 78.4 % with 6 or more (n=116); hand-drawn 83.0 % against printed 84.7 %; photographed 83.6 % against flat 84.0 %. Component recall and precision are 1.00 / 1.00, value accuracy 0.996, ids 0.993, reference node 0.880. Mean latency 47 ms per image on the GPU host including the assembler.
 
@@ -243,11 +277,11 @@ The target builder now puts the Gaussian on every candidate channel, so a real s
 
 | setting | correct [95% CI] | topology | structure | answers | kind acc | mAP@0.5 | coverage@95% prec. | Brier |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| tracer v2, GT text | 0.887 [0.85, 0.92] | 0.920 | 0.927 | 0.900 | 0.999 | 0.9665 | 0.133 | 0.1629 |
-| + three-scale majority (TTA) | 0.883 [0.8433, 0.9167] | 0.923 | 0.930 | 0.903 | 1.000 | 0.9801 | 0.143 | 0.1665 |
-| tracer v2, no text | 0.000 [0.0, 0.0] | 0.000 | 0.927 | 0.000 | 0.999 | 0.9665 |  | 0.047 |
-| ablation: unit-based kinds on (gated on detector uncertainty) | 0.850 [0.8067, 0.8867] | 0.887 | 0.893 | 0.867 | 0.992 | 0.9665 | 0.067 | 0.166 |
-| calibrated confidence (fit on val) | 0.887 [0.85, 0.92] | 0.920 | 0.927 | 0.900 | 0.999 | 0.9665 | 0.07 | 0.1002 |
+| tracer v2, GT text | 0.887 [0.85, 0.92] | 0.907 | 0.913 | 0.890 | 0.999 | 0.9665 | 0.133 | 0.1629 |
+| + three-scale majority (TTA) | 0.883 [0.8433, 0.9167] | 0.910 | 0.917 | 0.893 | 1.000 | 0.9801 | 0.143 | 0.1665 |
+| tracer v2, no text | 0.000 [0.0, 0.0] | 0.000 | 0.907 | 0.000 | 0.999 | 0.9665 |  | 0.047 |
+| ablation: unit-based kinds on (gated on detector uncertainty) | 0.850 [0.8067, 0.8867] | 0.873 | 0.880 | 0.857 | 0.992 | 0.9665 | 0.067 | 0.166 |
+| calibrated confidence (fit on val) | 0.887 [0.85, 0.92] | 0.907 | 0.913 | 0.890 | 0.999 | 0.9665 | 0.07 | 0.1002 |
 
 | split | source | images | boxes | mAP@0.5 [95 % CI] | polarity acc. (n) | weakest classes (AP, n) |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -268,7 +302,7 @@ Student: Qwen3-VL-2B-Instruct with LoRA r=32 on 4,930 training samples (5,000 sy
 
 | student on the held-out VLM val set | n | valid JSON | correct [95% CI] | topology | answers | comp. recall / precision | kind acc | value acc | reference node | unsupported_ok |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Qwen3-VL-2B + LoRA r=32, greedy | 120 | 0.75 | 0.283 [0.2083, 0.3667] | 0.267 | 0.375 | 0.96 / 0.99 | 0.992 | 0.935 | 0.48 | 0.97 |
+| Qwen3-VL-2B + LoRA r=32, greedy | 120 | 0.75 | 0.283 [0.2083, 0.3667] | 0.242 | 0.375 | 0.96 / 0.99 | 0.992 | 0.935 | 0.48 | 0.97 |
 
 The student sees the components (recall 0.96, kinds and values right when found) but wires them wrongly in most images: node assignment, not symbol reading, is what one epoch on 4,930 mostly synthetic samples does not teach a 2B model. The val set is 155 samples of the same mix (synthetic plus distilled), so this is not a real-photo number either. The comparison against the cloud teacher is missing for lack of OpenRouter credit, so the student cannot be called a replacement for the cloud tier yet.
 
@@ -291,7 +325,7 @@ one CPU core each (latency is the CPU figure, 2.5 s a photo).
 | held-out, all | 62 | 0.177 [0.0806, 0.2742] | 0.177 | 0.226 | 0.983 / 0.991 | 1.000 | 0.985 | 0.983 | 0.21 |
 | held-out, CGHD test drafters | 16 | 0.438 | 0.438 | 0.50 | 0.93 / 0.98 | 1.00 | 0.92 | – | 0.50 |
 | held-out, Digitize-HCD | 46 | 0.087 | 0.087 | 0.13 | 0.99 / 1.00 | 1.00 | 0.99 | – | 0.11 |
-| training-split photos | 272 | 0.118 [0.0809, 0.1581] | 0.121 | 0.169 | 0.998 / 0.999 | 0.996 | 0.979 | 0.994 | 0.165 |
+| training-split photos | 272 | 0.118 [0.0809, 0.1581] | 0.118 | 0.169 | 0.998 / 0.999 | 0.996 | 0.979 | 0.994 | 0.165 |
 
 The symbols are essentially solved on these photos (recall 0.98, every kind right, values right where
 the text is given) and the netlists are still wrong four times out of five. The failure is one thing:
@@ -311,13 +345,13 @@ Assembler knobs on the same held-out photos (the wire head is unchanged; only th
 | --- | --- | --- | --- |
 | default (wire threshold 0.4, closing radius max(W,H)/160, span body removal) | 0.177 [0.0806, 0.2742] | 0.177 | 0.226 |
 | unit-based kinds on | 0.129 [0.0484, 0.2097] | 0.129 | 0.16 |
-| three-scale majority (`--tta`) | 0.258 [0.1613, 0.371] | 0.258 | 0.306 |
-| wire threshold 0.25 (training-split photos, 272) | 0.121 [0.0846, 0.1618] vs 0.118 default | 0.125 | 0.17 |
-| box body removal (training-split photos, 272) | 0.118 [0.0809, 0.1581], identical to default | 0.121 | 0.169 |
+| three-scale majority (`--tta`) | 0.274 [0.1774, 0.3871] | 0.274 | 0.306 |
+| wire threshold 0.25 (training-split photos, 272) | 0.121 [0.0846, 0.1618] vs 0.118 default | 0.121 | 0.17 |
+| box body removal (training-split photos, 272) | 0.118 [0.0809, 0.1581], identical to default | 0.118 | 0.169 |
 
 Lowering the wire threshold changes one photo in 272 and removing the body by box changes none: the
 wire probability near the terminals is not low, it is absent, so no post-processing recovers it.
-Test-time augmentation is the one knob that moves the number (0.18 → 0.26, intervals overlapping),
+Test-time augmentation is the one knob that moves the number (0.18 → 0.27, intervals overlapping),
 because the three scales see the thin scan lines differently and the majority fills some gaps.
 
 What this changes in the plan: the tracer's next training run needs wire supervision on the Digitize-HCD
@@ -343,18 +377,18 @@ greedy with the HF generate loop, batch 4 (about 3 s a photo on the 4090; no vLL
 
 | adapter, on the 62 held-out real photos | valid netlist | correct [95% CI] | topology | structure | comp. recall / precision | kind acc | value acc | reference node | box IoU | unsupported_ok |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| earlier (5,000 synthetic + 85 teacher labels, 1 epoch) | 0.742 | 0.048 [0.0, 0.1129] | 0.048 | 0.081 | 0.917 / 0.982 | 0.966 | 0.944 | 0.355 | 0.68 | 0.839 |
-| **retrained (2,000 synthetic + 272 real ×3, 2 epochs)** | **0.919** | **0.597 [0.4677, 0.7097]** | 0.613 | 0.661 | 0.991 / 0.991 | 0.997 | 0.980 | 0.806 | 0.733 | 1.0 |
+| earlier (5,000 synthetic + 85 teacher labels, 1 epoch) | 0.742 | 0.065 [0.0161, 0.129] | 0.065 | 0.081 | 0.917 / 0.982 | 0.966 | 0.944 | 0.355 | 0.68 | 0.839 |
+| **retrained (2,000 synthetic + 272 real ×3, 2 epochs)** | **0.919** | **0.581 [0.4516, 0.7097]** | 0.581 | 0.629 | 0.991 / 0.991 | 0.997 | 0.980 | 0.806 | 0.733 | 1.0 |
 | for comparison: tracer v2 on the same photos (table above) | 0.226 | 0.177 [0.0806, 0.2742] | 0.177 | 0.194 | 0.983 / 0.991 | 1.000 | 0.985 | 0.21 | 0.648 | – |
 
 | by source | n | earlier: correct [95% CI] | valid | reference node | retrained: correct [95% CI] | valid | topology | structure | value acc | reference node |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| CGHD test drafters (circuits C4 and C5, drafters 1 and 2, four pages each) | 16 | 0.125 [0.0, 0.3125] | 0.625 | 0.625 | 0.812 [0.625, 1.0] | 1.0 | 0.812 | 1.0 | 0.946 | 1.0 |
-| Digitize-HCD val/test | 46 | 0.022 [0.0, 0.0652] | 0.783 | 0.261 | 0.522 [0.3696, 0.6522] | 0.891 | 0.543 | 0.543 | 0.986 | 0.739 |
+| CGHD test drafters (circuits C4 and C5, drafters 1 and 2, four pages each) | 16 | 0.188 [0.0, 0.375] | 0.625 | 0.625 | 0.812 [0.625, 1.0] | 1.0 | 0.812 | 1.0 | 0.946 | 1.0 |
+| Digitize-HCD val/test | 46 | 0.022 [0.0, 0.0652] | 0.783 | 0.261 | 0.500 [0.3478, 0.6304] | 0.891 | 0.500 | 0.500 | 0.986 | 0.739 |
 
 On the run's own val split (108 rows: 60 synthetic circuits and 16 training-split photos, each present
 three times because the val bucket is drawn by group and every photo was repeated) the retrained adapter
-gets 0.361 [0.2685, 0.4444] fully correct: synthetic 0.20 [0.10, 0.30] (valid 0.883, topology 0.35,
+gets 0.370 [0.2778, 0.4537] fully correct: synthetic 0.217 [0.1167, 0.3333] (valid 0.883, topology 0.267,
 component recall 0.972), the 16 real photos 9 of 16 (0.5625; valid 1.0, every component and value right,
 reference node 0.94; the three copies of each photo agree). The synthetic number is below the earlier
 adapter's 0.283 on its own, larger val set (5,000 synthetic circuits, one epoch): fewer synthetic samples
@@ -362,20 +396,21 @@ and the real-photo emphasis cost accuracy on the harder synthetic topologies, wh
 but which are the stress test for wiring. The two val sets differ, so this is a trend, not a paired
 comparison; the 62 held-out photos above are the paired one.
 
-What changed, photo by photo: the three photos the earlier adapter got right the retrained one gets
-right too, 34 more are newly right, 25 are wrong under both. The earlier adapter dropped components
+What changed, photo by photo: the four photos the earlier adapter got right the retrained one gets
+right too, 32 more are newly right, 26 are wrong under both. The earlier adapter dropped components
 (recall 0.917), flagged 10 of the 62 drawings as holding elements the app cannot solve
 (`unsupported_ok` 0.839; none of them does) and produced netlists with fewer nodes than the truth in
 18 of its 46 valid predictions: it had learned the synthetic distribution and read the real drawings
 as something else. The retrained adapter finds the components (recall and precision 0.991, kinds
 0.997, values 0.980, on par with the tracer's symbol head) and gets the node count right in 49 of
 its 57 valid predictions (4 more, 4 fewer), so what is left is assignment errors inside a graph of
-the right size. Of the 62 photos: 37 right; 5 rejected by the app's validation (`danglingElement`, a
-terminal on a node used once); 3 valid but singular for the solver; 4 with the right structure but a
-misread value (three of them the same CGHD circuit, C5 by drafter 2, on three pages, with the same
-misread value; correlated, not three independent errors) or the wrong reference node (one); 13
-solvable with a different wiring. By circuit size: 1–3 elements 5 of 8, 4–5 elements 18 of 22
-(82 %), 6+ elements 14 of 32 (44 %); the earlier adapter had 2, 0 and 1. The reference node is right
+the right size. Of the 62 photos: 36 right; 5 rejected by the app's validation (`danglingElement`, a
+terminal on a node used once); 3 valid but singular for the solver; 3 with the right structure but a
+misread value (the same CGHD circuit, C5 by drafter 2, on three pages, with the same misread value;
+correlated, not three independent errors); 15 solvable with a different wiring, one of them
+(`circuit_292`) with every DC current and voltage right and a capacitor on the wrong node, which only
+the node-correspondence check sees. By circuit size: 1–3 elements 5 of 8, 4–5 elements 18 of 22
+(82 %), 6+ elements 13 of 32 (41 %); the earlier adapter had 3, 0 and 1. The reference node is right
 in 50 of 62 (22 before).
 
 How far to trust these numbers. (1) n = 62, so the interval is wide (47–71 %), and the 16 CGHD photos
@@ -385,7 +420,8 @@ training and test netlists were written by the same labeller; the metric is inva
 names, but the reference-node convention (the negative terminal of the main source when nothing is
 grounded) is a labelling convention the model learned from the training labels and gets credit for,
 and a systematic misreading shared by labeller and model would be invisible; the labels passed the
-solver and the datasets' symbol annotations, but no second labeller has checked the wiring. (3) The
+solver and the datasets' symbol annotations, and the blind second pass below found no wiring
+disagreement, but that pass is the same model reading the same drawings, not an independent check. (3) The
 Digitize-HCD split is by image id, so the held-out sheets share style and drawing conventions with
 the 272 training photos; CGHD is the only out-of-source result, and the higher one, but on two
 circuits. (4) The comparison with a cloud teacher is still missing (no OpenRouter credit); this is
@@ -400,3 +436,35 @@ app's own scans), the serving path should use the JSON schema so the 5 invalid o
 the user, and the solver-checked self-training loop (`vlm.distill --endpoint` at the student) can
 now start from an adapter that is right more often than not.
 
+#### The labeller re-read blind: Claude as the frontier model (23 Sep 2026)
+
+The comparison against a cloud teacher was missing for lack of OpenRouter credit, and the labeller of
+the held-out set is itself a frontier model, so it was measured as one: Claude re-labelled the 62
+held-out photos from the queue images alone, in one pass per photo, without opening the first-pass
+labels or the check output until every answer was written (`labels/claude/heldout_pass2.jsonl`;
+the first pass is `heldout.jsonl`). Scoring the second pass as a prediction against the first with
+the same benchmark that scores the models:
+
+| pass 2 against pass 1 | valid netlist | accepted by the label checks at the first try | correct (identical circuit) | topology | components | reference node | box IoU |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 62 held-out photos | 62 / 62 | 62 / 62 (schema, DC solver, box agreement with the datasets) | 62 / 62 | 62 / 62 | recall and precision 1.00, kinds 1.00, values 1.00 | 62 / 62 | 0.737 |
+
+Under the comparison in force at the time, two photos disagreed; both were the same circuit with a
+passive element's terminals listed the other way round, which led to the metric correction above.
+After it the two passes describe the same circuit for all 62 photos. Three labels changed anyway: the
+first pass had read `10 MF` on `circuit_169`, `circuit_292` and `circuit_692` as microfarads while the
+sheets' convention (and the other `MF` labels) is millifarads, so those capacitor values were
+normalised; they do not affect any score, because capacitors are open at DC and the metric does not
+compare their values.
+
+What this measures and what it does not. It is the number the teacher benchmark was meant to give:
+on these drawings the frontier model reads the netlist right in one pass every time (62 of 62,
+lower bound of the 95 % interval 0.94), the retrained 2B student 36 of 62 and the tracer 11 of 62,
+so the cheap tier is not yet a replacement and the on-device tier is far from one. It is also the
+test-retest reliability of the labels: no random slip in either pass survived the checks, and the
+first pass's only inconsistencies were units the metric ignores. It is not an independent check of
+the labels: the same model with the same habits read the same drawings twice, so a shared systematic
+misreading (a polarity convention, a value read the same wrong way both times) stays invisible; that
+needs a human or a different model. It is not a latency or cost number either: the pass was
+interactive, not a served endpoint, and a cloud teacher for the app would be a smaller, cheaper model
+whose own accuracy is still unmeasured.

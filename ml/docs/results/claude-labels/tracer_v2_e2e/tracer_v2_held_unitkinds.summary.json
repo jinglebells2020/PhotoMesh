@@ -295,5 +295,80 @@
    }
   ]
  },
- "confidence_gate_95": null
+ "confidence_gate_95": null,
+ "summary": {
+  "n": 62,
+  "valid": 0.22580645161290322,
+  "correct": 0.12903225806451613,
+  "topology_ok": 0.12903225806451613,
+  "structure_ok": 0.14516129032258066,
+  "answer_ok": 0.12903225806451613,
+  "component_recall": 0.9828080229226361,
+  "component_precision": 0.9913294797687862,
+  "kind_acc": 0.967930029154519,
+  "value_acc": 0.9766763848396501,
+  "ids_ok": 1.0,
+  "ground_ok": 0.16129032258064516,
+  "box_iou": 0.6475269531907523,
+  "unsupported_ok": 0.9032258064516129,
+  "correct_ci95": [
+   0.0484,
+   0.2097
+  ],
+  "topology_ci95": [
+   0.0484,
+   0.2097
+  ]
+ },
+ "by_source": {
+  "cghd": {
+   "n": 16,
+   "valid": 0.5,
+   "correct": 0.4375,
+   "topology_ok": 0.4375,
+   "structure_ok": 0.5,
+   "answer_ok": 0.4375,
+   "component_recall": 0.9285714285714286,
+   "component_precision": 0.9811320754716981,
+   "kind_acc": 1.0,
+   "value_acc": 0.9230769230769231,
+   "ids_ok": 1.0,
+   "ground_ok": 0.5,
+   "box_iou": 0.7345876995104054,
+   "unsupported_ok": 0.75,
+   "correct_ci95": [
+    0.1875,
+    0.6875
+   ],
+   "topology_ci95": [
+    0.1875,
+    0.6875
+   ]
+  },
+  "digitize_hcd": {
+   "n": 46,
+   "valid": 0.13043478260869565,
+   "correct": 0.021739130434782608,
+   "topology_ok": 0.021739130434782608,
+   "structure_ok": 0.021739130434782608,
+   "answer_ok": 0.021739130434782608,
+   "component_recall": 0.9931740614334471,
+   "component_precision": 0.9931740614334471,
+   "kind_acc": 0.9621993127147767,
+   "value_acc": 0.9862542955326461,
+   "ids_ok": 1.0,
+   "ground_ok": 0.043478260869565216,
+   "box_iou": 0.6172449544708729,
+   "unsupported_ok": 0.9565217391304348,
+   "correct_ci95": [
+    0.0,
+    0.0652
+   ],
+   "topology_ci95": [
+    0.0,
+    0.0652
+   ]
+  }
+ },
+ "note": "correctness re-scored with the corrected solution comparison of 23 Sep 2026; detection metrics unchanged"
 }

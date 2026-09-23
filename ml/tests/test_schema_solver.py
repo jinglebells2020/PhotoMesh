@@ -140,6 +140,18 @@ def test_same_solution_ignores_node_names_but_not_polarity():
     assert not same_solution(a, wrong_value)
 
 
+def test_same_solution_ignores_terminal_order_of_elements_without_polarity():
+    a = divider()
+    swapped = divider()
+    r = swapped.components[1]
+    swapped.components[1] = Component(r.id, r.kind, r.value, r.node_b, r.node_a)
+    assert same_solution(a, swapped)
+    flipped_source = divider()
+    v = flipped_source.components[0]
+    flipped_source.components[0] = Component(v.id, v.kind, v.value, v.node_b, v.node_a)
+    assert not same_solution(a, flipped_source)
+
+
 def test_unknown_evaluation():
     c = divider()
     c.unknowns = [Unknown("current", element="R2"), Unknown("voltage", node="b"), Unknown("voltage", between=["a", "b"]), Unknown("power", element="R1")]

@@ -3,15 +3,15 @@
 | n | 300 |
 | correct | 0.883 |
 | correct_ci95 | [0.8467, 0.9167] |
-| topology_ok | 0.917 |
-| topology_ci95 | [0.8867, 0.9467] |
-| structure_ok | 0.923 |
-| answer_ok | 0.897 |
-| component_recall | 1.0 |
-| component_precision | 1.0 |
+| topology_ok | 0.903 |
+| topology_ci95 | [0.87, 0.9367] |
+| structure_ok | 0.91 |
+| answer_ok | 0.887 |
+| component_recall | 0.999 |
+| component_precision | 0.999 |
 | kind_acc | 0.999 |
 | value_acc | 0.997 |
-| ground_ok | 0.913 |
+| ground_ok | 0.91 |
 | unsupported_ok | 1.0 |
 | symbol mAP@0.5 | 0.9665 |
 | mean latency (s) | 0.046 |

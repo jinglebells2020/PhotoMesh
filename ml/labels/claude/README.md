@@ -57,3 +57,17 @@ box-agreement numbers). `train.jsonl` (273 photos from the training records) dro
 `heldout.jsonl` (62 photos from the val/test records: the CGHD test drafters and the Digitize-HCD
 val/test image ids, see `docs/experiments.md`) is the set models are scored on end to end. Keep it
 out of every training set.
+
+## Second pass (23 Sep 2026)
+
+`heldout_pass2.jsonl` holds a blind re-labelling of the 62 held-out photos by the same model: one
+answer per photo from the queue image alone, written before the first-pass labels or the check output
+were opened again. All 62 passed the three checks at the first try and all 62 describe the same
+circuit as the first pass (scored with `eval.benchmark` as if they were predictions, after the
+correction of the solution comparison that this pass exposed, see `docs/experiments.md`). Three
+first-pass labels were then normalised to the sheet convention above: the `10 MF` capacitors on
+`circuit_169`, `circuit_292` and `circuit_692` had been read as microfarads and are now 0.01 F (and
+`2 MF` on `circuit_292` 0.002 F); capacitor values do not enter the DC scores. The training-split
+labels have not been re-read and may hold the same unit inconsistency for `MF`. A second pass by the
+same model measures test-retest reliability, not correctness: a misreading shared by both passes
+stays invisible.

@@ -181,10 +181,13 @@ def _same(x: Optional[float], y: Optional[float], rel: float, abs_tol: float) ->
 
 
 def same_solution(a: Circuit, b: Circuit, rel: float = 1e-3, abs_tol: float = 1e-9) -> bool:
-    """True when both circuits solve and every element carries the same current and voltage.
+    """True when both circuits solve and describe the same physics: the same node potentials and the same
+    current through every element, under some correspondence of node names.
 
-    Element ids must match (the app names elements by their labels, so a wrong id is a wrong
-    answer for the user), node names need not.
+    Element ids must match (the app names elements by their labels, so a wrong id is a wrong answer for
+    the user), node names need not. An element without polarity (resistor, capacitor, inductor, lamp,
+    switch) may be listed with its terminals the other way round; a source may not, because its terminal
+    order is its polarity.
     """
     try:
         sa, sb = solve(a), solve(b)
@@ -199,11 +202,49 @@ def same_solution(a: Circuit, b: Circuit, rel: float = 1e-3, abs_tol: float = 1e
             return False
         if not _same(comparable_value(ids_a[cid]), comparable_value(ids_b[cid]), 1e-6, 0.0):
             return False
-        if not _same(sa.currents.get(cid), sb.currents.get(cid), rel, abs_tol):
-            return False
-        if not _same(sa.voltages.get(cid), sb.voltages.get(cid), rel, abs_tol):
-            return False
-    return True
+    order = sorted(ids_a, key=lambda cid: (not ids_a[cid].is_source, cid))   # sources first: they fix the mapping
+    return _match_nodes(order, 0, ids_a, ids_b, sa, sb, {a.ground_node: b.ground_node}, rel, abs_tol)
+
+
+def _match_nodes(order: list[str], k: int, ids_a: dict, ids_b: dict, sa: Solution, sb: Solution,
+                 mapping: dict[str, str], rel: float, abs_tol: float) -> bool:
+    """Backtracking over the (at most two) ways each element's terminals can correspond."""
+    if k == len(order):
+        return True
+    cid = order[k]
+    ca, cb = ids_a[cid], ids_b[cid]
+    ia, ib = sa.currents.get(cid), sb.currents.get(cid)
+    ua, ub = sa.voltages.get(cid), sb.voltages.get(cid)
+    options = [((ca.node_a, cb.node_a), (ca.node_b, cb.node_b), 1.0)]
+    if not ca.is_source:
+        options.append(((ca.node_a, cb.node_b), (ca.node_b, cb.node_a), -1.0))
+    for first, second, sign in options:
+        if not (_same(ia, _scaled(ib, sign), rel, abs_tol) and _same(ua, _scaled(ub, sign), rel, abs_tol)):
+            continue
+        new = dict(mapping)
+        consistent = True
+        for n, n2 in (first, second):
+            if new.get(n, n2) != n2:
+                consistent = False
+                break
+            new[n] = n2
+        if not consistent or len(set(new.values())) != len(new):
+            continue
+        if not all(_same_or_nan(sa.node_voltages.get(n), sb.node_voltages.get(n2), rel, abs_tol) for n, n2 in new.items()):
+            continue
+        if _match_nodes(order, k + 1, ids_a, ids_b, sa, sb, new, rel, abs_tol):
+            return True
+    return False
+
+
+def _scaled(x: Optional[float], sign: float) -> Optional[float]:
+    return None if x is None else sign * x
+
+
+def _same_or_nan(x: Optional[float], y: Optional[float], rel: float, abs_tol: float) -> bool:
+    if x is not None and y is not None and math.isnan(x) and math.isnan(y):
+        return True
+    return _same(x, y, rel, abs_tol)
 
 
 def solvable(circuit: Circuit) -> bool:

@@ -3,10 +3,10 @@
 | n | 272 |
 | correct | 0.118 |
 | correct_ci95 | [0.0809, 0.1581] |
-| topology_ok | 0.121 |
-| topology_ci95 | [0.0846, 0.1618] |
-| structure_ok | 0.14 |
-| answer_ok | 0.121 |
+| topology_ok | 0.118 |
+| topology_ci95 | [0.0809, 0.1581] |
+| structure_ok | 0.132 |
+| answer_ok | 0.118 |
 | component_recall | 0.998 |
 | component_precision | 0.999 |
 | kind_acc | 0.996 |

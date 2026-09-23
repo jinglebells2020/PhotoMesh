@@ -5,10 +5,10 @@
 | correct_ci95 | [0.0, 0.0] |
 | topology_ok | 0.0 |
 | topology_ci95 | [0.0, 0.0] |
-| structure_ok | 0.927 |
+| structure_ok | 0.907 |
 | answer_ok | 0.0 |
-| component_recall | 1.0 |
-| component_precision | 1.0 |
+| component_recall | 0.999 |
+| component_precision | 0.999 |
 | kind_acc | 0.999 |
 | value_acc | 0.113 |
 | ground_ok | 0.0 |

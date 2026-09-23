@@ -2,10 +2,10 @@
  "summary": {
   "n": 62,
   "valid": 0.7419354838709677,
-  "correct": 0.04838709677419355,
-  "topology_ok": 0.04838709677419355,
+  "correct": 0.06451612903225806,
+  "topology_ok": 0.06451612903225806,
   "structure_ok": 0.08064516129032258,
-  "answer_ok": 0.04838709677419355,
+  "answer_ok": 0.06451612903225806,
   "component_recall": 0.9169054441260746,
   "component_precision": 0.9815950920245399,
   "kind_acc": 0.965625,
@@ -15,22 +15,22 @@
   "box_iou": 0.680162375089562,
   "unsupported_ok": 0.8387096774193549,
   "correct_ci95": [
-   0.0,
-   0.1129
+   0.0161,
+   0.129
   ],
   "topology_ci95": [
-   0.0,
-   0.1129
+   0.0161,
+   0.129
   ]
  },
  "by_source": {
   "cghd": {
    "n": 16,
    "valid": 0.625,
-   "correct": 0.125,
-   "topology_ok": 0.125,
-   "structure_ok": 0.1875,
-   "answer_ok": 0.125,
+   "correct": 0.1875,
+   "topology_ok": 0.1875,
+   "structure_ok": 0.25,
+   "answer_ok": 0.1875,
    "component_recall": 0.9285714285714286,
    "component_precision": 1.0,
    "kind_acc": 1.0,
@@ -41,11 +41,11 @@
    "unsupported_ok": 0.75,
    "correct_ci95": [
     0.0,
-    0.3125
+    0.375
    ],
    "topology_ci95": [
     0.0,
-    0.3125
+    0.375
    ]
   },
   "digitize_hcd": {
@@ -53,7 +53,7 @@
    "valid": 0.782608695652174,
    "correct": 0.021739130434782608,
    "topology_ok": 0.021739130434782608,
-   "structure_ok": 0.043478260869565216,
+   "structure_ok": 0.021739130434782608,
    "answer_ok": 0.021739130434782608,
    "component_recall": 0.9146757679180887,
    "component_precision": 0.9781021897810219,
@@ -73,5 +73,6 @@
    ]
   }
  },
- "model": "runs/vlm2/preds_heldout_v1.jsonl"
+ "model": "runs/vlm2/preds_heldout_v1.jsonl",
+ "note": "scored with the corrected solution comparison of 23 Sep 2026 (node correspondence; terminal order of non-polar elements ignored)"
 }

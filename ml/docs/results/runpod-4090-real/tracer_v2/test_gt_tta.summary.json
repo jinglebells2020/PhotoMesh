@@ -338,5 +338,30 @@
   "threshold": 0.876,
   "coverage": 0.143,
   "precision": 0.953
- }
+ },
+ "summary": {
+  "n": 300,
+  "valid": 0.93,
+  "correct": 0.8833333333333333,
+  "topology_ok": 0.91,
+  "structure_ok": 0.9166666666666666,
+  "answer_ok": 0.8933333333333333,
+  "component_recall": 0.9986902423051736,
+  "component_precision": 0.9986902423051736,
+  "kind_acc": 1.0,
+  "value_acc": 0.9973770491803279,
+  "ids_ok": 1.0,
+  "ground_ok": 0.9166666666666666,
+  "box_iou": 0.8801646100534708,
+  "unsupported_ok": 1.0,
+  "correct_ci95": [
+   0.8433,
+   0.9167
+  ],
+  "topology_ci95": [
+   0.88,
+   0.94
+  ]
+ },
+ "note": "correctness re-scored with the corrected solution comparison of 23 Sep 2026 (truth regenerated from the seeds); detection metrics unchanged"
 }

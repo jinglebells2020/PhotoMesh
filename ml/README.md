@@ -183,8 +183,10 @@ adapter on the same photos. Create the pod without `--job`, `pack` and `upload` 
 ## 4. What "correct" means
 
 `eval/metrics.py` scores a prediction the way the user experiences it: every element found with
-its kind and value (matched by position), the same currents and voltages on every element after
-solving both netlists (so polarity and connectivity errors are caught even when node names differ),
+its kind and value (matched by position), the same physics after solving both netlists (a
+correspondence of node names under which every node potential and element current agrees, so
+polarity and connectivity errors are caught whatever the node names, and the terminal order of a
+resistor or capacitor does not matter),
 labels that appear in the drawing kept as ids, the reference node and the question's unknowns the
 same, and the asked quantities equal. `summarize()` reports `correct`, `topology_ok`, `answer_ok`,
 component precision/recall, kind and value accuracy, with bootstrap 95 % intervals and per-group
@@ -217,25 +219,35 @@ Done and measured on a rented RTX 4090 (every table and the result files: [`docs
   (schema, DC solver, box agreement with the dataset annotation); 62 of them come from the held-out
   records and are the end-to-end test set for real photos. Scored on them, the tracer reads the
   symbols (recall 0.98, kinds 1.00, values 0.99) but gets only 18 % of the netlists right (95 % CI
-  8–27; 26 % with three-scale test-time augmentation; 44 % on the CGHD drafters whose stroke maps
+  8–27; 27 % with three-scale test-time augmentation; 44 % on the CGHD drafters whose stroke maps
   trained the wire head, 9 % on Digitize-HCD):
   the traced wires stop short of the terminals, so nets fragment. Details and the assembler
   ablations are in `docs/experiments.md`.
 - **Cloud tier retrained on the real netlists** (`docs/results/claude-labels/vlm2/`,
   `scripts/runpod_job_vlm_real.sh`): Qwen3-VL-2B with LoRA r=32, two epochs on 2,000 synthetic
   circuits plus 272 of the labelled photos (each three times), 51 min on one RTX 4090. On the same 62
-  held-out photos it returns a valid netlist for 92 % and gets 60 % fully correct (95 % CI 47–71; the
-  earlier adapter 5 %, the tracer 18 %): 81 % on the CGHD test drafters (two circuits, and no CGHD
-  photo in training) and 52 % on Digitize-HCD; components 0.99 recall, kinds 1.00, values 0.98,
-  reference node 0.81. What stays wrong is the wiring of circuits with six or more elements (44 %
+  held-out photos it returns a valid netlist for 92 % and gets 58 % fully correct (95 % CI 45–71; the
+  earlier adapter 6 %, the tracer 18 %): 81 % on the CGHD test drafters (two circuits, and no CGHD
+  photo in training) and 50 % on Digitize-HCD; components 0.99 recall, kinds 1.00, values 0.98,
+  reference node 0.81. What stays wrong is the wiring of circuits with six or more elements (41 %
   right against 82 % for four or five).
+- **The frontier model as the teacher, and a corrected metric.** Claude re-read the 62 held-out
+  photos blind (`labels/claude/heldout_pass2.jsonl`) and reproduced all 62 netlists: every answer
+  passed the label checks at the first try and describes the same circuit as the first pass. That
+  is the teacher-versus-student number the OpenRouter credit was for (frontier model 62 of 62,
+  student 36, tracer 11), and a test-retest reliability for the labels, but not an independent check
+  of them. Two apparent disagreements exposed a flaw in the correctness metric (the terminal order of
+  a resistor counted as a wiring error, an open capacitor on the wrong node did not); it now compares
+  node potentials and element currents under a node correspondence, and every number in
+  `docs/experiments.md` was re-scored with it (fully-correct rates on synthetic data unchanged, real
+  photos moved by one or two photos each way).
 
 Not yet done: the Swift port of the assembler ([`docs/on-device.md`](docs/on-device.md)) and the
 Core ML integration in the app; wire supervision for the Digitize-HCD style and a tracer retrained
 with it (the end-to-end failure above); serving the retrained adapter through vLLM and measuring
-its latency; the teacher-versus-student benchmark (the OpenRouter account has no credit); a second
-labeller's check of the real-photo netlists; dense hand-drawn pages (the CGHD val drafters) and
-lamps/batteries on real drawings; the app-scan converter on real exports.
+its latency; a cheaper cloud teacher measured on the same photos (the OpenRouter account has no
+credit); an independent, human check of the real-photo netlists; dense hand-drawn pages (the CGHD
+val drafters) and lamps/batteries on real drawings; the app-scan converter on real exports.
 
 ## Licences
 

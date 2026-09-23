@@ -31,8 +31,8 @@ End-to-end correctness on real photos, measured on the 62 held-out photos with C
 drafters and 9 % on Digitize-HCD, with the symbols themselves at 0.98 recall and 1.00 kind accuracy;
 the wire tracing leaves terminals unattached, so this package is a symbol detector on photos until a
 tracer with wire supervision for that style is trained (`docs/experiments.md`). The cloud-tier student (Qwen3-VL-2B LoRA, retrained on 272 of those netlists plus 2,000 synthetic
-circuits) returns a valid netlist for 92 % of the same 62 held-out photos and gets 60 % fully correct
-(95 % CI 47–71; 81 % on the CGHD test drafters, 52 % on Digitize-HCD), with the symbols at 0.99 recall
+circuits) returns a valid netlist for 92 % of the same 62 held-out photos and gets 58 % fully correct
+(95 % CI 45–71; 81 % on the CGHD test drafters, 50 % on Digitize-HCD), with the symbols at 0.99 recall
 and the remaining errors in the wiring of circuits with six or more elements; it is not deployed yet.
 
 ## Known limitations and failure modes
