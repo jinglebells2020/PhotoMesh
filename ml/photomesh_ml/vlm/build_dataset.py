@@ -43,6 +43,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--synthetic", action="append", default=[])
     parser.add_argument("--distilled", action="append", default=[])
+    parser.add_argument("--data-root", default="data", help="resolves relative image paths in distilled files (e.g. the labels/ folder)")
     parser.add_argument("--out", required=True)
     parser.add_argument("--max-side", type=int, default=1024)
     parser.add_argument("--val-fraction", type=float, default=0.05)
@@ -75,7 +76,10 @@ def main() -> None:
             if "target" not in row:
                 continue
             circuit = Circuit.from_json(row["target"])
-            dst, w, h = _copy_image(Path(row["image"]), out / "images", args.max_side)
+            image = Path(row["image"])
+            if not image.is_absolute():
+                image = Path(args.data_root) / image
+            dst, w, h = _copy_image(image, out / "images", args.max_side)
             rows.append({"image": str(dst.relative_to(out)), "width": w, "height": h, "source": row.get("source", "distilled"),
                          "group": row.get("group", "distilled"), "target": target_text(circuit, confidence=circuit.confidence)})
             n_real += 1

@@ -1,0 +1,87 @@
+0413 everything shorted by the middle wire (degenerate)
+0456 vertical resistor has no value
+0457 step-function sources (transient problem), unlabelled resistor
+0510 source values not written
+0513 step-function sources (transient problem)
+0528 vertical resistor has no value
+0266 annotation labels the ground symbol as a capacitor (label itself is right)
+0098 current source feeds only capacitors (ill-posed in DC), source symbol labelled in amperes
+0099 inductor shorts the 3 V source (ill-posed)
+0101 source value not written
+0124 inductor shorted by the outer wire, unlabelled capacitor
+0126 left current source has no value
+0128 the 2 F capacitor is shorted by the middle rail (both ends on the ground node)
+0132 inductor shorts the 36 V source (ill-posed)
+0143 current source shorted by the right wire (degenerate)
+0144 inductor ties the 20 V and 30 V sources together (ill-posed)
+0146 current source feeds only a capacitor (ill-posed)
+0147 inductor shorts the 10 V source (ill-posed)
+0154 current source into a capacitor (ill-posed)
+0155 source value not written
+0161 two current sources in series with unequal values (ill-posed)
+0164 series inductors 0.1H+0.5H short the 30V source at DC -> unsolvable
+0169 rightmost voltage source has no value written
+0174 rightmost resistor has no value written
+0182 7mH inductor directly across the 5V source (block left side is the ground wire) -> unsolvable
+0185 3A source feeds only the 30uF capacitor (no DC path) -> ill-posed
+0186 10mH inductor directly across the 10V source -> unsolvable
+0191 component drawn with a capacitor symbol but labelled 10 mH (symbol/label conflict)
+0193 source value is a time function 25[1-u(t)] V (transient problem)
+0202 current source has no value written
+0212 1.7A source feeds only the 10F capacitor (no DC path) -> ill-posed
+0218 middle vertical resistor has no value written
+0219 three resistors have no value written
+0227 right voltage source has no value written
+0231 current source value is 4u(t) A (transient problem)
+0238 inductor has no value written
+0242 2H inductor block sits directly across the 50V source (block left side is the ground wire) -> unsolvable
+0246 only node is shorted to ground by the 7mH; current source drives a short (degenerate)
+0249 50A source feeds only the 40F capacitor (no DC path) -> ill-posed
+0258 40mA source feeds only the 10uF capacitor (no DC path) -> ill-posed
+0259 4uA source feeds only the 30uF capacitor (no DC path) -> ill-posed
+0264 5A source feeds only the capacitor block (100mF/200mF), no DC path -> ill-posed
+0265 9mH inductor directly across the 60V source -> unsolvable
+0270 20A source feeds only 27 ohm + 30F in series (no DC path) -> ill-posed
+0298 node between the series 2F and 6F is floating at DC -> unsolvable
+0310 supernode {cap, 1k} is fed by 3A out and -4A in with no other path -> KCL inconsistent (ill-posed)
+0302 both 2A sources sit between the ground junction and wires tied to ground (shorted current sources) -> degenerate drawing
+0329 5mH inductor directly across the 20V source (both between the right junction and ground) -> unsolvable
+0331 bottom resistor has no value written
+0333 5A source is shorted by the middle wire (both ends on the same node) -> degenerate
+0338 left voltage source has no value written
+0339 voltage source, second inductor and right resistor have no values written
+0340 25mH shorts the only node to ground; current source drives a short (degenerate)
+0358 9mA source in a single loop with a series 9F capacitor (no DC path) -> ill-posed
+0375 5H inductor directly across the 40kV source (the source's + side is the grounded right vertical) -> unsolvable
+0377 7A source returns only through the capacitor block (no DC path) -> ill-posed
+0381 current source value is 5(1-u(t)) A (transient problem)
+0386 10V and 20V sources are both connected directly between the top wire and ground (conflicting) -> unsolvable
+0393 right voltage source has no value written
+0398 44A source returns only through 54uH + 51mF (no DC path) -> ill-posed
+0400 bottom voltage source has no value written
+0401 57mH inductor directly across the 47kV source -> unsolvable
+0418 the middle wire ties the left and right verticals together, shorting the 50V source -> degenerate
+0422 3A source feeds only the 2mF capacitor (no DC path) -> ill-posed
+0428 slanted resistor has no value written
+0431 2mA source feeds only the 3F capacitor (no DC path) -> ill-posed
+0432 current source value is 2u(t) A (transient problem)
+0439 10A and 8mA current sources in series with unequal values (ill-posed)
+0444 current source value is 10u(t) A (transient problem)
+0448 3mF capacitor in series in the 100V loop and the 10V/3MF branch leave the 10A source without a DC path -> ill-posed
+0455 right source label is ambiguous ('6V kV')
+0460 current source value is 3u(-t) A (transient problem)
+0461 left voltage source has no value written
+0483 top resistor has no value written
+0481 the 10V source symbol is scribbled over (polarity unreadable)
+0502 both paths between the source junction and the load contain series capacitors (no DC path) -> unsolvable
+0503 4mA source feeds only 2mH + 3uF (no DC path) -> ill-posed
+0504 one capacitor has no value written (the 8uF label sits between two capacitors)
+0507 voltage source has no value written
+0514 top capacitor has no value written
+0515 1mH shorts the only node to ground; current source drives a short (degenerate)
+0518 6mH inductor directly across the 20V source (both between the middle-wire nodes) -> unsolvable
+0522 4mH shorts the only node to ground; current source drives a short (degenerate)
+0530 current source value is 40u(t) A (transient problem)
+0531 9mA source feeds only the 6uF capacitor (no DC path) -> ill-posed
+0536 sources are 20u(t) A and 20u(t) V (transient problem)
+0537 right-hand voltage source has no value written
