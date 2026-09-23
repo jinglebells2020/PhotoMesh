@@ -14,14 +14,12 @@ The queue was built with `scripts/label_queue.py prepare` from `data/records/{tr
 in-scope photos only (no symbol outside the app's classes, at most 12 components), held-out
 (val/test) photos first. Photos whose source has no written value were left out up front (91 of 538).
 
-| | queued | labelled | accepted | rejected by the checks | set aside |
-|---|---|---|---|---|---|
-| Digitize-HCD, held-out (val/test) | 62 | 62 | 46 | 12 | 4 |
-| CGHD, held-out drafters | 16 | 16 | 16 | 2 (later fixed: 0) | 0 |
-| Digitize-HCD, training split | 369 | 369 | 272 | 19 | 78 |
-| **total** | **447** | **447** | **334** | **33** | **80** |
-
-(`skipped.txt` lists 87 entries: a few photos were tried, rejected, and then set aside.)
+| | labelable | accepted | rejected by the checks | set aside |
+|---|---|---|---|---|
+| Digitize-HCD, held-out (val/test) | 62 | 46 | 12 | 4 |
+| CGHD, held-out drafters | 16 | 16 | 0 | 0 |
+| Digitize-HCD, training split | 369 | 273 | 17 | 79 |
+| **total** | **447** | **335** | **29** | **83** |
 
 "Set aside" photos are drawings that have no well-posed DC answer, recorded with the reason in
 `skipped.txt`: a current source with no DC return path or two current sources in series (27),
@@ -31,10 +29,13 @@ be read (30: a component with no value, a scribbled polarity, a capacitor symbol
 henries). One annotation error was found the other way round (`0266`: the dataset labels the
 ground symbol as a capacitor; the netlist is right, the check rejects it).
 
-The 33 rejections in `rejected.jsonl` keep the reason: 22 are "unsolvable" drawings Claude
-labelled faithfully (the solver refuses them for the same reasons as above), 5 have a source or
-resistor without a value, and 6 are box disagreements — in three of them the dataset's box is the
-one that is off, the rest are Claude's.
+`rejected.jsonl` keeps 32 rows with the reason: the 29 above plus three photos from the excluded
+set that were tried anyway (a source with no written value, an AC source). 18 are "unsolvable"
+drawings Claude labelled faithfully (the solver refuses them for the reasons above), 5 lack a value,
+and 9 are box or class disagreements with the dataset annotation: in four of them the annotation
+is the one that is off (a ground symbol labelled as a capacitor, symbols missing from the
+annotation), the rest are symbol-versus-label conflicts or Claude's misreadings. `skipped.txt` has
+87 lines: the 83 set-aside photos plus a few that were tried, rejected and then set aside.
 
 ## Conventions
 
@@ -43,12 +44,13 @@ negative terminal of the main voltage source when nothing is grounded; other nod
 left to right; ids follow the drawing's labels when there are any; boxes are image fractions;
 current-source direction follows the arrow; a source value written negative (`-2 A`) is kept
 negative. When a drawing's symbol and label disagree (an inductor symbol labelled `10 Ω`) the
-label follows the **symbol**, as the dataset annotation does, with the written number as the
-value; `notes` says so. Capacitors written `MF` on these sheets are read as millifarads.
+label follows the drawn **symbol**, with the written number as the value, and `notes` says so;
+the datasets are not consistent about this, so a few such photos fail the box-agreement check
+either way. Capacitors written `MF` on these sheets are read as millifarads.
 
 Rows are in the distillation format (`image` relative to the data root laid out as in the README:
 `cghd/...`, `Digitize-HCD Dataset/...`; `target` is the circuit; `answers[0]` carries the
-box-agreement numbers). `train.jsonl` (272 photos from the training records) drops straight into
+box-agreement numbers). `train.jsonl` (273 photos from the training records) drops straight into
 
     python -m photomesh_ml.vlm.build_dataset --synthetic data/synth --distilled labels/claude/train.jsonl --data-root data --out data/vlm
 

@@ -207,7 +207,7 @@ Done and measured on a rented RTX 4090 (every table and the result files: [`docs
   detection, the assembler on ground-truth maps (90 % fully correct, 96 % topology on 160 circuits),
   Core ML + ONNX export, real-photo detection evaluation, the unattended RunPod recipe.
 
-- **Real netlists for 334 photos** ([`labels/claude/`](labels/claude/README.md)): Claude labelled the
+- **Real netlists for 335 photos** ([`labels/claude/`](labels/claude/README.md)): Claude labelled the
   in-scope Digitize-HCD and CGHD photos directly and every label passed the distillation checks
   (schema, DC solver, box agreement with the dataset annotation); 62 of them come from the held-out
   records and are the end-to-end test set for real photos. Scored on them, the tracer reads the

@@ -278,10 +278,10 @@ Training-loop evaluation on 30 val samples agrees: correct 0.33 [0.1667, 0.5], c
 
 ### Real photos end to end, scored against Claude's netlists (23 Sep 2026, CPU)
 
-The 334 accepted labels in [`labels/claude/`](../labels/claude/README.md) give the first end-to-end
+The 335 accepted labels in [`labels/claude/`](../labels/claude/README.md) give the first end-to-end
 numbers on real photos. The held-out file holds the 62 photos from the val/test records (46
 Digitize-HCD, 16 CGHD from the test drafters); the tracer never saw their boxes. The 272 training-split
-photos are reported separately: the tracer trained on their symbol boxes (not on any wiring), so that
+photos (273 after one label was corrected later) are reported separately: the tracer trained on their symbol boxes (not on any wiring), so that
 number is in-distribution for detection and only says how far the wire tracing is from the symbols.
 All runs: `tracer.evaluate`, CircuitNet v2 (calibrated), 640 px, ground-truth text, unit rule off,
 one CPU core each (latency is the CPU figure, 2.5 s a photo).
