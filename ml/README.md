@@ -174,6 +174,11 @@ for real photos, fine-tunes the VLM with LoRA and benchmarks it against the teac
 a hard time cap, packs `results.tar.gz`, waits a grace window for the download and then terminates
 its own pod, so a forgotten pod cannot keep billing. The controller talks to the pod only over
 HTTPS (RunPod's API and the pod's Jupyter contents API), so it works from anywhere.
+`scripts/runpod_job_vlm_real.sh` is the second, shorter job (about two hours): it takes the code
+tarball, a tarball of the labelled photos and the earlier adapter, scores that adapter on the 62
+held-out photos, retrains the LoRA on synthetic circuits plus the real netlists and scores the new
+adapter on the same photos. Create the pod without `--job`, `pack` and `upload` the inputs
+(`mkdir` for the adapter folder) and upload the job file last; the pod starts it when it appears.
 
 ## 4. What "correct" means
 
@@ -189,7 +194,7 @@ tables live in [`docs/experiments.md`](docs/experiments.md).
 ## 5. Status
 
 Done and measured on a rented RTX 4090 (every table and the result files: [`docs/experiments.md`](docs/experiments.md),
-`docs/results/runpod-4090-real/`):
+`docs/results/runpod-4090-real/`, `docs/results/claude-labels/`):
 
 - **CircuitNet on real data.** MobileNetV3-Large at 640 px, trained on 12,000 synthetic images plus
   Digitize-HCD and CGHD (10 epochs, then 3 more with the switch fix; 33 min of GPU in total). On 300
@@ -202,7 +207,7 @@ Done and measured on a rented RTX 4090 (every table and the result files: [`docs
   photos the teacher labelled before the OpenRouter account ran out of credit). On 120 held-out val
   samples it finds the components (recall 0.96, kind accuracy 0.99) but wires only 28 % of circuits
   correctly (95 % CI 21–37): not a replacement for the cloud tier yet; it needs more epochs, real
-  netlists and a teacher comparison.
+  netlists and a teacher comparison. Superseded by the retrain on the real netlists below.
 - Unit tests (78), the synthetic generator with previews, both converters with per-photo label-frame
   detection, the assembler on ground-truth maps (90 % fully correct, 96 % topology on 160 circuits),
   Core ML + ONNX export, real-photo detection evaluation, the unattended RunPod recipe.
@@ -216,12 +221,21 @@ Done and measured on a rented RTX 4090 (every table and the result files: [`docs
   trained the wire head, 9 % on Digitize-HCD):
   the traced wires stop short of the terminals, so nets fragment. Details and the assembler
   ablations are in `docs/experiments.md`.
+- **Cloud tier retrained on the real netlists** (`docs/results/claude-labels/vlm2/`,
+  `scripts/runpod_job_vlm_real.sh`): Qwen3-VL-2B with LoRA r=32, two epochs on 2,000 synthetic
+  circuits plus 272 of the labelled photos (each three times), 51 min on one RTX 4090. On the same 62
+  held-out photos it returns a valid netlist for 92 % and gets 60 % fully correct (95 % CI 47–71; the
+  earlier adapter 5 %, the tracer 18 %): 81 % on the CGHD test drafters (two circuits, and no CGHD
+  photo in training) and 52 % on Digitize-HCD; components 0.99 recall, kinds 1.00, values 0.98,
+  reference node 0.81. What stays wrong is the wiring of circuits with six or more elements (44 %
+  right against 82 % for four or five).
 
 Not yet done: the Swift port of the assembler ([`docs/on-device.md`](docs/on-device.md)) and the
 Core ML integration in the app; wire supervision for the Digitize-HCD style and a tracer retrained
-with it (the end-to-end failure above); the teacher-versus-student benchmark (the OpenRouter
-account has no credit); dense hand-drawn pages (the CGHD val drafters) and lamps/batteries on real
-drawings; the app-scan converter on real exports.
+with it (the end-to-end failure above); serving the retrained adapter through vLLM and measuring
+its latency; the teacher-versus-student benchmark (the OpenRouter account has no credit); a second
+labeller's check of the real-photo netlists; dense hand-drawn pages (the CGHD val drafters) and
+lamps/batteries on real drawings; the app-scan converter on real exports.
 
 ## Licences
 

@@ -8,6 +8,9 @@
     python scripts/runpod_control.py terminate POD_ID
     python scripts/runpod_control.py list
 
+A job with extra inputs: `create` without --job, then `pack ml ml.tar.gz`, `upload`/`mkdir` the inputs into
+workspace/, and upload the job file last (`upload POD_ID scripts/runpod_job_vlm_real.sh workspace/job.sh`).
+
 The pod's start command waits for /workspace/job.sh to appear, then runs it; `create` uploads the
 code tarball and the job through Jupyter (token = a random secret passed as JUPYTER_PASSWORD).
 """
@@ -205,10 +208,23 @@ def main() -> None:
     u.add_argument("src")
     u.add_argument("path")
     u.add_argument("--token", required=True)
+    m = sub.add_parser("mkdir")
+    m.add_argument("pod_id")
+    m.add_argument("path")
+    m.add_argument("--token", required=True)
+    k = sub.add_parser("pack", help="write the code tarball that `create --job` would upload, for jobs with extra inputs")
+    k.add_argument("code")
+    k.add_argument("dest")
     sub.add_parser("list")
     args = parser.parse_args()
     if args.cmd == "create":
         create(args)
+    elif args.cmd == "pack":
+        Path(args.dest).write_bytes(build_code_tar(args.code))
+    elif args.cmd == "mkdir":
+        detect_root(args.pod_id, args.token)
+        mkdir(args.pod_id, args.token, args.path)
+        print("created", args.path)
     elif args.cmd == "status":
         print(json.dumps(status(args.pod_id), indent=1))
     elif args.cmd == "terminate":

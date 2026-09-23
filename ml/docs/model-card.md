@@ -15,8 +15,9 @@ integrated circuits; those are reported as unsupported so the app can say so.
 - Digitize-HCD (CC BY 4.0): symbol boxes, text labels, port crops with polarity.
 - CGHD (CC BY 4.0): symbol boxes with rotation, junctions, stroke masks.
 - App scans (opt-in, corrected netlists) once collected.
-- For the VLM: teacher answers on real photos, kept only when consistent with the datasets'
-  annotations and with each other.
+- For the VLM: netlists for real photos written by Claude (`labels/claude`, 272 training photos in the
+  current adapter) or by a teacher model, kept only when they pass the app's validation, the DC solver
+  and the datasets' own symbol annotations.
 
 ## Evaluation
 `docs/experiments.md` defines the metrics (user-facing correctness with bootstrap intervals,
@@ -29,8 +30,10 @@ End-to-end correctness on real photos, measured on the 62 held-out photos with C
 (`labels/claude/heldout.jsonl`): 18 % of circuits fully correct (95 % CI 8–27), 44 % on the CGHD test
 drafters and 9 % on Digitize-HCD, with the symbols themselves at 0.98 recall and 1.00 kind accuracy;
 the wire tracing leaves terminals unattached, so this package is a symbol detector on photos until a
-tracer with wire supervision for that style is trained (`docs/experiments.md`). The cloud-tier student (Qwen3-VL-2B LoRA, one epoch) wires 28 % of held-out
-val circuits correctly and is not deployed.
+tracer with wire supervision for that style is trained (`docs/experiments.md`). The cloud-tier student (Qwen3-VL-2B LoRA, retrained on 272 of those netlists plus 2,000 synthetic
+circuits) returns a valid netlist for 92 % of the same 62 held-out photos and gets 60 % fully correct
+(95 % CI 47–71; 81 % on the CGHD test drafters, 52 % on Digitize-HCD), with the symbols at 0.99 recall
+and the remaining errors in the wiring of circuits with six or more elements; it is not deployed yet.
 
 ## Known limitations and failure modes
 - Kind confusions between visually similar symbols at low resolution (current vs voltage source,
