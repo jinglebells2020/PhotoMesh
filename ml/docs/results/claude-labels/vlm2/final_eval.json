@@ -1,0 +1,28 @@
+{
+ "n": 30,
+ "valid": 0.8,
+ "correct": 0.2,
+ "topology_ok": 0.4,
+ "structure_ok": 0.5333333333333333,
+ "answer_ok": 0.4,
+ "component_recall": 0.9818181818181818,
+ "component_precision": 0.9818181818181818,
+ "kind_acc": 0.9938271604938271,
+ "value_acc": 0.9382716049382716,
+ "ids_ok": 1.0,
+ "ground_ok": 0.4666666666666667,
+ "box_iou": 0.8541891781097279,
+ "unsupported_ok": 0.9666666666666667,
+ "correct_ci95": [
+  0.0667,
+  0.3667
+ ],
+ "topology_ci95": [
+  0.2333,
+  0.5667
+ ],
+ "samples": [
+  "{\"components\": [{\"id\": \"R1\", \"type\": \"resistor\", \"value\": 750.0, \"node_a\": \"a\", \"node_b\": \"c\", \"box\": [0.3, 0.13, 0.47, 0.17], \"orientation\": \"horizontal\"}, {\"id\": \"R2\", \"type\": \"resistor\", \"value\": 6.0, \"node_a\": \"c\", \"node_b\": \"0\", \"box\": [0.53, 0.12, 0.71, 0.16], \"orientation\": \"horizontal\"}, {\"i",
+  "{\"components\": [{\"id\": \"R1\", \"type\": \"resistor\", \"value\": 3.0, \"node_a\": \"a\", \"node_b\": \"b\", \"box\": [0.29, 0.19, 0.41, 0.24], \"orientation\": \"horizontal\"}, {\"id\": \"R2\", \"type\": \"resistor\", \"value\": 12000.0, \"node_a\": \"b\", \"node_b\": \"c\", \"box\": [0.56, 0.19, 0.7, 0.27], \"orientation\": \"horizontal\"}, {"
+ ]
+}

@@ -326,3 +326,77 @@ pixels, so the options are pseudo-masks from the netlist plus the symbol boxes, 
 stroke maps drawn for that source), and the Core ML package in the repository should be read as a
 symbol detector until then. The cloud tier is scored on the same 62 photos below.
 
+#### Cloud tier retrained on the real netlists: Qwen3-VL-2B LoRA, scored on the same 62 photos (23 Sep 2026, one RTX 4090)
+
+Job: [`scripts/runpod_job_vlm_real.sh`](../scripts/runpod_job_vlm_real.sh); result files in
+`docs/results/claude-labels/vlm2/`. The earlier adapter (one epoch on 5,000 synthetic circuits plus
+the 85 teacher-labelled photos, above) is scored first on the 62 held-out photos, then a fresh LoRA
+is trained from the base model and scored on the same photos. Training set: 2,000 synthetic circuits
+(seed 7) plus the 272 training-split photos with Claude's netlists, each repeated three times, 2,708
+rows after the 5 % val share (108 rows of the same mix); no CGHD photo is in it, because the CGHD
+training drafters' in-scope drawings carry no written values and were left out of the labelling.
+Qwen3-VL-2B-Instruct, LoRA r=32 on 196 linear layers (34.9 M trainable parameters of 2,162 M), two
+epochs (about 340 optimizer steps at batch 2 × accumulation 8), learning rate 1e-4 with warm-up
+over the first 50 steps and cosine decay to zero, bf16, gradient checkpointing, at most 802,816 pixels per
+image; 9.0 s per step, 51 min of training, loss 0.47 at step 10 → 0.076 at step 330. Inference is
+greedy with the HF generate loop, batch 4 (about 3 s a photo on the 4090; no vLLM number yet).
+
+| adapter, on the 62 held-out real photos | valid netlist | correct [95% CI] | topology | structure | comp. recall / precision | kind acc | value acc | reference node | box IoU | unsupported_ok |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| earlier (5,000 synthetic + 85 teacher labels, 1 epoch) | 0.742 | 0.048 [0.0, 0.1129] | 0.048 | 0.081 | 0.917 / 0.982 | 0.966 | 0.944 | 0.355 | 0.68 | 0.839 |
+| **retrained (2,000 synthetic + 272 real ×3, 2 epochs)** | **0.919** | **0.597 [0.4677, 0.7097]** | 0.613 | 0.661 | 0.991 / 0.991 | 0.997 | 0.980 | 0.806 | 0.733 | 1.0 |
+| for comparison: tracer v2 on the same photos (table above) | 0.226 | 0.177 [0.0806, 0.2742] | 0.177 | 0.194 | 0.983 / 0.991 | 1.000 | 0.985 | 0.21 | 0.648 | – |
+
+| by source | n | earlier: correct [95% CI] | valid | reference node | retrained: correct [95% CI] | valid | topology | structure | value acc | reference node |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| CGHD test drafters (circuits C4 and C5, drafters 1 and 2, four pages each) | 16 | 0.125 [0.0, 0.3125] | 0.625 | 0.625 | 0.812 [0.625, 1.0] | 1.0 | 0.812 | 1.0 | 0.946 | 1.0 |
+| Digitize-HCD val/test | 46 | 0.022 [0.0, 0.0652] | 0.783 | 0.261 | 0.522 [0.3696, 0.6522] | 0.891 | 0.543 | 0.543 | 0.986 | 0.739 |
+
+On the run's own val split (108 rows: 60 synthetic circuits and 16 training-split photos, each present
+three times because the val bucket is drawn by group and every photo was repeated) the retrained adapter
+gets 0.361 [0.2685, 0.4444] fully correct: synthetic 0.20 [0.10, 0.30] (valid 0.883, topology 0.35,
+component recall 0.972), the 16 real photos 9 of 16 (0.5625; valid 1.0, every component and value right,
+reference node 0.94; the three copies of each photo agree). The synthetic number is below the earlier
+adapter's 0.283 on its own, larger val set (5,000 synthetic circuits, one epoch): fewer synthetic samples
+and the real-photo emphasis cost accuracy on the harder synthetic topologies, which the app never sees
+but which are the stress test for wiring. The two val sets differ, so this is a trend, not a paired
+comparison; the 62 held-out photos above are the paired one.
+
+What changed, photo by photo: the three photos the earlier adapter got right the retrained one gets
+right too, 34 more are newly right, 25 are wrong under both. The earlier adapter dropped components
+(recall 0.917), flagged 10 of the 62 drawings as holding elements the app cannot solve
+(`unsupported_ok` 0.839; none of them does) and produced netlists with fewer nodes than the truth in
+18 of its 46 valid predictions: it had learned the synthetic distribution and read the real drawings
+as something else. The retrained adapter finds the components (recall and precision 0.991, kinds
+0.997, values 0.980, on par with the tracer's symbol head) and gets the node count right in 49 of
+its 57 valid predictions (4 more, 4 fewer), so what is left is assignment errors inside a graph of
+the right size. Of the 62 photos: 37 right; 5 rejected by the app's validation (`danglingElement`, a
+terminal on a node used once); 3 valid but singular for the solver; 4 with the right structure but a
+misread value (three of them the same CGHD circuit, C5 by drafter 2, on three pages, with the same
+misread value; correlated, not three independent errors) or the wrong reference node (one); 13
+solvable with a different wiring. By circuit size: 1–3 elements 5 of 8, 4–5 elements 18 of 22
+(82 %), 6+ elements 14 of 32 (44 %); the earlier adapter had 2, 0 and 1. The reference node is right
+in 50 of 62 (22 before).
+
+How far to trust these numbers. (1) n = 62, so the interval is wide (47–71 %), and the 16 CGHD photos
+are two circuits drawn by two drafters on four pages each: closer to four independent drawing
+series than to 16 samples, and the failures come in runs (C5 by drafter 2, pages 2–4). (2) The
+training and test netlists were written by the same labeller; the metric is invariant to node
+names, but the reference-node convention (the negative terminal of the main source when nothing is
+grounded) is a labelling convention the model learned from the training labels and gets credit for,
+and a systematic misreading shared by labeller and model would be invisible; the labels passed the
+solver and the datasets' symbol annotations, but no second labeller has checked the wiring. (3) The
+Digitize-HCD split is by image id, so the held-out sheets share style and drawing conventions with
+the 272 training photos; CGHD is the only out-of-source result, and the higher one, but on two
+circuits. (4) The comparison with a cloud teacher is still missing (no OpenRouter credit); this is
+the student against the labels, not against the model it was meant to replace. (5) Greedy decoding,
+no constrained JSON, no self-consistency: 5 of 62 outputs still fail the app's validation.
+
+What this changes in the plan: the cloud tier has a measured real-photo accuracy for the first time,
+and it is the wiring of six-plus-element circuits that limits it, not symbol reading. The next
+training data should be circuits of that size (the 83 set-aside drawings are out of the app's scope,
+and every in-scope, labelable Digitize-HCD photo is already used, so it means new drawings or the
+app's own scans), the serving path should use the JSON schema so the 5 invalid outputs cannot reach
+the user, and the solver-checked self-training loop (`vlm.distill --endpoint` at the student) can
+now start from an adapter that is right more often than not.
+

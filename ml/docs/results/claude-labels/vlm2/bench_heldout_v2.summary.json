@@ -1,0 +1,77 @@
+{
+ "summary": {
+  "n": 62,
+  "valid": 0.9193548387096774,
+  "correct": 0.5967741935483871,
+  "topology_ok": 0.6129032258064516,
+  "structure_ok": 0.6612903225806451,
+  "answer_ok": 0.6129032258064516,
+  "component_recall": 0.9914040114613181,
+  "component_precision": 0.9914040114613181,
+  "kind_acc": 0.9971098265895953,
+  "value_acc": 0.9797687861271677,
+  "ids_ok": 1.0,
+  "ground_ok": 0.8064516129032258,
+  "box_iou": 0.7334799031961082,
+  "unsupported_ok": 1.0,
+  "correct_ci95": [
+   0.4677,
+   0.7097
+  ],
+  "topology_ci95": [
+   0.5,
+   0.7258
+  ]
+ },
+ "by_source": {
+  "cghd": {
+   "n": 16,
+   "valid": 1.0,
+   "correct": 0.8125,
+   "topology_ok": 0.8125,
+   "structure_ok": 1.0,
+   "answer_ok": 0.8125,
+   "component_recall": 1.0,
+   "component_precision": 1.0,
+   "kind_acc": 1.0,
+   "value_acc": 0.9464285714285714,
+   "ids_ok": 1.0,
+   "ground_ok": 1.0,
+   "box_iou": 0.8264087169060831,
+   "unsupported_ok": 1.0,
+   "correct_ci95": [
+    0.625,
+    1.0
+   ],
+   "topology_ci95": [
+    0.625,
+    1.0
+   ]
+  },
+  "digitize_hcd": {
+   "n": 46,
+   "valid": 0.8913043478260869,
+   "correct": 0.5217391304347826,
+   "topology_ok": 0.5434782608695652,
+   "structure_ok": 0.5434782608695652,
+   "answer_ok": 0.5434782608695652,
+   "component_recall": 0.9897610921501706,
+   "component_precision": 0.9897610921501706,
+   "kind_acc": 0.996551724137931,
+   "value_acc": 0.9862068965517241,
+   "ids_ok": 1.0,
+   "ground_ok": 0.7391304347826086,
+   "box_iou": 0.7011568375578568,
+   "unsupported_ok": 1.0,
+   "correct_ci95": [
+    0.3696,
+    0.6522
+   ],
+   "topology_ci95": [
+    0.3913,
+    0.6739
+   ]
+  }
+ },
+ "model": "runs/vlm2/preds_heldout_v2.jsonl"
+}

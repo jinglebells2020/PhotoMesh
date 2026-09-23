@@ -28,6 +28,8 @@ def main() -> None:
                 continue
             name = Path(m.name)
             manifest.append(f"{m.name} ({m.size / 1e6:.1f} MB)")
+            if {"adapter", "merged", "images"} & set(name.parts):
+                continue   # model folders carry tokenizer/config json files that are not results
             if name.name == "train.jsonl" and "distill" in m.name:
                 distill["accepted"] = sum(1 for line in tar.extractfile(m).read().decode("utf-8").splitlines() if line.strip())
                 continue

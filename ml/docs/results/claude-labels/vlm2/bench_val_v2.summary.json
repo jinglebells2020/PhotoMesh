@@ -1,0 +1,77 @@
+{
+ "summary": {
+  "n": 108,
+  "valid": 0.9351851851851852,
+  "correct": 0.3611111111111111,
+  "topology_ok": 0.4444444444444444,
+  "structure_ok": 0.48148148148148145,
+  "answer_ok": 0.4722222222222222,
+  "component_recall": 0.9849749582637729,
+  "component_precision": 0.9882747068676717,
+  "kind_acc": 0.9949152542372881,
+  "value_acc": 0.9779661016949153,
+  "ids_ok": 1.0,
+  "ground_ok": 0.6851851851851852,
+  "box_iou": 0.7989838822709382,
+  "unsupported_ok": 0.9907407407407407,
+  "correct_ci95": [
+   0.2685,
+   0.4444
+  ],
+  "topology_ci95": [
+   0.3426,
+   0.537
+  ]
+ },
+ "by_source": {
+  "synthetic": {
+   "n": 60,
+   "valid": 0.8833333333333333,
+   "correct": 0.2,
+   "topology_ok": 0.35,
+   "structure_ok": 0.4166666666666667,
+   "answer_ok": 0.4,
+   "component_recall": 0.971875,
+   "component_precision": 0.9779874213836478,
+   "kind_acc": 0.9903536977491961,
+   "value_acc": 0.9581993569131833,
+   "ids_ok": 1.0,
+   "ground_ok": 0.48333333333333334,
+   "box_iou": 0.8584470481352968,
+   "unsupported_ok": 0.9833333333333333,
+   "correct_ci95": [
+    0.1,
+    0.3
+   ],
+   "topology_ci95": [
+    0.2333,
+    0.4667
+   ]
+  },
+  "digitize_hcd": {
+   "n": 48,
+   "valid": 1.0,
+   "correct": 0.5625,
+   "topology_ok": 0.5625,
+   "structure_ok": 0.5625,
+   "answer_ok": 0.5625,
+   "component_recall": 1.0,
+   "component_precision": 1.0,
+   "kind_acc": 1.0,
+   "value_acc": 1.0,
+   "ids_ok": 1.0,
+   "ground_ok": 0.9375,
+   "box_iou": 0.7246549249404914,
+   "unsupported_ok": 1.0,
+   "correct_ci95": [
+    0.4167,
+    0.7083
+   ],
+   "topology_ci95": [
+    0.4167,
+    0.7083
+   ]
+  }
+ },
+ "model": "runs/vlm2/preds_val_v2.jsonl"
+}
