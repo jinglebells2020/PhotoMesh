@@ -20,3 +20,7 @@ build/
 *.p12
 *.p8
 *.mobileprovision
+
+# Node tooling
+node_modules/
+tools/appstore/out/

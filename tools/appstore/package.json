@@ -1,0 +1,14 @@
+{
+  "name": "photocircuits-appstore",
+  "version": "1.0.0",
+  "description": "Renders the App Store screenshots from device captures",
+  "scripts": {
+    "render": "node render.mjs",
+    "render:all": "node render.mjs --device iphone69,iphone65,ipad13"
+  },
+  "dependencies": {
+    "playwright": "1.49"
+  },
+  "private": true,
+  "type": "module"
+}

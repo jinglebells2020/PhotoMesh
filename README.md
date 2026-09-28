@@ -356,6 +356,13 @@ the bucket, builds `train/val.jsonl` split by install, writes every corrected sc
 the recognition benchmark's format, and prints the same report from the files without a database.
 `PrivacyInfo.xcprivacy` and `docs/privacy.html` describe all of it.
 
+### App Store screenshots
+
+`tools/appstore` renders the store images (a bold page, a headline, a framed device capture and
+circuit-symbol doodles) at the exact App Store Connect sizes with headless Chromium:
+`node render.mjs` after `npm install`. The slides are data in `slides.js`; captures go in
+`screens/`. Its README says how to capture the screens and add slides.
+
 ### Recognition setup
 
 Settings → Recognition → *OpenRouter API key*. The key is kept in the device Keychain and only

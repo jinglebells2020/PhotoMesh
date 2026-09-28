@@ -1,0 +1,143 @@
+@font-face {
+  font-family: "Inter";
+  src: url("fonts/InterVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: block;
+}
+
+:root {
+  --s: 1;                 /* scale: page height / 2868 */
+  --w: 1320px;
+  --h: 2868px;
+  --bg: #126B3D;
+  --bg2: #FFD34D;
+  --fg: #ffffff;
+  --tilt: 0deg;
+  --phone-top: 640px;
+  --ink: #16181c;
+}
+
+html, body { margin: 0; padding: 0; }
+body {
+  width: var(--w);
+  height: var(--h);
+  overflow: hidden;
+  position: relative;
+  background: var(--bg);
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Second colour cutting across a corner, Photomath-style. */
+.corner { position: absolute; inset: 0; background: var(--bg2); }
+.corner.tr { clip-path: polygon(74% 0, 100% 0, 100% 22%); }
+.corner.tl { clip-path: polygon(0 0, 26% 0, 0 22%); }
+.corner.bl { clip-path: polygon(0 66%, 0 100%, 46% 100%); }
+.corner.br { clip-path: polygon(100% 66%, 100% 100%, 54% 100%); }
+
+/* A soft blob behind the phone. */
+.blob {
+  position: absolute;
+  border-radius: 50%;
+  opacity: 0.95;
+}
+
+.headline {
+  position: absolute;
+  top: calc(var(--s) * 196px);
+  left: 0; right: 0;
+  padding: 0 calc(var(--s) * 96px);
+  text-align: center;
+  color: var(--fg);
+  font-weight: 800;
+  font-size: calc(var(--s) * 104px);
+  line-height: 1.08;
+  letter-spacing: -0.022em;
+  text-wrap: balance;
+}
+.headline .line { display: block; }
+
+.phone-wrap {
+  position: absolute;
+  left: 50%;
+  top: calc(var(--s) * var(--phone-top-px, 640) * 1px);
+  width: calc(var(--s) * 988px);
+  height: calc(var(--s) * 2114px);
+  transform: translateX(-50%) rotate(var(--tilt));
+  transform-origin: 50% 40%;
+}
+.phone-outline {
+  position: absolute;
+  inset: calc(var(--s) * -22px);
+  border: calc(var(--s) * 7px) solid rgba(255, 255, 255, 0.96);
+  border-radius: calc(var(--s) * 172px);
+}
+.phone {
+  position: absolute;
+  inset: 0;
+  background: #0b0b0c;
+  border-radius: calc(var(--s) * 150px);
+  padding: calc(var(--s) * 14px);
+  box-sizing: border-box;
+  box-shadow: 0 calc(var(--s) * 44px) calc(var(--s) * 110px) rgba(0, 0, 0, 0.38);
+}
+.screen {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: calc(var(--s) * 136px);
+  overflow: hidden;
+  background: #000;
+}
+.screen img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.island {
+  position: absolute;
+  top: calc(var(--s) * 30px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(var(--s) * 300px);
+  height: calc(var(--s) * 88px);
+  background: #000;
+  border-radius: calc(var(--s) * 50px);
+}
+
+.doodle {
+  position: absolute;
+  pointer-events: none;
+}
+.doodle svg { display: block; overflow: visible; }
+
+.mark {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--s) * 18px);
+  color: var(--fg);
+  font-weight: 600;
+  font-size: calc(var(--s) * 40px);
+  letter-spacing: 0.01em;
+}
+.mark .tile {
+  width: calc(var(--s) * 72px);
+  height: calc(var(--s) * 72px);
+  border-radius: calc(var(--s) * 18px);
+  background: #fff;
+  display: grid;
+  place-items: center;
+}
+.mark .tile svg { width: 60%; height: 60%; }
+
+/* An iPad capture: 3:4 panel, squarer corners, no island. */
+.phone-wrap.tablet {
+  width: calc(var(--s) * 1480px);
+  height: calc(var(--s) * 1974px);
+}
+.phone-wrap.tablet .phone-outline { border-radius: calc(var(--s) * 120px); }
+.phone-wrap.tablet .phone { border-radius: calc(var(--s) * 100px); padding: calc(var(--s) * 18px); }
+.phone-wrap.tablet .screen { border-radius: calc(var(--s) * 84px); }

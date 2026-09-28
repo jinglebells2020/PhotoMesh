@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Photocircuits App Store screenshots</title>
+<link rel="stylesheet" href="style.css">
+<script src="doodles.js"></script>
+<script src="slides.js"></script>
+</head>
+<body>
+<script>
+(function () {
+  const params = new URLSearchParams(location.search);
+  const index = Math.max(0, Math.min(window.SLIDES.length - 1, Number(params.get("slide") || 0)));
+  const width = Number(params.get("w") || 1320);
+  const height = Number(params.get("h") || 2868);
+  const slide = window.SLIDES[index];
+  const device = params.get("device") || "iphone69";
+  // A per-device capture wins over the shared one: { screenshots: { ipad13: { src, frame: "tablet" } } }.
+  const capture = (slide.screenshots && slide.screenshots[device]) || { src: slide.screenshot };
+  const shot = typeof capture === "string" ? { src: capture } : capture;
+  const scale = height / 2868;
+  const root = document.documentElement.style;
+  root.setProperty("--w", width + "px");
+  root.setProperty("--h", height + "px");
+  root.setProperty("--s", scale);
+  root.setProperty("--bg", slide.bg);
+  root.setProperty("--bg2", slide.bg2);
+  root.setProperty("--fg", slide.fg);
+  root.setProperty("--tilt", (slide.tilt || 0) + "deg");
+  root.setProperty("--phone-top-px", slide.phoneTop || 640);
+  document.title = `${index + 1} ${slide.slug}`;
+
+  const body = document.body;
+  const add = (html) => body.insertAdjacentHTML("beforeend", html);
+
+  add(`<div class="corner ${slide.corner || "tr"}"></div>`);
+  if (slide.blob) {
+    const b = slide.blob;
+    add(`<div class="blob" style="background:${b.color}; width:calc(var(--s) * ${b.d}px); height:calc(var(--s) * ${b.d}px); left:calc(${b.x}% - var(--s) * ${b.d / 2}px); top:calc(${b.y}% - var(--s) * ${b.d / 2}px);"></div>`);
+  }
+  for (const d of slide.doodles || []) {
+    const body = window.DOODLES[d.d];
+    if (!body) continue;
+    add(`<div class="doodle" style="left:${d.x}%; top:${d.y}%; width:calc(var(--s) * ${d.w}px); height:calc(var(--s) * ${d.w}px); transform:rotate(${d.rot || 0}deg); color:${d.color}">
+      <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round">${body}</svg></div>`);
+  }
+  const tablet = shot.frame === "tablet";
+  add(`<div class="phone-wrap${tablet ? " tablet" : ""}"><div class="phone-outline"></div><div class="phone"><div class="screen"><img src="${shot.src}" alt=""></div>${tablet ? "" : '<div class="island"></div>'}</div></div>`);
+  add(`<h1 class="headline">${slide.headline.map((l) => `<span class="line">${l}</span>`).join("")}</h1>`);
+})();
+</script>
+</body>
+</html>
