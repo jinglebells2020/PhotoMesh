@@ -16,7 +16,7 @@ struct FeedbackEntry: Identifiable, Codable, Hashable {
 
 enum FeedbackStore {
     static let reasons = ["Wrong answer", "A step is wrong", "Explanation is confusing", "Circuit was misread", "Too many steps", "Something else"]
-    static let supportEmail = "hello@photomesh.app"
+    static let supportEmail = "1nska.pr@gmail.com"
     /// Fill in once the app exists in App Store Connect (numeric id) to open the review page directly.
     static let appStoreID: String? = nil
 

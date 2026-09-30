@@ -110,7 +110,7 @@ struct OpenRouterClient {
             request.httpMethod = "POST"
             request.setValue("Bearer \(configuration.apiKey)", forHTTPHeaderField: "Authorization")
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue("https://photomesh.app", forHTTPHeaderField: "HTTP-Referer")
+            request.setValue("https://jinglebells2020.github.io/PhotoMesh/", forHTTPHeaderField: "HTTP-Referer")
             request.setValue("PhotoMesh", forHTTPHeaderField: "X-Title")
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
             return request

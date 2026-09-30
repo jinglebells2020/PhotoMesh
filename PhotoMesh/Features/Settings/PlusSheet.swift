@@ -153,13 +153,35 @@ struct PlusSheet: View {
                     .padding(.top, 10)
             }
 
+            legalFooter
+                .padding(.top, 12)
+
             Button("Not now") { dismiss() }
                 .font(.system(size: 13))
                 .foregroundStyle(PMTheme.secondaryText)
-                .padding(.top, 14)
+                .padding(.top, 10)
                 .padding(.bottom, 20)
         }
         .background(Color.white)
+    }
+
+    /// Apple requires the terms and the privacy policy to be reachable from any screen that sells a
+    /// subscription. The RevenueCat paywall carries its own footer links; this fallback needs its own.
+    private var legalFooter: some View {
+        VStack(spacing: 6) {
+            Text("Plus renews automatically until cancelled. Cancel any time in Settings \u{203A} Apple Account \u{203A} Subscriptions.")
+                .font(.system(size: 11))
+                .multilineTextAlignment(.center)
+                .foregroundStyle(PMTheme.secondaryText)
+                .padding(.horizontal, 28)
+            HStack(spacing: 14) {
+                Link("Terms of Use", destination: URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!)
+                Text("\u{00B7}").foregroundStyle(PMTheme.secondaryText)
+                Link("Privacy Policy", destination: URL(string: "https://jinglebells2020.github.io/PhotoMesh/privacy.html")!)
+            }
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(PMTheme.secondaryText)
+        }
     }
 
     private var header: some View {

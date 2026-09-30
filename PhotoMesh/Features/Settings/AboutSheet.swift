@@ -47,10 +47,9 @@ struct AboutSheet: View {
                 }
 
                 Section {
-                    // Placeholder destinations until the marketing site exists.
-                    Link("Terms of Service", destination: URL(string: "https://photomesh.app/terms")!)
-                    Link("Privacy Policy", destination: URL(string: "https://photomesh.app/privacy")!)
-                    Link("Contact us", destination: URL(string: "mailto:hello@photomesh.app")!)
+                    Link("Terms of Service", destination: URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!)
+                    Link("Privacy Policy", destination: URL(string: "https://jinglebells2020.github.io/PhotoMesh/privacy.html")!)
+                    Link("Contact us", destination: URL(string: "mailto:1nska.pr@gmail.com")!)
                 }
                 .foregroundStyle(PMTheme.ink)
             }

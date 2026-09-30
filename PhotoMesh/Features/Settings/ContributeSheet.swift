@@ -70,7 +70,7 @@ struct ContributeView: View {
                 } label: {
                     Text("Collected data").foregroundStyle(PMTheme.ink)
                 }
-                Link(destination: URL(string: "https://photomesh.app/privacy")!) {
+                Link(destination: URL(string: "https://jinglebells2020.github.io/PhotoMesh/privacy.html")!) {
                     Text("Privacy policy")
                 }
                 Button(role: .destructive) {
