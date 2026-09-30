@@ -22,6 +22,12 @@ enum PlusFeature: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// The course is switched off for now. Its two entry points (the side-menu row and the camera
+    /// bar's cap) are gone, and leaving it out here keeps it off every feature and paywall list
+    /// that is built from `allCases`. The case itself stays so the lessons still compile; putting
+    /// `.course` back in this array is all it takes to turn the whole thing on again.
+    static var allCases: [PlusFeature] { [.fullSteps, .methods, .explain, .practice, .history, .lab, .exports] }
+
     var title: String {
         switch self {
         case .fullSteps: return "Every step, not just the first"

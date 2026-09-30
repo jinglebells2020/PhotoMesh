@@ -72,19 +72,18 @@ struct PMBlackButtonStyle: ButtonStyle {
     }
 }
 
-/// App logo mark: a rounded green square with a white mesh loop.
+/// App logo mark: the shipped app icon, masked to iOS's rounded-square shape so it matches what
+/// the user tapped on the home screen. `MeshLoopGlyph` below still draws the mark by hand and is
+/// kept for anywhere a vector version is wanted.
 struct PMLogoMark: View {
     var size: CGFloat = 36
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.22, style: .continuous)
-                .fill(PMTheme.accent)
-            MeshLoopGlyph()
-                .stroke(.white, style: StrokeStyle(lineWidth: size * 0.075, lineCap: .round, lineJoin: .round))
-                .padding(size * 0.24)
-        }
-        .frame(width: size, height: size)
+        Image("LogoMark")
+            .resizable()
+            .interpolation(.high)
+            .frame(width: size, height: size)
+            .clipShape(RoundedRectangle(cornerRadius: size * 0.2237, style: .continuous))
     }
 }
 

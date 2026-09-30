@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The left drawer: logo header plus the five navigation rows.
+/// The left drawer: logo header plus the navigation rows.
 struct SideMenuView: View {
     @Environment(AppRouter.self) private var router
     @AppStorage(SettingsKeys.language) private var languageCode = "en"
@@ -23,9 +23,6 @@ struct SideMenuView: View {
                 }
                 MenuRow(icon: "gearshape", title: "Settings") {
                     router.closeMenuThenPresent(.settings)
-                }
-                MenuRow(icon: "graduationcap", title: "Learn circuits", subtitle: "The course, from water in pipes to phasors") {
-                    router.closeMenuThenPresent(.course)
                 }
                 MenuRow(icon: "hand.thumbsup", title: "Give feedback", subtitle: "Earn bonus scans for helping") {
                     router.closeMenuThenPresent(.contribute)
